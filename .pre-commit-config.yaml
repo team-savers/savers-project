@@ -26,6 +26,19 @@ repos:
         args: ["--markdown-linebreak-ext=md"]
       - id: detect-private-key   # LLM 키/비밀키 평문 커밋 방지
 
+  # gitleaks — API 키 평문 커밋 차단.
+  # 왜 필요한가: GitHub secret scanning은 "제휴 발급사 패턴"만 잡습니다. 이 프로젝트가 쓰는
+  # 카카오·HyperCLOVA X(NCP)·솔라피/알리고 키는 그 목록에 없을 가능성이 높고(추정),
+  # 범용 패턴 탐지(non-provider patterns)는 GitHub Advanced Security 구독이 있어야 켜집니다.
+  # 위 detect-private-key는 PEM 개인키만 잡으므로 API 키 문자열은 사각지대였습니다.
+  # ⚠️ 이 훅은 **staged 변경만** 검사합니다(entry가 `--staged` 고정). 따라서
+  #    `pre-commit run --all-files`(CI)에서는 아무것도 검사하지 않습니다 —
+  #    CI의 전체 트리 스캔은 .github/workflows/ci.yml의 별도 스텝이 담당합니다. 둘은 한 쌍입니다.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
   # ruff — CI의 lint/format 게이트와 동일 검사 (pyproject [tool.ruff] 설정 공유).
   # ruff-check는 자동 수정(--fix), ruff-format은 자동 포맷.
   - repo: https://github.com/astral-sh/ruff-pre-commit
