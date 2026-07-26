@@ -95,11 +95,10 @@ bash scripts/run-tests.sh        # 전체 앱 lint + mypy + pytest
 ## 문서
 
 - [AGENTS.md](AGENTS.md) — 프로젝트 단일 브리프(사람·코딩 에이전트 공용). **먼저 읽으세요.**
-- [docs/공통_가이드/](docs/공통_가이드/) — 아키텍처·리스크·구현 범위·외부 승인
+- [docs/공통_가이드/](docs/공통_가이드/) — 아키텍처·리스크·구현 범위·외부 승인·환경 세팅·저장소 운영
 - [docs/adr/](docs/adr/) — 아키텍처 결정 기록
 - [docs/역할_가이드/](docs/역할_가이드/) · [docs/역할_일정/](docs/역할_일정/) — 역할별 담당과 일정
 - [docs/pr-checklist.md](docs/pr-checklist.md) — PR 절차
-- [docs/TEMPLATE_GUIDE.md](docs/TEMPLATE_GUIDE.md) — 레포 스캐폴딩(템플릿) 운용 가이드
 
 ## 라이선스
 

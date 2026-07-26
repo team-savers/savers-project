@@ -1,6 +1,6 @@
 # .github/DISCUSSION_TEMPLATE/CollaborationLog.yml
 # ⚠️ 이 템플릿이 동작하려면 Discussions에 'CollaborationLog' 카테고리를 수동 생성해야 합니다
-#    (카테고리는 API 미지원 — docs/TEMPLATE_GUIDE.md 참고).
+#    (카테고리는 API 미지원 — docs/공통_가이드/저장소_운영.md §3 참고).
 title: "이름 - YYYY년 M월 D일 협업 일지"
 labels: ["CollaborationLog"]
 body:
