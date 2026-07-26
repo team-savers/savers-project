@@ -82,7 +82,7 @@ All planning docs live under `docs/`; the repo root keeps only `AGENTS.md`, `CLA
 
 | Folder | Holds |
 |---|---|
-| `docs/공통_가이드/` | Project-wide design docs everyone reads — `개발자_가이드.md`, `아키텍처.md`, `리스크.md`, `구현_범위.md`, `외부_승인.md`, `비용_산정.md` |
+| `docs/공통_가이드/` | Project-wide design docs everyone reads — `개발자_가이드.md`, `환경_세팅_가이드.md`, `아키텍처.md`, `리스크.md`, `구현_범위.md`, `외부_승인.md`, `비용_산정.md` |
 | `docs/역할_가이드/` | Per-role playbooks — who does what. `01-기획총괄.md` … `06-QA-보안.md` |
 | `docs/역할_일정/` | Per-role timelines — when it must be done. Same role numbering as `역할_가이드/` |
 | `docs/adr/` | Architecture decision records (English filenames) |
@@ -122,7 +122,8 @@ savers-project/
   infra/                   # docker-compose, .env.example, AWS provisioning
   e2e/                     # Cross-app end-to-end harness (QA-owned) — HTTP only, non-required CI
   notebooks/               # Experiments; promoted logic moves into apps/<app>/src
-  scripts/                 # run-tests.sh (= CI locally), setup-github.sh, apply-labels.sh
+  scripts/                 # setup-dev.sh/.ps1 + dev_env.py (env doctor), run-tests.sh (= CI
+                           #   locally), setup-github.sh, apply-labels.sh
   docs/                    # Design docs, ADRs, role guides/schedules
   pyproject.toml           # ⚠️ tooling only (ruff config) — NOT an installable package
   CODEOWNERS               # per-folder owners — repo root, as ADR-0001 specifies
@@ -143,6 +144,11 @@ Two placements are load-bearing rather than arbitrary: `eval/` sits **inside** `
 Every app is installed **editable, from the repo root**. There is no root package — `pip install .` at the root is a mistake.
 
 ```bash
+# One-shot setup = the three manual lines below, but verified: it checks whether each setting
+# actually registered (pre-push hook, nbstripout git filter) instead of assuming the command ran.
+bash scripts/setup-dev.sh          # Windows: powershell -ExecutionPolicy Bypass -File scripts\setup-dev.ps1
+                                   # --check = diagnose only; details in docs/공통_가이드/환경_세팅_가이드.md
+
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e "./apps/backend[dev]" -e "./apps/ai-engine[dev]"
 pip install pre-commit && pre-commit install && pre-commit install --hook-type pre-push
