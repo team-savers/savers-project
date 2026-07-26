@@ -140,8 +140,8 @@ credentials/
 
 # 커밋해야 하는 소형 데이터 예외 (반드시 위 무시 규칙보다 아래에 위치해야 동작)
 # 평가 골든셋: 코드와 함께 리뷰·재현되어야 하는 자산입니다 (근거 일치율/환각 억제율 채점용).
-!eval/**/*.csv
-!eval/**/*.jsonl
+!apps/ai-engine/eval/**/*.csv
+!apps/ai-engine/eval/**/*.jsonl
 # 오프라인 폴백용 사전 캐시·테스트 픽스처: 코드와 함께 배포/실행되어야 합니다.
 !apps/**/fixtures/*.csv
 !apps/**/fixtures/*.jsonl

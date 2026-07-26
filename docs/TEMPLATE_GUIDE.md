@@ -54,7 +54,7 @@ bash scripts/setup-github.sh team-savers/savers-project
       DISCUSSION_TEMPLATE이 동작하지 않습니다.
 - [ ] **Settings → Code security**: Secret scanning + Push protection 활성화
       (⚠️ public 리포 전용 — 무료 플랜 private 리포는 미지원, §6 참고)
-- [ ] (팀) Collaborators/Teams 권한 부여, `.github/CODEOWNERS` 작성 후
+- [ ] (팀) Collaborators/Teams 권한 부여, 루트 `CODEOWNERS`의 TODO 교체 후
       `setup-github.sh`의 `require_code_owner_reviews`를 `true`로
 - [ ] (필요 시) Actions Secrets/Variables 등록 — 템플릿은 secrets를 쓰지 않지만,
       프로젝트에서 워크플로가 secrets를 참조하면 등록 전까지 CI가 실패합니다

@@ -45,4 +45,4 @@ ruff check apps/ai-engine && ruff format --check apps/ai-engine
 cd apps/ai-engine && mypy && pytest
 ```
 
-> TODO(P1): `/generate` 계약 확정 후 라우터·가드레일 프롬프트 v0 연결, 평가 하네스(`eval/`)와 배선.
+> TODO(P1): `/generate` 계약 확정 후 라우터·가드레일 프롬프트 v0 연결, 평가 하네스(`apps/ai-engine/eval/`)와 배선.

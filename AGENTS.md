@@ -4,7 +4,7 @@ Shared project brief for **all** coding agents (Claude Code, Codex, Antigravity,
 
 ## Project status
 
-This repository holds the planning set — design docs (`docs/공통_가이드/`: `아키텍처.md`, `리스크.md`, `구현_범위.md`, `외부_승인.md`), decision records (`docs/adr/`), per-role playbooks (`docs/역할_가이드/`), the execution schedule (`docs/역할_일정/`) — plus the **scaffolded monorepo skeleton** (`apps/`, `packages/`, `infra/`, `eval/`, CI, quality gates). It is the workspace for team **세이버스 (SAVERS)**, competing in the 2026 제8회 K-디지털 트레이닝 해커톤.
+This repository holds the planning set — design docs (`docs/공통_가이드/`: `아키텍처.md`, `리스크.md`, `구현_범위.md`, `외부_승인.md`), decision records (`docs/adr/`), per-role playbooks (`docs/역할_가이드/`), the execution schedule (`docs/역할_일정/`) — plus the **scaffolded monorepo skeleton** (`apps/`, `packages/`, `infra/`, CI, quality gates). It is the workspace for team **세이버스 (SAVERS)**, competing in the 2026 제8회 K-디지털 트레이닝 해커톤.
 
 **This repository is public** — judges browse it directly. Treat every commit as published: no secrets, no personal data beyond team member names, no competition submission forms (see "Not in this repository" below).
 
@@ -115,17 +115,22 @@ savers-project/
       pyproject.toml       #   src/api (thin routers) + src/backend_core (domain)
     ai-engine/             # Independently deployable: own pyproject + Dockerfile + README
       pyproject.toml       #   src/ai_engine (RAG retrieval + guardrail generation)
+      eval/                #   Reproducible quality harness (goldens + metric functions)
     frontend/              # PWA (Node) — not scaffolded yet
   packages/
     contracts/             # OpenAPI spec + shared schemas (single source of truth)
   infra/                   # docker-compose, .env.example, AWS provisioning
-  eval/                    # Reproducible quality harness (goldens + metric functions)
   notebooks/               # Experiments; promoted logic moves into apps/<app>/src
   scripts/                 # run-tests.sh (= CI locally), setup-github.sh, apply-labels.sh
   docs/                    # Design docs, ADRs, role guides/schedules
   pyproject.toml           # ⚠️ tooling only (ruff config) — NOT an installable package
-  .github/                 # CI, issue/PR templates, labels, CODEOWNERS
+  CODEOWNERS               # per-folder owners — repo root, as ADR-0001 specifies
+  .github/                 # CI, issue/PR templates, labels
 ```
+
+The layout above is what [ADR-0001](docs/adr/0001-monorepo.md), [docs/공통_가이드/개발자_가이드.md](docs/공통_가이드/개발자_가이드.md) §7, and [docs/공통_가이드/아키텍처.md](docs/공통_가이드/아키텍처.md) §4 describe — **keep all four in sync**. Moving a top-level directory means editing those three docs in the same PR, not afterwards.
+
+Two placements are load-bearing rather than arbitrary: `eval/` sits **inside** `apps/ai-engine` so the harness ships and versions with the model behavior it scores, and `CODEOWNERS` sits at the **repo root** (GitHub reads only one of root / `.github/` / `docs/` — do not leave a second copy behind).
 
 - Shared docs/infra/env live once under `infra/`·`docs/` (no cross-repo duplication or drift).
 - Cross-cutting changes land atomically in one PR; that atomicity is the whole point of the monorepo.
@@ -171,13 +176,13 @@ apps/backend          ──HTTP only──>   apps/ai-engine     (contract in p
 - Domain logic → `apps/backend/src/backend_core/` or `apps/ai-engine/src/ai_engine/`
 - Frontend → `apps/frontend/` (English paths only; read its README before scaffolding — the root `.gitignore` has traps for `src/lib/`)
 - Experiments → `notebooks/` (never imported; promote verified logic into `apps/<app>/src/`)
-- Evaluation assets (goldens, metric functions) → `eval/` (metric functions stay pure: `(prediction, truth) → score`)
+- Evaluation assets (goldens, metric functions) → `apps/ai-engine/eval/` (metric functions stay pure: `(prediction, truth) → score`)
 - Tests → `apps/<app>/tests/`, mirroring `src/` as `test_<module>.py`
 
 ## Project-specific gotchas (with the why — a rule without a reason gets ignored)
 
 - **Public repo, so secrets are a one-way door.** A committed key is public the moment it is pushed; the fix is revocation and reissue, not a revert. Keys go in `infra/.env` (ignored); only `infra/.env.example` (key names, no values) is committed. GitHub Push protection is enabled as the backstop.
-- **`.gitignore` is tuned for this monorepo — read before adding data files.** Directory ignores (`/data/`, `/outputs/`) are root-anchored on purpose, and `lib/`-style patterns are anchored so they cannot swallow a frontend `src/lib/`. Git cannot un-ignore a file inside an ignored directory, so committable assets are whitelisted by **file pattern** (`!eval/**/*.jsonl`, `!apps/**/fixtures/*.csv`). Add a matching whitelist line when you introduce a new committable data file — otherwise it vanishes silently.
+- **`.gitignore` is tuned for this monorepo — read before adding data files.** Directory ignores (`/data/`, `/outputs/`) are root-anchored on purpose, and `lib/`-style patterns are anchored so they cannot swallow a frontend `src/lib/`. Git cannot un-ignore a file inside an ignored directory, so committable assets are whitelisted by **file pattern** (`!apps/ai-engine/eval/**/*.jsonl`, `!apps/**/fixtures/*.csv`). Add a matching whitelist line when you introduce a new committable data file — otherwise it vanishes silently.
 - **Never mock away the guardrail to make a test pass.** Its on/off delta is a submitted KPI; a bypassed guardrail invalidates the measurement rather than fixing the test.
 - **External API calls in tests must be mocked.** Real calls cost money and make CI non-deterministic; the disaster APIs are also rate-limited.
 - **Required status checks are matrix jobs.** Their names (`Lint & Type Check (backend)`, `Unit tests (ai-engine)`, …) must match `scripts/setup-github.sh` exactly. Renaming a CI job without updating that script leaves every PR blocked on a check that will never appear.
