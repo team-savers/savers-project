@@ -25,18 +25,18 @@ GitHub 템플릿 리포는 **저장소 파일만 복사**하고 **리포 설정�
 ## 2. 이 저장소에서 남은 절차
 
 템플릿 초기화(`init_template.py`)와 모노레포 이식은 **이미 완료**되었습니다. 새로 합류한
-팀원은 개발 환경만 구성하면 됩니다.
+팀원은 개발 환경만 구성하면 되며, 그 절차는 [공통_가이드/환경_세팅_가이드.md](공통_가이드/환경_세팅_가이드.md)가
+전담합니다 — 진단·복구 스크립트가 설정이 **실제로 등록됐는지**까지 확인합니다.
 
 ```bash
-# ① 개발 환경 구성
 git clone https://github.com/team-savers/savers-project.git && cd savers-project
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e "./apps/backend[dev]" -e "./apps/ai-engine[dev]"
-pip install pre-commit && pre-commit install && pre-commit install --hook-type pre-push
-
-# ② 품질 게이트 확인 (CI와 동일)
-bash scripts/run-tests.sh
+bash scripts/setup-dev.sh          # macOS·Linux·WSL·Git Bash
+# Windows PowerShell:  powershell -ExecutionPolicy Bypass -File scripts\setup-dev.ps1
 ```
+
+> 수동 절차(venv·editable 설치·`pre-commit install` ×2·nbstripout 필터)와 각 오류의 대처법은
+> 환경 세팅 가이드의 §2·§5에 있습니다. 특히 `--hook-type pre-push` 누락과 nbstripout 필터
+> 미등록은 **오류 없이 조용히 실패**하므로 눈으로 확인하지 마세요.
 
 리포 설정(브랜치 보호·머지 전략·라벨)은 admin이 1회 적용합니다. 잡 이름이나 앱을
 추가·변경했다면 `scripts/setup-github.sh`의 `contexts`를 함께 고치고 재실행하세요.

@@ -48,10 +48,17 @@ AI를 인라인 호출이 아니라 **독립 배포 가능한 모듈**로 두는
 ```bash
 git clone https://github.com/team-savers/savers-project.git && cd savers-project
 
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e "./apps/backend[dev]" -e "./apps/ai-engine[dev]"
+# 환경 점검 → 확인 후 복구 → 로컬 CI까지 한 번에
+bash scripts/setup-dev.sh
+# Windows PowerShell: powershell -ExecutionPolicy Bypass -File scripts\setup-dev.ps1
+```
 
-# 품질 게이트 훅 (커밋 시 ruff, push 시 pytest — CI와 동일 기준)
+설치 항목(가상환경·editable 설치·pre-commit 훅·nbstripout 필터)을 **실제로 등록됐는지까지** 확인합니다.
+수동 절차와 오류별 대처는 [docs/공통_가이드/환경_세팅_가이드.md](docs/공통_가이드/환경_세팅_가이드.md)를 보세요.
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate                  # 수동으로 하려면
+pip install -e "./apps/backend[dev]" -e "./apps/ai-engine[dev]"
 pip install pre-commit && pre-commit install && pre-commit install --hook-type pre-push
 ```
 
