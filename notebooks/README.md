@@ -4,8 +4,8 @@
 
 ## 규칙
 
-- 검증이 끝난 로직은 **반드시 `src/`의 대응 모듈로 함수화해 이전**합니다.
-  노트북 자체를 import하지 마세요.
+- 검증이 끝난 로직은 **반드시 `apps/<app>/src/`의 대응 모듈로 함수화해 이전**합니다
+  (예: 청킹 실험 → `apps/ai-engine/src/ai_engine/`). 노트북 자체를 import하지 마세요.
 - 담당자별 폴더를 만들고, 파일명에 날짜/버전을 포함하세요.
   예: `notebooks/hj/chunking_experiment_v2.ipynb`
 - 출력 셀은 nbstripout이 커밋 시점에 자동 제거합니다 — `pre-commit install`이 안 되어

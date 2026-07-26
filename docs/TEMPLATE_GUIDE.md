@@ -1,7 +1,16 @@
 # 템플릿 적용·운용 가이드 (TEMPLATE_GUIDE)
 
-이 문서는 `ai-project-template`으로 새 프로젝트를 시작하는 절차, 반드시 알아야 할
-주의사항, 그리고 운용 방법을 다룹니다.
+이 저장소는 [Yopkigom/ai-project-template](https://github.com/Yopkigom/ai-project-template)에서
+파생되어 **SAVERS 모노레포 구조로 이식**된 상태입니다. 이 문서는 그 스캐폴딩을 **운용**하는
+방법(리포 설정 재적용, 알려진 함정, 품질 게이트 유지)을 다룹니다.
+
+> ⚠️ 이식으로 원본 템플릿과 달라진 점 — 원본 문서의 설명을 그대로 따르지 마세요.
+> - 코드는 루트 `src/`가 아니라 `apps/backend/src`·`apps/ai-engine/src`에 있습니다.
+> - 앱마다 `pyproject.toml`이 있고, 루트 `pyproject.toml`은 **ruff 설정 전용**(설치 불가)입니다.
+> - 설치는 `pip install -e "./apps/backend[dev]" -e "./apps/ai-engine[dev]"`.
+> - 품질 게이트는 `bash scripts/run-tests.sh` 하나로 실행합니다(CI와 동일 대상·순서).
+> - required status check가 **매트릭스 4종**으로 늘었습니다(§4 참고).
+> - 이 저장소는 **public**이므로 §6의 "무료 private 제약"은 해당하지 않습니다.
 
 ## 1. 대원칙: 템플릿은 "파일"만 복사한다
 
@@ -13,30 +22,28 @@ GitHub 템플릿 리포는 **저장소 파일만 복사**하고 **리포 설정�
 | 내용 | 워크플로, 이슈/PR/Discussion 템플릿, labels.yml, pre-commit, pyproject, 코드 골격, 문서 | 브랜치 보호 규칙, 라벨 실체, 머지 전략, Secrets/Variables, Discussions 활성화·카테고리, Code security 설정, 협업자 권한 |
 | 처리 | "Use this template" 클릭 | `scripts/setup-github.sh` + 소량의 수동 설정 (§3) |
 
-## 2. 새 프로젝트 시작 절차
+## 2. 이 저장소에서 남은 절차
+
+템플릿 초기화(`init_template.py`)와 모노레포 이식은 **이미 완료**되었습니다. 새로 합류한
+팀원은 개발 환경만 구성하면 됩니다.
 
 ```bash
-# ① GitHub 웹: 템플릿 리포 → "Use this template" → "Create a new repository"
-#    (Include all branches는 체크하지 않음 — main만 복사)
-
-# ② clone 후 초기화 스크립트 실행 — 이름 치환의 원스톱 처리
-git clone https://github.com/<owner>/<repo>.git && cd <repo>
-python3 scripts/init_template.py --name <배포판-이름> --owner <owner> --repo <repo>
-#    치환: my-ai-project→이름, app_core→패키지, {{GITHUB_OWNER}}/{{GITHUB_REPO}}→URL
-#    교체: README.md ← README.project.md / 삭제: 스크립트 자신
-
-# ③ 개발 환경 구성
+# ① 개발 환경 구성
+git clone https://github.com/team-savers/savers-project.git && cd savers-project
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e "./apps/backend[dev]" -e "./apps/ai-engine[dev]"
 pip install pre-commit && pre-commit install && pre-commit install --hook-type pre-push
 
-# ④ 초기화 결과 커밋·푸시
-git add -A && git commit -m "chore: init from ai-project-template" && git push
+# ② 품질 게이트 확인 (CI와 동일)
+bash scripts/run-tests.sh
+```
 
-# ⑤ 리포 설정 재적용 (admin 권한 + gh 인증 필요)
+리포 설정(브랜치 보호·머지 전략·라벨)은 admin이 1회 적용합니다. 잡 이름이나 앱을
+추가·변경했다면 `scripts/setup-github.sh`의 `contexts`를 함께 고치고 재실행하세요.
+
+```bash
 gh auth login
-bash scripts/setup-github.sh <owner>/<repo>          # 팀: PR 승인 1 + required checks
-bash scripts/setup-github.sh <owner>/<repo> --solo   # 1인: 승인 요구 제외
+bash scripts/setup-github.sh team-savers/savers-project
 ```
 
 ## 3. 수동 설정 체크리스트 (스크립트가 못 하는 것)
@@ -62,7 +69,9 @@ bash scripts/setup-github.sh <owner>/<repo> --solo   # 1인: 승인 요구 제�
   잡 내부 필터를 쓰세요.
 - **required check의 context 이름 = 잡의 `name:`**: `setup-github.sh`의
   `contexts`와 `ci.yml`의 잡 이름은 문자열이 정확히 일치해야 합니다.
-  잡 이름을 바꾸면 두 곳을 함께 바꾸세요.
+  이 저장소는 매트릭스 잡이라 이름이 4개로 전개됩니다 —
+  `Lint & Type Check (backend)` / `(ai-engine)`, `Unit tests (backend)` / `(ai-engine)`.
+  앱을 추가하면 `ci.yml`의 matrix와 `setup-github.sh`의 contexts를 **반드시 함께** 늘리세요.
 - **브랜치 보호 적용 시점**: 첫 CI가 돌기 전에 required check를 걸면 체크 이름을
   GitHub가 모르는 상태라, PR에서 "Expected" 대기가 생길 수 있습니다. 스크립트는
   이름 문자열로 직접 지정하므로 동작하지만, 가급적 ④(첫 push) 후에 ⑤를 실행하세요.
@@ -73,6 +82,9 @@ bash scripts/setup-github.sh <owner>/<repo> --solo   # 1인: 승인 요구 제�
   방치하면 pre-commit의 stash 복원까지 깨질 수 있습니다.
 - **`from src.xxx` import 금지**: src 레이아웃에서는 `src.` 접두어 import가 설치
   환경에서 깨집니다. lint가 못 잡는 사각지대이니 리뷰에서 확인하세요.
+- **앱 간 파이썬 import 금지**: `apps/backend`와 `apps/ai-engine`은 별도 배포 단위입니다.
+  한쪽을 import하는 순간 "독립 배포 가능한 AI 모듈"이라는 구조의 근거가 사라집니다
+  (통신은 `packages/contracts`의 HTTP 계약으로만).
 - **`git pull` autostash 함정**: staged 변경이 있는 채로 pull하면 autostash 복원
   실패로 작업이 dangling stash로 빠질 수 있습니다. clean한 작업트리에서
   fetch→merge를 분리해 통합하세요.
@@ -88,8 +100,8 @@ bash scripts/setup-github.sh <owner>/<repo> --solo   # 1인: 승인 요구 제�
 - **라벨**: `.github/labels.yml`이 원천. 라벨을 바꾸면 파일을 수정하고
   `bash scripts/apply-labels.sh <owner>/<repo>`로 동기화 (PR 템플릿의 '변경 유형'
   체크박스와 일치 유지).
-- **노트북 → src 라이프사이클**: notebooks/는 실험 기록, src/는 프로덕션.
-  검증된 로직은 함수화해 src/로 이전하고 tests/에 테스트를 추가합니다.
+- **노트북 → src 라이프사이클**: notebooks/는 실험 기록, apps/<app>/src/는 프로덕션.
+  검증된 로직은 함수화해 해당 앱의 src/로 이전하고 apps/<app>/tests/에 테스트를 추가합니다.
 - **의존성**: 무거운 라이브러리(torch 계열, DB 클라이언트)는 extra로 분리해
   CI/기본 설치를 가볍게 유지. mypy는 `[[tool.mypy.overrides]]`로 예외 처리.
 - **에이전트 가이드(AGENTS.md) 갱신**: 아키텍처 규칙·함정·사고 이력이 생길 때마다

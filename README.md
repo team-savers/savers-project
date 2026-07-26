@@ -1,64 +1,103 @@
-# ai-project-template
+# SAVERS — 재난 정보를 "지금 당신이 할 행동"으로 바꾸는 개인 맞춤 재난 대응 어시스턴트
 
-[![src CI (lint + test)](https://github.com/Yopkigom/ai-project-template/actions/workflows/ci.yml/badge.svg)](https://github.com/Yopkigom/ai-project-template/actions/workflows/ci.yml)
+[![CI (lint + test)](https://github.com/team-savers/savers-project/actions/workflows/ci.yml/badge.svg)](https://github.com/team-savers/savers-project/actions/workflows/ci.yml)
 
-AI 팀 프로젝트용 GitHub 템플릿. **src 레이아웃 파이썬 패키지 + FastAPI 골격 + 노트북 협업
-워크플로 + 품질 게이트(CI·pre-commit) + 협업 규약(.github/)** 을 한 번에 제공합니다.
+> 2026 제8회 K-디지털 트레이닝 해커톤 · 팀 **세이버스(SAVERS)**
 
-실전 협업 프로젝트([RFP RAG 서비스, 5인 팀](https://github.com/Codeit-AI10-Part3-4Team/intermediate-project))에서
-검증된 구성을 일반화한 것입니다. 설계 배경과 원본 대비 변경점은
-[docs/DESIGN_DECISIONS.md](docs/DESIGN_DECISIONS.md)에 기록되어 있습니다.
+## 무엇을 해결하는가
+
+재난 상황에서 부족한 것은 정보가 아니라 **정보를 개인의 행동으로 전환하는 능력**입니다.
+긴급재난문자·안전디딤돌은 같은 지역의 모든 사람에게 동일한 내용을 방송합니다. 그러나 스스로
+판단하거나 대피하기 어려운 사람 — 아동·고령자·장애인, 그리고 언어 장벽이 있는 외국인 근로자 —
+에게 필요한 것은 *"지금 당신이 그곳까지 갈 수 있는 사람인지, 갈 수 없다면 무엇을 대신해야
+하는지"* 입니다.
+
+SAVERS는 경보 발령 시 등록 주민을 매칭하고, **알림 링크 진입 시점에 현재 위치를 단 한 번만**
+확인한 뒤, 행정안전부 국민행동요령에 근거한 개인 맞춤 행동지침을 카카오 알림톡·PWA로 전달합니다.
+
+MVP 1차 대상 재난: **호우·도시침수**.
+
+## 설계 제약 (타협 대상이 아님)
+
+| 제약 | 이유 |
+|---|---|
+| **상시 위치 추적 없음** | 위치는 알림 진입 시 1회만 읽고 세션 범위로만 사용, 저장하지 않음 |
+| **생성은 근거 기반만** | 검색된 국민행동요령 원문만 인용하도록 가드레일로 강제 — 환각 억제율은 측정 지표 |
+| **취약계층 설치 부담 0** | 등록·설정은 보호자/복지관/지자체가 대행. 본인 앱 설치를 요구하는 설계는 배제 |
+| **오프라인 폴백 필수** | 공공 API 장애 시 사전 캐시된 대피소·행동요령으로 degrade, 무음 실패 금지 |
+| **최소 수집·암호화** | 위치·장애 여부 등 민감 필드는 최소 수집하고 암호화 |
+
+## 구조 (모노레포)
+
+```
+├── apps/
+│   ├── backend/        # FastAPI — 재난 Open API 수집, 행정동/위치 매칭, 발송 오케스트레이션
+│   ├── ai-engine/      # 독립 배포 단위 — RAG 검색 + 가드레일 메시지 생성 (자체 Dockerfile)
+│   └── frontend/       # PWA · 알림톡 진입 화면 · Interactive Care 챗봇 (스캐폴딩 예정)
+├── packages/contracts/ # 모듈 간 계약(OpenAPI·공유 스키마) 단일 원천
+├── infra/              # docker-compose, .env 템플릿, AWS 프로비저닝
+├── eval/               # 재현 가능한 품질 측정 하네스 (지표 = 제출물의 근거)
+├── notebooks/          # 실험 기록 (검증되면 apps/<app>/src 로 함수화 이전)
+└── docs/               # 설계 문서 · ADR · 역할별 가이드/일정
+```
+
+AI를 인라인 호출이 아니라 **독립 배포 가능한 모듈**로 두는 것이 이 구조의 핵심입니다
+(→ [docs/adr/0001-monorepo.md](docs/adr/0001-monorepo.md), [apps/ai-engine/README.md](apps/ai-engine/README.md)).
 
 ## 빠른 시작
 
 ```bash
-# 1) GitHub에서 "Use this template" → 새 리포 생성 → clone
-git clone https://github.com/<owner>/<repo>.git && cd <repo>
+git clone https://github.com/team-savers/savers-project.git && cd savers-project
 
-# 2) 프로젝트 이름으로 초기화 (플레이스홀더 일괄 치환 + 스크립트 자신 삭제)
-python3 scripts/init_template.py --name my-service --owner <owner>
-
-# 3) 개발 환경
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e "./apps/backend[dev]" -e "./apps/ai-engine[dev]"
+
+# 품질 게이트 훅 (커밋 시 ruff, push 시 pytest — CI와 동일 기준)
 pip install pre-commit && pre-commit install && pre-commit install --hook-type pre-push
-
-# 4) 리포 설정 재적용 — 템플릿은 "파일"만 복사하고 "설정"은 복사하지 않습니다!
-gh auth login
-bash scripts/setup-github.sh <owner>/<repo>          # 팀 프로젝트
-bash scripts/setup-github.sh <owner>/<repo> --solo   # 1인 프로젝트 (PR 승인 요구 제외)
-#   무료 플랜의 private 리포는 브랜치 보호만 건너뜁니다(자동 감지) —
-#   전체 제약 매트릭스는 docs/TEMPLATE_GUIDE.md §6 참고
 ```
 
-전체 절차·주의사항·운용 방법: **[docs/TEMPLATE_GUIDE.md](docs/TEMPLATE_GUIDE.md)**
+### 실행
 
-## 제공하는 것
-
-| 영역 | 내용 |
-|---|---|
-| 패키징 | src 레이아웃, editable install, 무거운 의존성 extra 분리 패턴 |
-| 코드 골격 | `src/api/`(FastAPI, thin 라우터) + `src/app_core/`(도메인, FastAPI 무의존) |
-| 품질 게이트 | ruff(lint+format) · mypy · pytest — CI와 pre-commit이 동일 기준 |
-| 노트북 협업 | nbstripout 3중 방어(gitattributes·pre-commit·CI), notebooks→src 라이프사이클 |
-| 협업 규약 | 이슈/PR/Discussion 템플릿, 라벨, PR 체크리스트, CODEOWNERS 스켈레톤 |
-| 리포 설정 | 브랜치 보호·머지 전략·라벨 재적용 스크립트 (`scripts/setup-github.sh`) |
-| 에이전트 가이드 | `AGENTS.md` 스켈레톤 (Claude Code · Codex 공용, CLAUDE.md는 포인터) |
-
-## 구조
-
+```bash
+uvicorn api.main:app --reload --port 8000                 # backend  → :8000/docs
+uvicorn ai_engine.service:app --reload --port 8100        # ai-engine → :8100/docs
 ```
-├── .github/            # CI 2종, 이슈/PR/Discussion 템플릿, labels.yml, CODEOWNERS
-├── src/
-│   ├── api/            # 웹 서버 관심사 (라우팅·검증) — thin하게 유지
-│   └── app_core/       # 도메인 로직 — api를 import하지 않음 (단방향 의존)
-├── tests/              # src/ 구조 미러링 (test_<module>.py)
-├── notebooks/          # 실험·조사 (배포 대상 아님, 검증되면 src/로 함수화 이전)
-├── eval/               # 평가 자산 (골든셋·지표) — 코드와 라이프사이클 분리
-├── scripts/            # init_template.py, setup-github.sh, apply-labels.sh
-└── docs/               # TEMPLATE_GUIDE, DESIGN_DECISIONS, pr-checklist
+
+### 품질 게이트 (커밋/PR 전 필수 — CI와 동일)
+
+```bash
+bash scripts/run-tests.sh        # 전체 앱 lint + mypy + pytest
 ```
+
+## 품질 측정 방식
+
+품질은 설문이나 눈대중이 아니라 **재현 가능한 스크립트**로 증명합니다. 지표 정의와 목표치는
+[eval/README.md](eval/README.md)를, 측정 결과 해석은 [AGENTS.md](AGENTS.md)를 참고하세요.
+숫자 목표는 실측으로 대체되는 가설값입니다.
+
+## 팀
+
+| 이름 | 역할 | 담당 |
+|---|---|---|
+| 안은남 | PM | 마일스톤·통합·최종 데모 |
+| 신호정 | Tech Lead | 아키텍처·모듈 간 계약·워킹 스켈레톤·가드레일 설계 |
+| 김소원 | AI/RAG | 국민행동요령 전처리·청킹, Chroma 인덱싱, 검색 튜닝 |
+| 이진호 | Frontend/UX | PWA·알림톡, 챗봇 UI, 접근성(다국어·쉬운 말·음성) |
+| 최혜리 | Backend/Infra | 공공 API 연동, 위치 매칭 엔진, 인프라·오프라인 폴백 |
+| 김도혁 | QA/Security | 최소수집·암호화, 가드레일 검증, E2E 테스트 |
+
+## 문서
+
+- [AGENTS.md](AGENTS.md) — 프로젝트 단일 브리프(사람·코딩 에이전트 공용). **먼저 읽으세요.**
+- [docs/공통_가이드/](docs/공통_가이드/) — 아키텍처·리스크·구현 범위·외부 승인
+- [docs/adr/](docs/adr/) — 아키텍처 결정 기록
+- [docs/역할_가이드/](docs/역할_가이드/) · [docs/역할_일정/](docs/역할_일정/) — 역할별 담당과 일정
+- [docs/pr-checklist.md](docs/pr-checklist.md) — PR 절차
+- [docs/TEMPLATE_GUIDE.md](docs/TEMPLATE_GUIDE.md) — 레포 스캐폴딩(템플릿) 운용 가이드
 
 ## 라이선스
 
-MIT
+MIT — [LICENSE](LICENSE)
+
+레포 스캐폴딩은 [Yopkigom/ai-project-template](https://github.com/Yopkigom/ai-project-template)을
+모노레포 구조로 이식한 것입니다.

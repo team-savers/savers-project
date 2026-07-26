@@ -29,17 +29,19 @@ repos:
     hooks:
       - id: ruff
         args: ["--fix"]
-        files: ^(src|tests)/.*\.py$
+        files: ^(apps|packages|eval|scripts)/.*\.py$
       - id: ruff-format
-        files: ^(src|tests)/.*\.py$
+        files: ^(apps|packages|eval|scripts)/.*\.py$
 
   # pytest — push 직전에만 실행(커밋마다 돌리기엔 무거움). CI test job과 동일 역할.
-  # 로컬 env에 `pip install -e ".[dev]"`가 돼 있어야 한다.
+  # 모노레포이므로 앱별로 cwd를 바꿔 실행해야 한다 (각 앱의 pyproject 설정을 집기 위함) —
+  # 그 순회를 scripts/run-tests.sh가 담당하며 CI와 동일한 대상/순서를 유지한다.
+  # 로컬 env에 `pip install -e "./apps/backend[dev]" -e "./apps/ai-engine[dev]"`가 돼 있어야 한다.
   - repo: local
     hooks:
       - id: pytest
-        name: pytest (pre-push)
-        entry: pytest -q
+        name: pytest (pre-push, 전체 앱)
+        entry: bash scripts/run-tests.sh --tests
         language: system
         pass_filenames: false
         always_run: true

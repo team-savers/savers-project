@@ -1,11 +1,26 @@
 # CODEOWNERS — 경로별 기본 리뷰어 자동 배정.
-# 작성 후 scripts/setup-github.sh 의 require_code_owner_reviews 를 true 로 바꾸면
-# 해당 경로 변경 PR은 코드오너 승인 없이는 머지되지 않습니다.
-# ⚠️ 무료 플랜의 private 리포에서는 CODEOWNERS가 동작하지 않습니다(GitHub Pro/Team 필요).
-#    파일은 무해하게 남으며 public/Pro 전환 시 즉시 동작 — docs/TEMPLATE_GUIDE.md §6.
-# 문법: <경로 패턴> <@계정 또는 @org/팀> (아래는 예시 — 팀에 맞게 수정하세요)
+# public 리포이므로 무료 플랜에서도 동작합니다 (private 무료 플랜에서는 무시됨).
 #
-# * @your-github-id
-# /src/api/        @api-owner
-# /src/app_core/   @core-owner
-# /.github/        @infra-owner
+# ⚠️ 아래 @핸들은 **GitHub 계정 ID**여야 합니다. 실명이나 없는 계정을 적으면 조용히 무시되고
+#    리뷰어 자동 배정이 통째로 동작하지 않습니다. 팀원 계정 수집 후 TODO를 교체하세요.
+# ⚠️ 교체가 끝나기 전에는 scripts/setup-github.sh의 require_code_owner_reviews를
+#    true로 바꾸지 마세요 — 승인 가능한 코드오너가 없어 모든 PR이 머지 불가가 됩니다.
+#
+# 문법: <경로 패턴> <@계정 또는 @team-savers/팀>
+# 팀(@team-savers/<팀명>)을 쓰려면 org에 해당 팀이 있고 레포에 write 권한이 있어야 합니다.
+
+# 기본 소유자 — 계약·스캐폴딩을 총괄하는 Tech Lead
+*                       @TODO-신호정
+
+# 모듈 오너 (docs/역할_가이드/ 와 1:1)
+/apps/backend/          @TODO-최혜리
+/apps/ai-engine/        @TODO-김소원
+/apps/frontend/         @TODO-이진호
+/packages/contracts/    @TODO-신호정
+/infra/                 @TODO-최혜리
+/eval/                  @TODO-김소원 @TODO-김도혁
+/docs/adr/              @TODO-신호정
+
+# 파이프라인·품질 게이트 변경은 영향 범위가 넓으므로 Tech Lead + QA 동시 리뷰
+/.github/               @TODO-신호정 @TODO-김도혁
+/scripts/               @TODO-신호정 @TODO-김도혁
