@@ -68,3 +68,20 @@ savers/
 
 팀 규모가 커지거나 계층별 배포 주기가 확연히 달라지는 경우에만 재검토한다.
 그 전에는 org + 멀티레포로 재분할하지 않는다.
+
+## 구현 반영 (2026-07-26)
+
+`team-savers/savers-project`를 `Yopkigom/ai-project-template`에서 생성하고 위 구조로 이식했다.
+결정 자체는 그대로 성립하며, 위 트리에는 없던 항목이 스캐폴딩 과정에서 추가되었다.
+
+| 항목 | 실제 위치 | 왜 트리에 없었나 |
+|---|---|---|
+| 평가 하네스 | `apps/ai-engine/eval/` | [아키텍처.md](../공통_가이드/아키텍처.md) 4절이 평가 스크립트를 ai-engine 소관으로 두었고, 채점 대상(RAG·가드레일 출력)과 같은 배포 단위에 있어야 재현이 쉽다 |
+| 실험 노트북 | `notebooks/` (루트) | 특정 앱 소유가 아니라 담당자별 실험 공간. 배포 대상이 아니며 검증된 로직은 `apps/<app>/src`로 이전한다 |
+| 운영 스크립트 | `scripts/` (루트) | `run-tests.sh`(품질 게이트) · `setup-github.sh`(레포 하드닝)는 특정 앱이 아니라 레포 전체를 대상으로 한다 |
+| 앱별 `pyproject.toml` | `apps/backend`, `apps/ai-engine` | 두 앱이 독립 배포 단위이므로 패키징·의존성·타입 설정을 분리. 루트 `pyproject.toml`은 ruff 설정 전용이며 설치 가능한 패키지가 아니다 |
+
+CI는 트리 주석의 "path filter로 계층별 분리"와 다르게 구성했다. required status check에 `paths:`
+필터를 걸면 해당 경로를 건드리지 않은 PR에서 체크가 생성되지 않아 머지가 영구 블록되기 때문에,
+파이썬 앱은 **필터 없는 매트릭스 CI(required)** 로 돌리고, 프론트엔드 CI는 나중에 **paths 필터를 건
+별도 워크플로(non-required)** 로 추가한다.

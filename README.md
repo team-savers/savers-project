@@ -32,11 +32,10 @@ MVP 1차 대상 재난: **호우·도시침수**.
 ```
 ├── apps/
 │   ├── backend/        # FastAPI — 재난 Open API 수집, 행정동/위치 매칭, 발송 오케스트레이션
-│   ├── ai-engine/      # 독립 배포 단위 — RAG 검색 + 가드레일 메시지 생성 (자체 Dockerfile)
+│   ├── ai-engine/      # 독립 배포 단위 — RAG + 가드레일 생성, eval/ 품질 측정 하네스 포함
 │   └── frontend/       # PWA · 알림톡 진입 화면 · Interactive Care 챗봇 (스캐폴딩 예정)
 ├── packages/contracts/ # 모듈 간 계약(OpenAPI·공유 스키마) 단일 원천
 ├── infra/              # docker-compose, .env 템플릿, AWS 프로비저닝
-├── eval/               # 재현 가능한 품질 측정 하네스 (지표 = 제출물의 근거)
 ├── notebooks/          # 실험 기록 (검증되면 apps/<app>/src 로 함수화 이전)
 └── docs/               # 설계 문서 · ADR · 역할별 가이드/일정
 ```
@@ -72,7 +71,7 @@ bash scripts/run-tests.sh        # 전체 앱 lint + mypy + pytest
 ## 품질 측정 방식
 
 품질은 설문이나 눈대중이 아니라 **재현 가능한 스크립트**로 증명합니다. 지표 정의와 목표치는
-[eval/README.md](eval/README.md)를, 측정 결과 해석은 [AGENTS.md](AGENTS.md)를 참고하세요.
+[apps/ai-engine/eval/README.md](apps/ai-engine/eval/README.md)를, 측정 결과 해석은 [AGENTS.md](AGENTS.md)를 참고하세요.
 숫자 목표는 실측으로 대체되는 가설값입니다.
 
 ## 팀
