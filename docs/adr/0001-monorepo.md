@@ -7,7 +7,8 @@
 
 ## 배경 (Context)
 
-팀 자체 조사(`docs/참고_자료/KDT해커톤_수상작_GitHub_레포_전수조사.pdf`)에서 상위 입상팀은 하나의 GitHub org 아래
+팀 자체 조사(`KDT해커톤_수상작_GitHub_레포_전수조사.pdf` — 내부 경쟁사 조사 자료라 이 public 저장소에 올리지 않고
+팀 공유 드라이브에 보관한다. [AGENTS.md](../../AGENTS.md)의 "Not in this repository" 참고)에서 상위 입상팀은 하나의 GitHub org 아래
 FE/BE/AI(/Infra/Data)로 레포를 분리 운영하는 패턴이 확인되었고, 초기 계획은 이 형식을 그대로 따르는 것이었다.
 
 재검토 결과, 조사의 **본질적 결론**은 "레포를 여러 개로 쪼개라"(형식)가 아니라
