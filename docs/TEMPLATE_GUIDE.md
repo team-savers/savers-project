@@ -9,7 +9,7 @@
 > - 앱마다 `pyproject.toml`이 있고, 루트 `pyproject.toml`은 **ruff 설정 전용**(설치 불가)입니다.
 > - 설치는 `pip install -e "./apps/backend[dev]" -e "./apps/ai-engine[dev]"`.
 > - 품질 게이트는 `bash scripts/run-tests.sh` 하나로 실행합니다(CI와 동일 대상·순서).
-> - required status check가 **매트릭스 4종**으로 늘었습니다(§4 참고).
+> - required status check가 **매트릭스 4종 + pre-commit 1종 = 5종**으로 늘었습니다(§4 참고).
 > - 이 저장소는 **public**이므로 §6의 "무료 private 제약"은 해당하지 않습니다.
 
 ## 1. 대원칙: 템플릿은 "파일"만 복사한다

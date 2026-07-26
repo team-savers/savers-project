@@ -145,6 +145,14 @@ credentials/
 # 오프라인 폴백용 사전 캐시·테스트 픽스처: 코드와 함께 배포/실행되어야 합니다.
 !apps/**/fixtures/*.csv
 !apps/**/fixtures/*.jsonl
+# E2E 시나리오 픽스처도 같은 이유로 커밋 대상입니다.
+!e2e/**/fixtures/*.csv
+!e2e/**/fixtures/*.jsonl
+
+# E2E 실행 산출물 (Playwright 리포트·트레이스·스크린샷 — 재생성 가능, 용량이 큼)
+/e2e/test-results/
+/e2e/playwright-report/
+/e2e/.pytest_cache/
 
 # --- Model Artifacts & Training Logs ---
 models/

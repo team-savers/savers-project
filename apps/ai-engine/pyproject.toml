@@ -56,4 +56,9 @@ no_implicit_optional = true
 # ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# eval/도 수집 대상입니다 — 지표 함수(근거 일치율·명확성 등)는 제출물의 근거가 되는 코드라
+# CI에서 회귀 검사돼야 합니다. 다만 채점 하네스 "실행"은 외부 API 호출이라 CI 범위 밖입니다:
+# ⚠️ eval/ 안에서 test_*.py 이름은 순수 지표 함수 단위 테스트에만 쓰세요.
+#    실제 채점 실행 스크립트는 run_*.py 처럼 test_ 로 시작하지 않게 이름 지어야
+#    CI가 외부 API를 호출하지 않습니다(비용·비결정성).
+testpaths = ["tests", "eval"]

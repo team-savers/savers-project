@@ -19,7 +19,11 @@ repos:
         args: ["--maxkb=5120"]
       - id: check-merge-conflict
       - id: end-of-file-fixer
+      # ⚠️ --markdown-linebreak-ext=md 필수: 마크다운은 "줄 끝 공백 2칸"이 강제 줄바꿈
+      #    문법이다. 이 옵션이 없으면 훅이 문서의 의도된 줄바꿈을 전부 지워버린다
+      #    (docs/역할_가이드/*.md가 실제로 이 문법을 쓰고 있음).
       - id: trailing-whitespace
+        args: ["--markdown-linebreak-ext=md"]
       - id: detect-private-key   # LLM 키/비밀키 평문 커밋 방지
 
   # ruff — CI의 lint/format 게이트와 동일 검사 (pyproject [tool.ruff] 설정 공유).
@@ -29,9 +33,9 @@ repos:
     hooks:
       - id: ruff
         args: ["--fix"]
-        files: ^(apps|packages|scripts)/.*\.py$
+        files: ^(apps|packages|scripts|e2e)/.*\.py$
       - id: ruff-format
-        files: ^(apps|packages|scripts)/.*\.py$
+        files: ^(apps|packages|scripts|e2e)/.*\.py$
 
   # pytest — push 직전에만 실행(커밋마다 돌리기엔 무거움). CI test job과 동일 역할.
   # 모노레포이므로 앱별로 cwd를 바꿔 실행해야 한다 (각 앱의 pyproject 설정을 집기 위함) —
