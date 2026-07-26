@@ -13,10 +13,13 @@
 - ⚠️ 루트 `.gitignore`에 `lib/`, `build/`, `dist/`, `env/` 패턴이 있습니다. SvelteKit/Next처럼
   **`src/lib/`을 소스로 쓰는 프레임워크를 고르면 소스가 통째로 무시됩니다.**
   그 경우 `.gitignore`에 `!apps/frontend/src/lib/` 예외를 **반드시 함께 추가**하세요.
-- **CI는 아직 없습니다.** 스캐폴딩 PR에서 `.github/workflows/frontend-ci.yml`을 추가하되,
-  `paths: apps/frontend/**` 필터를 걸고 **required status check로는 지정하지 마세요**
-  (경로 변경 없는 PR에서 체크가 생성되지 않아 머지가 영구 블록됩니다 —
-  `docs/TEMPLATE_GUIDE.md` §4의 알려진 함정).
+- **CI 골격은 이미 있습니다** — [`.github/workflows/frontend-ci.yml`](../../.github/workflows/frontend-ci.yml).
+  `paths: apps/frontend/**` 필터가 걸린 **non-required** 워크플로이며(경로 변경 없는 PR에서
+  체크가 생성되지 않아 머지가 영구 블록되는 함정 회피 — `docs/TEMPLATE_GUIDE.md` §4),
+  `package.json`이 없는 지금은 모든 단계를 건너뜁니다. 스캐폴딩 PR에서 확인할 것:
+  - 패키지 매니저가 npm이 아니면(pnpm/yarn) install 단계와 `cache` 설정을 교체
+  - `lint` / `typecheck` / `build` 스크립트 이름 (`--if-present`라 없으면 조용히 무시됨)
+  - `.github/dependabot.yml`의 npm 블록 주석 해제
 
 ## 설계 제약 (타협 대상 아님 — `AGENTS.md` 참조)
 

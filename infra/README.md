@@ -10,6 +10,11 @@ docker-compose로 올립니다(ADR-0003). 관리형 이중화는 예선 범위�
 - `docker-compose.yml` — backend · ai-engine · chroma · frontend 를 한 번에 기동
 - AWS 프로비저닝 스크립트/IaC
 
+`docker-compose.yml`을 추가하면 [`.github/workflows/docker-build.yml`](../.github/workflows/docker-build.yml)의
+`compose` 잡이 자동으로 `docker compose config`(변수 치환·서비스 정의 해석)를 검증합니다.
+실제 `up` 기동은 외부 API 키가 필요해 CI 범위 밖이며, 같은 워크플로가 각 앱 이미지의
+빌드 + `/health` 응답까지는 검사합니다.
+
 ## 환경 변수
 
 `.env.example`이 **커밋되는 템플릿**이고, 실제 값이 든 `.env`는 커밋 금지입니다

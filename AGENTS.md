@@ -120,6 +120,7 @@ savers-project/
   packages/
     contracts/             # OpenAPI spec + shared schemas (single source of truth)
   infra/                   # docker-compose, .env.example, AWS provisioning
+  e2e/                     # Cross-app end-to-end harness (QA-owned) — HTTP only, non-required CI
   notebooks/               # Experiments; promoted logic moves into apps/<app>/src
   scripts/                 # run-tests.sh (= CI locally), setup-github.sh, apply-labels.sh
   docs/                    # Design docs, ADRs, role guides/schedules
@@ -178,6 +179,7 @@ apps/backend          ──HTTP only──>   apps/ai-engine     (contract in p
 - Experiments → `notebooks/` (never imported; promote verified logic into `apps/<app>/src/`)
 - Evaluation assets (goldens, metric functions) → `apps/ai-engine/eval/` (metric functions stay pure: `(prediction, truth) → score`)
 - Tests → `apps/<app>/tests/`, mirroring `src/` as `test_<module>.py`
+- Cross-app end-to-end tests → `e2e/` (QA-owned). **Never** put them in `apps/*/tests/`: those paths feed the *required* pytest matrix, and E2E needs a running stack plus external API keys, so a required check would block every PR on infrastructure. `e2e/` reaches services over HTTP only — importing an app package from here breaks the same boundary rule the apps have.
 
 ## Project-specific gotchas (with the why — a rule without a reason gets ignored)
 

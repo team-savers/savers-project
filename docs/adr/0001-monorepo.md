@@ -37,6 +37,7 @@ savers/
   packages/
     contracts/             # OpenAPI 스펙 + 공용 스키마 (단일 진실 공급원, SSOT)
   infra/                   # docker-compose, .env 템플릿, AWS IaC
+  e2e/                     # 앱 가로지르는 관통 테스트 (QA 소유)
   docs/                    # ADR(docs/adr/), 배포·운영 가이드
   .github/workflows/       # path filter로 계층별 CI 분리
   CODEOWNERS               # 폴더별 소유자
@@ -79,9 +80,11 @@ savers/
 | 평가 하네스 | `apps/ai-engine/eval/` | [아키텍처.md](../공통_가이드/아키텍처.md) 4절이 평가 스크립트를 ai-engine 소관으로 두었고, 채점 대상(RAG·가드레일 출력)과 같은 배포 단위에 있어야 재현이 쉽다 |
 | 실험 노트북 | `notebooks/` (루트) | 특정 앱 소유가 아니라 담당자별 실험 공간. 배포 대상이 아니며 검증된 로직은 `apps/<app>/src`로 이전한다 |
 | 운영 스크립트 | `scripts/` (루트) | `run-tests.sh`(품질 게이트) · `setup-github.sh`(레포 하드닝)는 특정 앱이 아니라 레포 전체를 대상으로 한다 |
+| E2E 하네스 | `e2e/` (루트) | 검증 대상이 등록→감지→매칭→위치→생성→발송 전 구간이라 특정 앱 소유가 아니다. `apps/*/tests/`에 두면 **required** pytest 매트릭스가 수집하는데, E2E는 스택 기동·외부 키에 의존하므로 인프라 사정으로 모든 PR이 블록된다 |
 | 앱별 `pyproject.toml` | `apps/backend`, `apps/ai-engine` | 두 앱이 독립 배포 단위이므로 패키징·의존성·타입 설정을 분리. 루트 `pyproject.toml`은 ruff 설정 전용이며 설치 가능한 패키지가 아니다 |
 
 CI는 트리 주석의 "path filter로 계층별 분리"와 다르게 구성했다. required status check에 `paths:`
 필터를 걸면 해당 경로를 건드리지 않은 PR에서 체크가 생성되지 않아 머지가 영구 블록되기 때문에,
-파이썬 앱은 **필터 없는 매트릭스 CI(required)** 로 돌리고, 프론트엔드 CI는 나중에 **paths 필터를 건
-별도 워크플로(non-required)** 로 추가한다.
+파이썬 앱은 **필터 없는 매트릭스 CI(required)** 로 돌리고, 나머지(프론트엔드·이미지 빌드·계약
+검증·E2E·노트북)는 **paths 필터를 건 별도 워크플로(non-required)** 로 분리한다. 워크플로 목록과
+required 여부는 [개발자_가이드.md](../공통_가이드/개발자_가이드.md) 7절 표를 단일 원천으로 한다.

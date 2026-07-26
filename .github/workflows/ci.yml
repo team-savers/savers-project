@@ -19,6 +19,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # pre-commit 훅을 CI에서도 강제 — 훅을 설치하지 않은 팀원의 PR을 막는 유일한 지점입니다.
+  # 특히 detect-private-key / check-added-large-files 는 로컬에만 두면 방어선이 아니라
+  # 권고에 불과합니다 (이 레포는 public이라 키 유출이 되돌릴 수 없는 사고입니다).
+  # pytest 훅은 stages: [pre-push]라 --all-files 실행 대상이 아니므로 test 잡과 중복되지 않습니다.
+  pre-commit:
+    name: Pre-commit hooks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      # 훅 환경(ruff·nbstripout 등) 재설치를 피해 잡 시간을 단축.
+      # 설정 파일이 바뀌면 키가 달라져 자동으로 새 환경을 만든다.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Run pre-commit
+        run: |
+          pip install pre-commit
+          pre-commit run --all-files --show-diff-on-failure
+
   lint:
     name: Lint & Type Check (${{ matrix.app }})
     runs-on: ubuntu-latest

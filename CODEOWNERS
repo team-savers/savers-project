@@ -26,6 +26,9 @@
 # 평가 하네스는 ai-engine 소속이지만 채점 기준은 QA와 공동 소유 (자기채점 편향 방지)
 /apps/ai-engine/eval/        @TODO-김소원 @TODO-김도혁
 
+# 앱을 가로지르는 관통 테스트 — 특정 앱이 아니라 QA 소유
+/e2e/                        @TODO-김도혁
+
 # 파이프라인·품질 게이트 변경은 영향 범위가 넓으므로 Tech Lead + QA 동시 리뷰
 /.github/               @TODO-신호정 @TODO-김도혁
 /scripts/               @TODO-신호정 @TODO-김도혁
