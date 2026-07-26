@@ -120,7 +120,7 @@ private 리포에서는 아래 설정들이 동작하지 않습니다 (GitHub Pr
 | 머지 전략·라벨·Discussions | ✅ | — |
 | **브랜치 보호 규칙** | ❌ (API 403) | `setup-github.sh`가 경고 후 나머지(머지 전략·라벨)를 계속 적용 |
 | **CODEOWNERS** (자동 배정·필수 리뷰) | ❌ | 파일은 무해하게 남음 — Pro/public 전환 시 즉시 동작 |
-| Secret scanning / Push protection | ❌ (public 전용) | pre-commit `detect-private-key` + `.gitignore` 시크릿 패턴이 로컬 방어선 |
+| Secret scanning / Push protection | ❌ (public 전용) | pre-commit `detect-private-key`(PEM 전용) + **gitleaks**(API 키 범용 패턴) + `.gitignore` 시크릿 패턴이 로컬 방어선 |
 | README의 CI 배지 | ❌ (외부 임베드 불가) | 배지 줄 삭제, public 전환 시 복원 |
 
 브랜치 보호가 없는 동안의 실질 방어선은 **pre-commit + pre-push pytest**입니다 —
