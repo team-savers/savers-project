@@ -1,7 +1,15 @@
 # ==========================================
-# AI Team Project .gitignore
-# Language/Tools: Python, Jupyter Notebook
+# SAVERS monorepo .gitignore
+# Stack: Python(FastAPI/RAG) + Node(PWA) + Jupyter
+# ⚠️ 이 저장소는 public 입니다. 시크릿/개인정보 패턴은 임의로 완화하지 마세요.
 # ==========================================
+
+# --- 공개 저장소 미업로드 자산 (팀 결정) ---
+# 대회 제출 서식과 내부 리서치 자료는 레포 밖(로컬)에서 관리합니다.
+# 파일명 접두어 `내부_`는 필터링 실수를 줄이기 위한 규약입니다.
+내부_*.md
+docs/제출_자료/
+docs/참고_자료/
 
 # --- Jupyter Notebook & Lab Outputs ---
 .ipynb_checkpoints/
@@ -28,14 +36,10 @@ __pycache__/
 *$py.class
 *.so
 .Python
-build/
 develop-eggs/
-dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
 parts/
 sdist/
 var/
@@ -45,12 +49,23 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ⚠️ lib/ · build/ · dist/ 는 **루트 기준으로만** 무시합니다.
+#    선행 슬래시가 없으면 모든 깊이에 매칭되어 프론트엔드 소스(SvelteKit/Next의
+#    apps/frontend/src/lib/)가 통째로 무시되는 사고가 납니다.
+/lib/
+/lib64/
+/build/
+/dist/
 
 # --- Virtual Environments ---
 .venv/
 venv/
 ENV/
-env/
+/env/
 third-party/
 
 # --- Conda ---
@@ -60,9 +75,31 @@ conda-meta/
 pkgs/
 *.tar.bz2
 
+# --- Node / Frontend (apps/frontend) ---
+node_modules/
+.pnpm-store/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.next/
+.nuxt/
+.svelte-kit/
+.turbo/
+.parcel-cache/
+.vite/
+coverage/
+*.tsbuildinfo
+# 빌드 산출물은 앱 단위로도 무시 (루트 앵커가 잡지 못하는 경로)
+apps/*/dist/
+apps/*/build/
+apps/*/.output/
+
 # --- Environment Variables & Cloud Secrets (Security) ---
 .env
 .env.*
+# ⚠️ 값이 아닌 "키 목록" 템플릿은 커밋해야 합니다 (infra/.env.example).
+!.env.example
+!.env.*.example
 .secrets
 *.pem
 *.p12
@@ -84,9 +121,12 @@ secret_*.json
 credentials/
 
 # --- Data & Large Artifacts (Never commit heavy datasets) ---
+# ⚠️ 디렉토리는 루트 기준으로만 무시합니다. git은 "제외된 디렉토리" 내부의 예외를
+#    복원하지 못하므로, 커밋해야 하는 자산은 반드시 파일 패턴 예외로 두세요.
+/data/
+/datasets/
+/outputs/
 *.csv
-# 평가 골든셋 등 의도적으로 커밋하는 소형 CSV는 화이트리스트로 예외 처리
-!golden_dataset*.csv
 *.xlsx
 *.jsonl
 *.parquet
@@ -97,9 +137,14 @@ credentials/
 *.npz
 *.sqlite
 *.db
-data/
-datasets/
-outputs/
+
+# 커밋해야 하는 소형 데이터 예외 (반드시 위 무시 규칙보다 아래에 위치해야 동작)
+# 평가 골든셋: 코드와 함께 리뷰·재현되어야 하는 자산입니다 (근거 일치율/환각 억제율 채점용).
+!eval/**/*.csv
+!eval/**/*.jsonl
+# 오프라인 폴백용 사전 캐시·테스트 픽스처: 코드와 함께 배포/실행되어야 합니다.
+!apps/**/fixtures/*.csv
+!apps/**/fixtures/*.jsonl
 
 # --- Model Artifacts & Training Logs ---
 models/
@@ -116,13 +161,15 @@ runs/
 lightning_logs/
 wandb/
 mlruns/
-# 데모/검증용으로 특정 작은 모델 파일을 의도적으로 커밋해야 한다면
-# 아래에 화이트리스트 예외를 추가하세요 (무시 규칙보다 반드시 아래쪽에 위치해야 동작합니다).
-# 예시 : !models/demo_small.onnx
+
+# --- Vector DB (Chroma 로컬 영속화) ---
+.chroma/
+chroma_db/
 
 # --- Coding Agent ---
-# AGENTS.md / CLAUDE.md 는 팀 공유 자산으로 커밋합니다 (이 템플릿의 정책).
+# AGENTS.md / CLAUDE.md 는 팀 공유 자산으로 커밋합니다.
 # 개인별 지침은 홈 디렉토리(~/.claude/CLAUDE.md 등)에 두세요.
+.claude/settings.local.json
 
 # --- OS & IDE Specifics ---
 .DS_Store

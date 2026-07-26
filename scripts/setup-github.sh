@@ -34,7 +34,12 @@ if ! gh api -X PUT "repos/$REPO/branches/main/protection" \
 {
   "required_status_checks": {
     "strict": true,
-    "contexts": ["Lint & Type Check", "Unit tests (pytest)"]
+    "contexts": [
+      "Lint & Type Check (backend)",
+      "Lint & Type Check (ai-engine)",
+      "Unit tests (backend)",
+      "Unit tests (ai-engine)"
+    ]
   },
   "enforce_admins": false,
   "required_pull_request_reviews": $REVIEWS,

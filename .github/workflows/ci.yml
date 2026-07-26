@@ -1,54 +1,64 @@
-name: src CI (lint + test)
+name: CI (lint + test)
 
 # ⚠️ 이 워크플로의 잡들은 브랜치 보호의 required status check 대상입니다.
 #    required check는 "모든 PR에서 반드시 생성"되어야 하므로 paths 필터를 걸지 않습니다.
 #    (paths 필터 + required check 조합은 해당 경로 변경이 없는 PR에서 체크가 생성되지 않아
 #     머지가 영원히 "Expected" 상태로 블록되는 유명한 함정입니다.)
-#    문서 전용 변경에서 CI 비용을 줄이고 싶다면 paths 필터 대신
-#    dorny/paths-filter 같은 잡 내부 필터를 쓰세요.
+#    프론트엔드 CI를 추가할 때는 별도 워크플로 + paths 필터로 두고 required로 지정하지 마세요.
+#
+# ⚠️ 잡 이름(name:)은 scripts/setup-github.sh의 required_status_checks.contexts와
+#    문자열이 정확히 일치해야 합니다. 매트릭스 항목을 늘리면 두 곳을 함께 수정하세요.
 on:
   pull_request:
   push:
     branches: [main]
 
 # 같은 ref에 새 push가 오면 진행 중인 이전 실행을 취소 — 중복 실행 방지.
-# private 리포의 무료 Actions 분한도(월 2,000분) 절약에도 중요하다.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   lint:
-    # ⚠️ 이 name은 scripts/setup-github.sh의 required_status_checks.contexts와 일치해야 합니다.
-    name: Lint & Type Check
+    name: Lint & Type Check (${{ matrix.app }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false   # 한 앱이 깨져도 다른 앱 결과를 함께 보기 위함
+      matrix:
+        app: [backend, ai-engine]
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'  # pyproject.toml requires-python과 싱크 정렬
+          python-version: '3.12'   # apps/*/pyproject.toml의 requires-python과 싱크 유지
+          cache: 'pip'
 
       # mypy가 core 의존성(fastapi/pydantic)의 타입을 해석하려면 패키지가 설치돼 있어야 한다.
       # 무거운 extra는 설치하지 않아 CI를 가볍게 유지 — 그쪽 모듈은 [tool.mypy] overrides로 처리.
-      - name: Install package + static analysis tools
-        run: pip install -e ".[dev]"
+      - name: Install app + static analysis tools
+        run: pip install -e "./apps/${{ matrix.app }}[dev]"
 
+      # ruff 설정은 루트 pyproject.toml의 [tool.ruff] 단일 원천 (상위 탐색으로 자동 채택).
       - name: ruff lint
-        run: ruff check src tests
+        run: ruff check "apps/${{ matrix.app }}"
 
       - name: ruff format check
-        run: ruff format --check src tests
+        run: ruff format --check "apps/${{ matrix.app }}"
 
+      # ⚠️ mypy는 앱 디렉토리를 cwd로 실행해야 해당 앱의 [tool.mypy] 설정을 집는다.
       - name: Type check (mypy)
+        working-directory: apps/${{ matrix.app }}
         run: mypy
 
   test:
-    # ⚠️ 이 name도 required_status_checks.contexts와 일치해야 합니다.
-    name: Unit tests (pytest)
+    name: Unit tests (${{ matrix.app }})
     runs-on: ubuntu-latest
-    # lint 통과 후에만 실행 (자원 절약)
-    needs: lint
+    needs: lint   # lint 통과 후에만 실행 (자원 절약)
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [backend, ai-engine]
     steps:
       - uses: actions/checkout@v4
 
@@ -57,6 +67,7 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
 
-      - run: pip install -e ".[dev]"
+      - run: pip install -e "./apps/${{ matrix.app }}[dev]"
 
-      - run: pytest -v
+      - working-directory: apps/${{ matrix.app }}
+        run: pytest -v

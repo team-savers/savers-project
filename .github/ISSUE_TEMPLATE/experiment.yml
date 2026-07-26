@@ -31,7 +31,7 @@ body:
     id: graduation
     attributes:
       label: 프로덕션 이전 계획
-      description: 검증 성공 시 src/ 의 어느 모듈로 함수화해 옮길지.
-      placeholder: "예: 검증 후 src/app_core/ 로 분리 이전"
+      description: 검증 성공 시 apps/<app>/src/ 의 어느 모듈로 함수화해 옮길지.
+      placeholder: "예: 검증 후 apps/ai-engine/src/ai_engine/ 로 분리 이전"
     validations:
       required: false

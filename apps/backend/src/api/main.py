@@ -1,12 +1,12 @@
 """FastAPI entrypoint.
 
-Keep routers thin: request validation -> app_core call -> response mapping.
-Business logic belongs in app_core, which must stay importable without FastAPI.
+Keep routers thin: request validation -> backend_core call -> response mapping.
+Business logic belongs in backend_core, which must stay importable without FastAPI.
 """
 
 from fastapi import FastAPI
 
-app = FastAPI(title="my-ai-project")
+app = FastAPI(title="savers-project")
 
 
 @app.get("/health")
