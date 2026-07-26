@@ -7,8 +7,8 @@
 #           --solo : 1인 프로젝트용 — PR 승인 요구를 끕니다 (승인자 없이는 머지 불가 방지)
 # 주의:     무료 플랜의 private 리포는 브랜치 보호를 지원하지 않습니다(403).
 #           이 경우 보호 단계만 건너뛰고 머지 전략·라벨은 계속 적용합니다.
-#           GitHub Pro(개인)/Team(조직) 또는 public 전환 시 전부 사용 가능 —
-#           docs/TEMPLATE_GUIDE.md §6 참고.
+#           GitHub Pro(개인)/Team(조직) 또는 public 전환 시 전부 사용 가능하며,
+#           이 저장소는 public이므로 해당되지 않습니다 (전환 시 이 스크립트를 재실행).
 set -euo pipefail
 
 REPO="${1:?사용법: bash scripts/setup-github.sh <owner>/<repo> [--solo]}"
@@ -73,7 +73,7 @@ else
   echo "완료(부분): 머지 전략 + 라벨만 적용됨 — 브랜치 보호는 미적용."
   echo "  (GitHub Pro 전환 또는 public 전환 후 이 스크립트를 다시 실행하면 적용됩니다.)"
 fi
-echo "남은 수동 설정(자세한 내용은 docs/TEMPLATE_GUIDE.md):"
+echo "남은 수동 설정(자세한 내용은 docs/공통_가이드/저장소_운영.md §3):"
 echo "  1) Settings > Code security: Secret scanning / Push protection 활성화 (⚠️ public 전용)"
 echo "  2) Settings > General > Features: Discussions 활성화"
 echo "  3) Discussions > 카테고리 'CollaborationLog' 생성 (API 미지원, 수동 필수)"
