@@ -76,17 +76,17 @@ The rule has two halves — which half applies is decided by **what the folder h
 - **Documents → Korean.** Planning/design documents and the folders that group them are Korean-named (`아키텍처.md`, `리스크.md`, `docs/역할_가이드/`, `docs/역할_일정/`, …), using an underscore-separated `A_B` pattern for multi-word names.
 - **Everything else → English, mandatory.** Any folder that is not a document folder — code, config, assets, tooling, data, test fixtures, CI — **must** be English-named, always, with no Korean-name exception available. This is not a stylistic preference: these paths are consumed by build tools, import statements, Docker/CI configs, and shell scripts, where non-ASCII path segments cause encoding and portability failures. A Korean folder name appearing anywhere under `apps/`, `packages/`, `infra/`, or `.github/` is a defect to be renamed, not a judgment call.
 
-Within the Korean half, keep these agreed **English exceptions**: `CLAUDE.md`, `AGENTS.md`, `README`, `docs/adr/` (ADR filenames), and the two docs inherited from the repo template (`docs/TEMPLATE_GUIDE.md`, `docs/pr-checklist.md`) — all of them tool- or convention-bound names. Apply this when creating any new planning doc: new project-level docs default to Korean names unless they fall under an exception; new non-document folders are English without exception.
+Within the Korean half, keep these agreed **English exceptions**: `CLAUDE.md`, `AGENTS.md`, `README`, `docs/adr/` (ADR filenames), and `docs/pr-checklist.md` (inherited from the repo template) — all of them tool- or convention-bound names. Apply this when creating any new planning doc: new project-level docs default to Korean names unless they fall under an exception; new non-document folders are English without exception.
 
 All planning docs live under `docs/`; the repo root keeps only `AGENTS.md`, `CLAUDE.md`, and `README.md`. Put a new doc in the folder that matches its axis:
 
 | Folder | Holds |
 |---|---|
-| `docs/공통_가이드/` | Project-wide design docs everyone reads — `개발자_가이드.md`, `환경_세팅_가이드.md`, `아키텍처.md`, `리스크.md`, `구현_범위.md`, `외부_승인.md`, `비용_산정.md` |
+| `docs/공통_가이드/` | Project-wide design docs everyone reads — `개발자_가이드.md`, `환경_세팅_가이드.md`, `저장소_운영.md`, `아키텍처.md`, `리스크.md`, `구현_범위.md`, `외부_승인.md`, `비용_산정.md` |
 | `docs/역할_가이드/` | Per-role playbooks — who does what. `01-기획총괄.md` … `06-QA-보안.md` |
 | `docs/역할_일정/` | Per-role timelines — when it must be done. Same role numbering as `역할_가이드/` |
 | `docs/adr/` | Architecture decision records (English filenames) |
-| `docs/TEMPLATE_GUIDE.md`, `docs/pr-checklist.md` | Repo scaffolding operations and PR procedure, inherited from the template |
+| `docs/pr-checklist.md` | PR procedure, inherited from the template |
 
 `역할_가이드/` and `역할_일정/` are 1:1 by role number — adding a role means adding a file to both.
 
@@ -202,5 +202,5 @@ apps/backend          ──HTTP only──>   apps/ai-engine     (contract in p
 
 - `main` is protected: feature branch → PR → **squash merge** → branch auto-deleted. Procedure: [docs/pr-checklist.md](docs/pr-checklist.md).
 - CI (ruff · mypy · pytest) and pre-commit enforce the same rules on purpose. If they drift apart, people start ignoring the hooks — fix the drift, don't route around it.
-- Repo settings (branch protection, merge strategy, labels) are **not** carried by the template; they are re-applied by `scripts/setup-github.sh`. Details and the manual checklist: [docs/TEMPLATE_GUIDE.md](docs/TEMPLATE_GUIDE.md).
+- Repo settings (branch protection, merge strategy, labels) live only on GitHub's side — git does not track them and they never show up in a diff; they are re-applied by `scripts/setup-github.sh`. Details, the manual checklist, and the required-check contract: [docs/공통_가이드/저장소_운영.md](docs/공통_가이드/저장소_운영.md).
 - Architecture decisions go in `docs/adr/` as they are made. This is the anti-bus-factor mechanism for the front-loaded Tech Lead model — an undocumented decision is a decision the team loses.
