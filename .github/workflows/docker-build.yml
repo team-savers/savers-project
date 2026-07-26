@@ -43,7 +43,7 @@ jobs:
           - app: backend
             port: 8000
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Skip notice (Dockerfile 없음)
         if: hashFiles(format('apps/{0}/Dockerfile', matrix.app)) == ''
@@ -80,7 +80,7 @@ jobs:
     name: docker-compose config 검증
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Skip notice (compose 파일 없음)
         if: hashFiles('infra/docker-compose.yml') == ''
