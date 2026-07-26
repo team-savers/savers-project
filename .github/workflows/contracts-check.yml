@@ -28,13 +28,13 @@ jobs:
     name: OpenAPI spec 검증
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Skip notice (스펙 없음)
         if: hashFiles('packages/contracts/openapi.yaml', 'packages/contracts/openapi.yml') == ''
         run: echo "packages/contracts/openapi.yaml이 아직 없습니다 — P1에서 작성됩니다(신호정)."
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: hashFiles('packages/contracts/openapi.yaml', 'packages/contracts/openapi.yml') != ''
         with:
           python-version: '3.12'

@@ -27,16 +27,16 @@ jobs:
     name: Pre-commit hooks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: 'pip'
 
       # 훅 환경(ruff·nbstripout 등) 재설치를 피해 잡 시간을 단축.
       # 설정 파일이 바뀌면 키가 달라져 자동으로 새 환경을 만든다.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
@@ -69,9 +69,9 @@ jobs:
       matrix:
         app: [backend, ai-engine]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'   # apps/*/pyproject.toml의 requires-python과 싱크 유지
           cache: 'pip'
@@ -102,9 +102,9 @@ jobs:
       matrix:
         app: [backend, ai-engine]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: 'pip'
