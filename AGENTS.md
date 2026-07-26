@@ -82,7 +82,7 @@ All planning docs live under `docs/`; the repo root keeps only `AGENTS.md`, `CLA
 
 | Folder | Holds |
 |---|---|
-| `docs/공통_가이드/` | Project-wide design docs everyone reads — `개발자_가이드.md`, `아키텍처.md`, `리스크.md`, `구현_범위.md`, `외부_승인.md` |
+| `docs/공통_가이드/` | Project-wide design docs everyone reads — `개발자_가이드.md`, `아키텍처.md`, `리스크.md`, `구현_범위.md`, `외부_승인.md`, `비용_산정.md` |
 | `docs/역할_가이드/` | Per-role playbooks — who does what. `01-기획총괄.md` … `06-QA-보안.md` |
 | `docs/역할_일정/` | Per-role timelines — when it must be done. Same role numbering as `역할_가이드/` |
 | `docs/adr/` | Architecture decision records (English filenames) |
