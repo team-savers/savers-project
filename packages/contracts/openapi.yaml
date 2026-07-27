@@ -1,6 +1,6 @@
-openapi: 3.0.3
+openapi: 3.1.0
 
-# ⚠️ v0 초안 (제안) — 프론트엔드가 서버에서 받아야 하는 것만 담았습니다.
+# ⚠️ v0.2 초안 (제안) — 프론트엔드가 서버에서 받아야 하는 것만 담았습니다.
 #
 # 작성 의도: AGENTS.md의 "Contracts before implementation" 원칙에 따라, 구현보다
 # 먼저 "응답의 모양"을 고정합니다. 형태가 정해지면 프론트는 mock으로 화면을 끝까지
@@ -16,9 +16,14 @@ openapi: 3.0.3
 
 info:
   title: SAVERS API (frontend-facing)
-  version: 0.1.0-draft
+  version: 0.2.0-draft
   description: |
     재난 취약계층 대상 무설치 대피 안내 서비스의 프론트엔드-서버 계약 초안입니다.
+
+    > **변경 이력(v0.2)**: Tech Lead 리뷰 반영 — OpenAPI 3.1.0 승격,
+    > dongCode 10자리 정정, 쓰기 엔드포인트 2개 추가, 등록/세션 토큰 분리,
+    > 지하 대피소 서버 제외 확정, 오프라인 폴백 표현 분리, 보안 규격 명시,
+    > 에러 규약 정의, Stage 미합의 표시.
 
     ## 설계 전제 (AGENTS.md 하드 제약)
 
@@ -31,6 +36,8 @@ info:
       완결된 문안입니다. 프론트는 조립하지 않고 렌더만 합니다.
     - **취약계층 본인에게 설치·설정 부담을 지우지 않는다.** 등록은 보호자·복지관·
       지자체가 대행하므로, 이 API에 회원가입·프로필 편집 엔드포인트는 없습니다.
+
+    > ⚠️ 이 규격(특히 토큰·보안 섹션)은 QA/보안 담당 리뷰 대기 중입니다.
 
 servers:
   - url: http://localhost:8000
@@ -60,24 +67,101 @@ paths:
 
         `message`는 이미 완성된 문안입니다. 알림 본문과 같은 내용이어야 하며,
         프론트는 위치·지도 API가 실패해도 이 문장을 **첫 페인트에 텍스트로** 노출합니다.
+
+        ⚠️ **민감 응답 경고**: 이 응답 한 번에 이름·거주 형태·장애 관련 항목·보호자
+        전화번호가 모두 나옵니다. 따라서 경로의 `token`은 **고엔트로피 불투명 문자열**이어야
+        하고(추측 가능한 순번 금지), **짧은 TTL**과 **1회성**을 전제로 한다. 응답은 반드시
+        `Cache-Control: no-store`로 전송되며, 프론트도 이를 캐시하지 않는다.
       operationId: getSession
       parameters:
         - name: token
           in: path
           required: true
-          description: 발송 시 생성된 1회용 세션 토큰. 현재 프론트는 mock user id(`p001`)를 사용합니다.
+          description: |
+            발송 시 생성된 1회용 세션 토큰(고엔트로피 불투명 문자열).
+            현재 프론트 mock은 `p001` 등을 쓰며 실토큰 확정 시 교체한다.
           schema:
             type: string
-            example: p001
+            example: s_7f3c9a1e4b8d2f60a5c1e9b47d0f3a26
       responses:
         '200':
           description: 세션 조회 성공
+          headers:
+            Cache-Control:
+              description: 민감 정보이므로 저장을 금지한다.
+              schema:
+                type: string
+                example: no-store
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/SessionResponse'
         '404':
-          description: 토큰이 없거나 만료됨
+          description: 토큰 부재(발급 이력 없음)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: 토큰 만료(TTL 경과 또는 이미 소비됨)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/session/{token}/response:
+    post:
+      tags: [session]
+      summary: 피보호자 응답(생존 신호) 기록
+      description: |
+        피보호자가 [집이에요]/[밖이에요]를 눌렀을 때 호출한다. 이 응답은 **생존 신호**로
+        취급되어 보호자 상태 페이지의 `lastResponse`·`lastSeenAt`을 채운다.
+        **위치 좌표는 보내지 않는다** — 이 엔드포인트의 목적은 행동 의사 전달뿐이다.
+
+        ⚠️ 3단계·보호자 계층의 예선 반영 여부는 팀 결정 대기 중이며, 프론트는
+        feature flag 뒤에 둔다.
+      operationId: postSessionResponse
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: 세션 토큰.
+          schema:
+            type: string
+            example: s_7f3c9a1e4b8d2f60a5c1e9b47d0f3a26
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [response]
+              properties:
+                response:
+                  type: string
+                  enum: [home, outside]
+                  description: 현재 거주 위치 여부.
+      responses:
+        '200':
+          description: 기록 완료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ack'
+        '400':
+          description: 잘못된 요청(본문 검증 실패)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 토큰 부재
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: 토큰 만료
           content:
             application/json:
               schema:
@@ -96,17 +180,20 @@ paths:
 
         좌표는 이 요청 처리에만 쓰이고 저장되지 않습니다.
 
-        `isUnderground: true`인 시설(지하 민방위대피소 등)은 **침수 시 위험**하므로
-        서버가 기본적으로 제외하거나 명시적으로 표시해야 합니다. 프로필의
-        `stairsOk: false`인 사용자에게는 `hasStairs: true`인 대피소를 상위에 두지 않습니다.
+        `isUnderground: true`인 시설(지하 민방위대피소 등)은 침수 시 위험하므로
+        **호우·침수 재난에서는 서버가 목록에서 제외한다.** 안전 판단을 클라이언트에
+        두지 않는다 — 프론트는 서버가 내려준 `items`와 `excluded` 집계만 렌더한다.
+        프로필의 `stairsOk: false`인 사용자에게는 `hasStairs: true`인 대피소를 상위에
+        두지 않습니다.
       operationId: listShelters
       parameters:
         - name: dongCode
           in: query
           required: true
-          description: 행정동 코드 8자리. 등록지 기준이거나 사용자가 직접 고른 동입니다.
+          description: 행정동 코드 10자리. 등록지 기준이거나 사용자가 직접 고른 동입니다.
           schema:
             type: string
+            pattern: '^\d{10}$'
             example: '1162064500'
         - name: lat
           in: query
@@ -139,6 +226,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ShelterList'
+        '400':
+          description: 잘못된 요청(쿼리 파라미터 검증 실패)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: 요청 한도 초과(카카오맵/대피소 API 레이트리밋)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: 서버 내부 오류
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /v1/chat:
     post:
@@ -165,15 +270,51 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ChatResponse'
+        '400':
+          description: 잘못된 요청(본문 검증 실패)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 토큰 부재
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: 토큰 만료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: 요청 한도 초과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /v1/devices:
     post:
       tags: [device]
-      summary: 웹푸시 토큰 등록
+      summary: 웹푸시 등록 토큰 등록
       description: |
         `getToken(vapidKey)`로 발급받은 FCM 등록 토큰을 서버에 올립니다.
         알림 권한은 사용자 제스처에서만 요청하므로, 이 호출도 그 흐름에서만 발생합니다.
         위치 정보는 포함하지 않습니다.
+
+        **순환 의존 해소**: 이전 초안에서 FCM 토큰 등록에 세션 토큰을 요구했으나,
+        세션 토큰은 발송 시점에 발급되므로 "첫 푸시를 받으려면 이미 푸시를 받았어야
+        하는" 순환이 생겼다. 이에 토큰을 두 종류로 분리한다:
+        - **등록 토큰**(`registrationToken`): 대리등록자(보호자·복지관)가 브라우저에서
+          프로필을 등록할 때 발급되는 장기 토큰, 1인 고정.
+        - **세션 토큰**(`sessionToken`): 재난 발생 → 발송 시 발급되는 1회성 토큰,
+          짧은 TTL.
+
+        ⚠️ **등록 토큰을 발급하는 엔드포인트는 이 계약에 없다.** 대리등록 흐름 전체는
+        아직 설계 전·팀 합의 사항이다. 이 계약은 등록 토큰이 이미 있다고 가정하며,
+        발급 흐름은 별도 결정 사항이다.
       operationId: registerDevice
       requestBody:
         required: true
@@ -188,6 +329,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Ack'
+        '400':
+          description: 잘못된 요청(본문 검증 실패)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: 요청 한도 초과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /v1/guardian/{token}:
     get:
@@ -198,29 +351,105 @@ paths:
         핵심은 `lastResponse` — 피보호자가 [집이에요]/[밖이에요]를 눌렀는지 여부를
         **생존 신호**로 취급해 표시합니다. 위치 좌표는 내려주지 않습니다.
 
+        ⚠️ **민감 응답 경고**: 피보호자 이름·보호자 전화번호가 포함되므로 `token`은
+        고엔트로피 불투명 문자열이어야 하며, 응답은 `Cache-Control: no-store`로 전송된다.
+
         3단계 UI와 보호자 계층은 팀 합의 전이므로 프론트에서 feature flag로 가려집니다.
       operationId: getGuardianStatus
       parameters:
         - name: token
           in: path
           required: true
+          description: 보호자 페이지 토큰.
           schema:
             type: string
+            example: g_4e8b1c7d2a9f5036e8b1c7d2a9f5036e8b1c7d2a
       responses:
         '200':
           description: 보호자 상태
+          headers:
+            Cache-Control:
+              description: 민감 정보이므로 저장을 금지한다.
+              schema:
+                type: string
+                example: no-store
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/GuardianStatus'
         '404':
-          description: 토큰이 없거나 만료됨
+          description: 토큰 부재
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: 토큰 만료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/guardian/{token}/acknowledge:
+    post:
+      tags: [guardian]
+      summary: 보호자 확인 버튼 기록
+      description: |
+        보호자가 `[내가 확인했음]` 버튼을 누른 기록을 서버에 남긴다.
+        `GuardianStatus.acknowledgedByGuardian`을 채운다.
+
+        ⚠️ 3단계·보호자 계층의 예선 반영 여부는 팀 결정 대기 중이며, 프론트는
+        feature flag 뒤에 둔다.
+      operationId: postGuardianAcknowledge
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: 보호자 페이지 토큰.
+          schema:
+            type: string
+            example: g_4e8b1c7d2a9f5036e8b1c7d2a9f5036e8b1c7d2a
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              description: 빈 객체 또는 생략 가능.
+              properties: {}
+      responses:
+        '200':
+          description: 기록 완료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ack'
+        '404':
+          description: 토큰 부재
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: 토큰 만료
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
 
 components:
+  securitySchemes:
+    sessionToken:
+      type: apiKey
+      in: header
+      name: X-Session-Token
+      description: |
+        ⚠️ **개념 보완**: 실제 구현에서 토큰은 경로 파라미터(`/v1/session/{token}`)로
+        전달된다. OpenAPI 3.1의 `apiKey.in`은 `query`·`header`·`cookie`만 허용하여
+        `path`를 넣을 수 없으므로, 스펙 표현상 가장 가까운 `header`로 표기한다.
+        토큰은 고엔트로피 불투명 문자열이며 짧은 TTL·1회성을 전제로 한다.
+        각 경로의 `{token}`이 이 토큰이다.
+
   schemas:
 
     Stage:
@@ -228,7 +457,11 @@ components:
       enum: [1, 2, 3]
       description: |
         재난 단계. 1=예비특보, 2=경보(골든타임), 3=위험 실현.
-        **3단계 UI 노출은 팀 합의 전이라 프론트에서 feature flag로 가려집니다.**
+
+        ⚠️ **미합의 개념**: 이 단계 개념은 `아키텍처.md`·`구현_범위.md`에 아직 없다.
+        백엔드가 무엇으로 이 값을 만드는지(기상청 특보 등급 → stage 매핑)가 정해져야
+        계약이 완성된다. 특히 `3 = 위험 실현`은 특보 등급에서 직접 유도할 원천이
+        확인되지 않았다. 프론트는 그때까지 `STAGE3_ENABLED=false`로 3단계 UI를 가린다.
 
     Profile:
       type: object
@@ -264,17 +497,18 @@ components:
           example: 김순자
         dongCode:
           type: string
-          description: 행정동 코드 8자리. 발송 대상 매칭 키입니다.
+          description: 행정동 코드 10자리. 발송 대상 매칭 키입니다.
+          pattern: '^\d{10}$'
           example: '1162064500'
         dongName:
           type: string
           example: 서원동
         bjdCode:
-          type: string
-          nullable: true
+          type: [string, 'null']
           description: |
             법정동 코드 10자리. 카카오 `coord2RegionCode` 실측에서 행정동과 법정동이
             불일치하는 것이 확인되어(신림동 케이스) 이중 코드로 보관합니다.
+          pattern: '^\d{10}$'
           example: '1162010200'
         housing:
           type: string
@@ -305,17 +539,20 @@ components:
           type: boolean
           description: 독거 여부. 구조요청 문자에 자동 기재됩니다(구조대 상황 판단 재료).
         care:
-          type: string
-          nullable: true
-          description: 돌봄 대상. 없으면 `null`. 예 - 영유아, 와상 가족.
+          type: [string, 'null']
+          description: |
+            돌봄 대상. 키는 항상 존재하며 값이 `null`일 수 있다(없으면 `null`). 예시 - 영유아,
+            와상 가족. `null`은 "돌봄 대상 아님"이라는 확정 정보이지 "모름"이 아니다.
           example: null
         guardian:
-          allOf:
+          oneOf:
             - $ref: '#/components/schemas/Guardian'
-          nullable: true
+            - type: 'null'
           description: |
-            보호자. **`null`이면 프론트는 [보호자 호출] 버튼을 렌더하지 않습니다.**
-            이 경우 119·구조요청 문자가 최종 안전망이며, 해결된 것처럼 포장하지 않습니다.
+            보호자. 키는 항상 존재하며 값이 `null`일 수 있다. **`null`이면 프론트는
+            [보호자 호출] 버튼을 렌더하지 않습니다.** 이 경우 119·구조요청 문자가
+            최종 안전망이며, 해결된 것처럼 포장하지 않습니다. `null`은 "보호자 없음"이라는
+            확정 정보이지 "모름"이 아니다.
         registeredBy:
           type: string
           enum: [self, guardian, welfare_center, employer]
@@ -340,7 +577,7 @@ components:
       description: |
         생성된 안내 문안. **본문만 읽어도 지금 할 행동이 나와야 합니다.**
         웹푸시는 템플릿 사전승인이 없으므로 이 문자열이 변형 없이 그대로 전달됩니다.
-      required: [title, body]
+      required: [title, body, sources]
       properties:
         title:
           type: string
@@ -350,7 +587,10 @@ components:
           example: 등록하신 자택(서원동)에 호우경보가 발령됐습니다. 반지하는 침수 위험이 있습니다. 지금 신발을 신고 이동 준비를 하세요.
         sources:
           type: array
-          description: 문안 생성에 사용된 국민행동요령 근거. 원문 대조 화면과 근거 일치율 채점에 쓰입니다.
+          description: |
+            문안 생성에 사용된 국민행동요령 근거. 원문 대조 화면과 근거 일치율 채점에 쓰인다.
+            **채점 하네스가 키 존재를 가정하므로 반드시 존재해야 한다.** 빈 배열은 허용한다.
+          default: []
           items:
             $ref: '#/components/schemas/Source'
 
@@ -393,23 +633,23 @@ components:
           description: 직선거리(m). 보행 경로 거리는 TMAP 연동 이후 별도 필드로 추가합니다.
           example: 420
         bearing:
-          type: string
-          nullable: true
-          enum: [N, NE, E, SE, S, SW, W, NW]
+          type: [string, 'null']
+          enum: [N, NE, E, SE, S, SW, W, NW, 'null']
           description: 방향. 지도를 못 쓰는 상황(전맹·지도 실패)의 텍스트 폴백에 씁니다.
         isUnderground:
           type: boolean
-          description: '`true`면 침수 시 위험. 호우·침수 재난에서는 안내 대상에서 제외합니다.'
+          description: |
+            '`true`면 침수 시 위험. 호우·침수 재난에서는 서버가 목록에서 제외한다.
+            안전 판단은 클라이언트에 두지 않는다.'
         hasStairs:
           type: boolean
           description: '`stairsOk: false`인 사용자에게 상위 배치하지 않습니다.'
         capacity:
-          type: integer
-          nullable: true
+          type: [integer, 'null']
 
     ShelterList:
       type: object
-      required: [items, basis]
+      required: [items, basis, dataAsOf, excluded]
       properties:
         basis:
           type: string
@@ -419,6 +659,32 @@ components:
             `dongCode`는 등록지·선택 동 기준입니다. 프론트는 이 값에 따라
             "등록하신 자택(○○동) 기준"처럼 **정직하게** 표기합니다 —
             현재 위치를 단정하는 표현을 쓰지 않습니다.
+        dataAsOf:
+          type: [string, 'null']
+          format: date-time
+          description: |
+            대피소 데이터의 기준 시각. 키는 항상 존재하며 값이 `null`일 수 있다.
+            `null`이면 실시간 데이터, 값이 있으면 그 시점의 사전 캐시 데이터임.
+            AGENTS.md의 오프라인 폴백 하드 제약에 대응하며, 프론트는 값이 있으면
+            낡은 데이터임을 사용자에게 알린다. `basis`가 "어떤 위치 기준으로 거리를
+            쟀나"라면 이 필드는 "데이터가 얼마나 신선한가"를 나타내는 별개 축이다 —
+            한 필드에 섞으면 좌표는 잡혔는데 대피소 API만 죽은 상황을 표현할 수 없다.
+        excluded:
+          type: array
+          default: []
+          description: |
+            서버가 안내에서 제외한 시설의 사유별 집계. 프론트는 이를 근거로
+            "침수 위험이 있는 지하 대피소 N곳을 안내에서 제외했습니다"를 고지한다.
+          items:
+            type: object
+            required: [reason, count]
+            properties:
+              reason:
+                type: string
+                enum: [underground, closed, unreachable]
+              count:
+                type: integer
+                minimum: 1
         items:
           type: array
           items:
@@ -436,8 +702,7 @@ components:
           type: string
           description: 원문 인용. 생성 문장이 아니라 회수된 원문 그대로여야 합니다.
         url:
-          type: string
-          nullable: true
+          type: [string, 'null']
 
     ChatRequest:
       type: object
@@ -459,35 +724,38 @@ components:
       required: [answer, sources]
       properties:
         answer:
-          type: string
-          nullable: true
+          type: [string, 'null']
           description: |
-            **근거가 없으면 `null`입니다.** 이 경우 프론트는 오류 화면이 아니라
-            "확인된 지침이 없습니다"와 액션 허브 안내를 보여줍니다.
+            답변 본문. 키는 항상 존재하며 값이 `null`일 수 있다. `null`은 "근거를 회수하지
+            못해 생성하지 않았다"는 **확정 신호**다 — 키를 생략하면 이 신호와 "응답 누락"
+            (서버가 안 보냈나? 버전이 다른가?)을 구분할 수 없어 무응답률 지표 측정이
+            무효가 된다. 프론트는 `null`일 때 오류 화면이 아니라 "확인된 지침이 없습니다"와
+            액션 허브 안내를 보여줍니다.
         sources:
           type: array
           description: 비어 있으면 `answer`는 반드시 `null`이어야 합니다.
           items:
             $ref: '#/components/schemas/Source'
         refusalReason:
-          type: string
-          nullable: true
-          enum: [no_evidence, out_of_scope, unsafe]
+          type: [string, 'null']
+          enum: [no_evidence, out_of_scope, unsafe, 'null']
           description: '`answer`가 `null`일 때의 사유.'
 
     DeviceRegisterRequest:
       type: object
-      required: [token, fcmToken]
+      required: [registrationToken, fcmToken]
       properties:
-        token:
+        registrationToken:
           type: string
-          description: 세션 토큰.
+          description: |
+            등록 토큰(장기·1인 고정). 대리등록 시점에 발급된다. 세션 토큰이 아니다 —
+            순환 의존(FCM 등록에 세션 토큰 요구, 세션 토큰은 발송 시점 발급)을
+            해소하기 위해 분리되었다. 자세한 배경은 `POST /v1/devices` description 참고.
         fcmToken:
           type: string
           description: FCM 등록 토큰.
         userAgent:
-          type: string
-          nullable: true
+          type: [string, 'null']
 
     Ack:
       type: object
@@ -505,17 +773,15 @@ components:
           description: 피보호자 이름.
           example: 김순자
         wardPhone:
-          type: string
-          nullable: true
+          type: [string, 'null']
         stage:
           $ref: '#/components/schemas/Stage'
         dongName:
           type: string
           example: 서원동
         lastSeenAt:
-          type: string
+          type: [string, 'null']
           format: date-time
-          nullable: true
           description: 마지막 링크 확인 시각. `null`이면 아직 확인하지 않은 것입니다.
         lastResponse:
           type: string
@@ -533,6 +799,7 @@ components:
       properties:
         code:
           type: string
+          enum: [SESSION_NOT_FOUND, SESSION_EXPIRED, INVALID_REQUEST, RATE_LIMITED, INTERNAL]
           example: SESSION_NOT_FOUND
         message:
           type: string
