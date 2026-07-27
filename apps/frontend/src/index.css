@@ -1,0 +1,6 @@
+/* Minimal reset only — no design per scope of scaffold ticket. */
+html,
+body {
+  margin: 0;
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+}

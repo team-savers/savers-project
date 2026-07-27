@@ -50,14 +50,14 @@ updates:
 
   # ── 프론트엔드: package.json이 없는 디렉토리를 등록하면 Dependabot이 매주 파싱 오류를
   #    기록합니다. 스캐폴딩(P1, 이진호) 후 아래 블록의 주석을 해제하세요.
-  # - package-ecosystem: "npm"
-  #   directory: "/apps/frontend"
-  #   schedule:
-  #     interval: "weekly"
-  #     day: "monday"
-  #   open-pull-requests-limit: 3
-  #   commit-message:
-  #     prefix: "chore(deps)"
-  #   groups:
-  #     frontend-minor-patch:
-  #       update-types: ["minor", "patch"]
+  - package-ecosystem: "npm"
+    directory: "/apps/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      frontend-minor-patch:
+        update-types: ["minor", "patch"]
