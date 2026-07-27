@@ -22,8 +22,10 @@ if [[ "$MODE" == "--solo" ]]; then
   REVIEWS='null'
   echo "==> --solo: PR 승인 요구 없음 (보호 규칙의 나머지는 동일)"
 else
-  # require_code_owner_reviews 는 루트 CODEOWNERS 작성 후 true로 바꿀 것 (파일 없으면 no-op).
-  REVIEWS='{ "required_approving_review_count": 1, "require_code_owner_reviews": false }'
+  # require_code_owner_reviews: 루트 CODEOWNERS의 오너 배정이 끝나 true로 전환됨.
+  # ⚠️ CODEOWNERS의 모든 경로에 오너가 2명 이상이어야 한다 — 단독 오너 경로는 그 오너 자신의
+  #    PR을 승인할 사람이 없어 영구 블록된다(작성자 승인은 카운트되지 않음).
+  REVIEWS='{ "required_approving_review_count": 1, "require_code_owner_reviews": true }'
 fi
 
 echo "==> main 브랜치 보호 규칙 적용"
