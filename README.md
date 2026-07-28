@@ -89,8 +89,8 @@ bash scripts/run-tests.sh        # 전체 앱 lint + mypy + pytest
 | 신호정 | Tech Lead | 아키텍처·모듈 간 계약·워킹 스켈레톤·가드레일 설계 |
 | 김소원 | AI/RAG | 국민행동요령 전처리·청킹, Chroma 인덱싱, 검색 튜닝 |
 | 이진호 | Frontend/UX | PWA·알림톡, 챗봇 UI, 접근성(다국어·쉬운 말·음성) |
-| 최혜리 | Backend/Infra | 공공 API 연동, 위치 매칭 엔진, 인프라·오프라인 폴백 |
-| 김도혁 | QA/Security | 최소수집·암호화, 가드레일 검증, E2E 테스트 |
+| 김도혁 | Backend/Infra | 공공 API 연동, 위치 매칭 엔진, 인프라·오프라인 폴백 |
+| 최혜리 | QA/Security | 최소수집·암호화, 가드레일 검증, E2E 테스트 |
 
 ## 문서
 
