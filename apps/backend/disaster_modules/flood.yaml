@@ -1,0 +1,12 @@
+# 재난 모듈: 침수·호우 (MVP 유일 활성 모듈)
+# 엔진 코드는 재난 유형과 무관. 재난이 바뀌면 이 파일만 교체한다.
+module: flood
+display_name: 침수·호우
+apis:
+  alert_source: kma_special_report      # 기상청 특보 API
+  shelter_source: mois_flood_shelter    # 행안부 대피소 데이터
+action_manual:
+  doc_id: nda_flood_manual              # 국민행동요령 침수·호우 문서 (벡터DB 색인 ID)
+severity_map:
+  호우주의보: advisory
+  호우경보: warning

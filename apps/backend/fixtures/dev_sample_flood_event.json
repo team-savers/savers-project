@@ -1,0 +1,29 @@
+{
+  "_note": "개발용 합성 샘플. 실 API 동결 픽스처가 아니며, 키 수령 후 collect_fixture.py 수집본으로 대체한다. 좌표는 관악구 신림동 일대 임의값.",
+  "event": {
+    "event_id": "DEV-FLOOD-0001",
+    "disaster_type": "flood",
+    "severity": "warning",
+    "issued_at": "2026-07-28T21:00:00+09:00",
+    "admin_dong_codes": ["1162051000"],
+    "data_as_of": "2026-07-28T21:00:00+09:00"
+  },
+  "admin_dong_names": {"1162051000": "신림동"},
+  "users": [
+    {"user_id": "U-ELD-01", "admin_dong_code": "1162051000", "persona": "elderly_basement", "language": "ko", "accessibility": ["tts", "large_text", "easy_text"]},
+    {"user_id": "U-FRW-01", "admin_dong_code": "1162051000", "persona": "foreign_worker", "language": "vi", "accessibility": ["easy_text"]},
+    {"user_id": "U-OUT-01", "admin_dong_code": "9999999999", "persona": "elderly_basement", "language": "ko", "accessibility": ["tts"]}
+  ],
+  "user_locations": {
+    "U-ELD-01": {"lat": 37.4842, "lon": 126.9296},
+    "U-FRW-01": {"lat": 37.4870, "lon": 126.9250}
+  },
+  "shelters": [
+    {"id": "SHELTER-001", "name": "신림 제1대피소", "lat": 37.4838, "lon": 126.9312},
+    {"id": "SHELTER-002", "name": "신림 제2대피소", "lat": 37.4901, "lon": 126.9219},
+    {"id": "SHELTER-003", "name": "저지대 임시대피소", "lat": 37.4849, "lon": 126.9291}
+  ],
+  "hazards": [
+    {"id": "HAZARD-001", "name": "신림 지하차도", "lat": 37.4851, "lon": 126.9289, "radius_m": 150, "reason": "flood_risk_underpass"}
+  ]
+}
