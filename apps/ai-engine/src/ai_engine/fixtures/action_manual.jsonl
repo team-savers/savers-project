@@ -1,0 +1,10 @@
+{"id": "placeholder-heavy-rain-001", "title": "[더미] 국민행동요령 — 호우 시 행동요령", "text": "반지하 주택, 지하 상가, 저지대에 있을 때는 물이 차오르기 전에 즉시 높은 곳이나 가까운 안전한 건물로 이동합니다.", "tags": ["heavy_rain", "flood", "banjiha", "lowland", "evacuate"], "url": null}
+{"id": "placeholder-heavy-rain-002", "title": "[더미] 국민행동요령 — 호우 시 행동요령", "text": "침수된 도로, 지하차도, 교량은 통행하지 않습니다. 물이 흐르는 곳은 깊이를 알 수 없어 매우 위험합니다.", "tags": ["heavy_rain", "flood", "route", "evacuate"], "url": null}
+{"id": "placeholder-heavy-rain-003", "title": "[더미] 국민행동요령 — 호우 시 행동요령", "text": "이동할 때는 맨홀 뚜껑이 열려 있거나 하수구가 역류할 수 있으므로 물이 고인 길가로 걷지 않습니다.", "tags": ["heavy_rain", "flood", "route", "mobility"], "url": null}
+{"id": "placeholder-heavy-rain-004", "title": "[더미] 국민행동요령 — 호우 시 행동요령", "text": "집 안에 물이 들어오기 시작하면 가스 밸브를 잠그고 전기 콘센트와 차단기에 손대지 않은 채 밖으로 나갑니다.", "tags": ["heavy_rain", "flood", "banjiha", "home"], "url": null}
+{"id": "placeholder-heavy-rain-005", "title": "[더미] 국민행동요령 — 호우 시 행동요령", "text": "혼자 계신 어르신, 몸이 불편한 분은 이웃이나 가족에게 미리 연락해 함께 이동할 사람을 정해 둡니다.", "tags": ["heavy_rain", "flood", "lives_alone", "mobility_assisted", "guardian"], "url": null}
+{"id": "placeholder-heavy-rain-006", "title": "[더미] 국민행동요령 — 호우 시 행동요령", "text": "계단을 오르기 어려운 경우에는 경사로가 있는 대피 장소를 먼저 확인하고, 도움을 줄 사람과 함께 이동합니다.", "tags": ["heavy_rain", "flood", "stairs", "mobility_assisted"], "url": null}
+{"id": "placeholder-heavy-rain-007", "title": "[더미] 국민행동요령 — 호우 시 행동요령", "text": "지하 공간은 물이 빠르게 차오르므로 대피 장소로 삼지 않습니다. 지상에 있는 대피 장소로 이동합니다.", "tags": ["heavy_rain", "flood", "underground", "shelter"], "url": null}
+{"id": "placeholder-heavy-rain-008", "title": "[더미] 국민행동요령 — 호우 시 행동요령", "text": "외출을 하지 않고 집 안에서 기다릴 때에도 라디오나 휴대전화로 기상 정보를 계속 확인합니다.", "tags": ["heavy_rain", "flood", "home", "monitor"], "url": null}
+{"id": "placeholder-flood-009", "title": "[더미] 국민행동요령 — 도시침수 시 행동요령", "text": "차량은 두고 걸어서 대피합니다. 물에 잠긴 차 안에서는 문이 열리지 않을 수 있습니다.", "tags": ["flood", "heavy_rain", "vehicle", "evacuate"], "url": null}
+{"id": "placeholder-flood-010", "title": "[더미] 국민행동요령 — 도시침수 시 행동요령", "text": "구조가 필요하면 119로 신고하고, 말하기 어려운 상황에서는 문자로 위치와 상황을 보냅니다.", "tags": ["flood", "heavy_rain", "hearing_bad", "rescue"], "url": null}

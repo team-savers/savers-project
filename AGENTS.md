@@ -8,7 +8,9 @@ This repository holds the planning set — design docs (`docs/공통_가이드/`
 
 **This repository is public** — judges browse it directly. Treat every commit as published: no secrets, no personal data beyond team member names, no competition submission forms (see "Not in this repository" below).
 
-What exists in code today is a **walking-skeleton scaffold, not an implementation**: each Python app has a `/health` endpoint, a smoke test, and a passing CI/lint/type gate. `apps/frontend/`, `packages/contracts/`, and `infra/` are documented placeholders awaiting P1. Don't mistake the scaffold for working features, and don't improvise a different structure — extend the one described under "Repo structure convention".
+What exists in code today is a **walking skeleton, not a working service**. One disaster event threads the whole path — `수신 → 매칭 → 검색 → 생성(가드레일) → 세션 발급 → 웹푸시 발송 → 대피소 안내 → 챗봇 → 보호자 상태` — with every external dependency replaced by an offline stub behind a named seam ([ADR-0007](docs/adr/0007-walking-skeleton.md)). Nothing here talks to a real API yet: the disaster feed, the 국민행동요령 corpus, HyperCLOVA X, FCM, the shelter API and the resident store are all stubbed or in-memory, and each has an owner and a phase in [docs/역할_일정/](docs/역할_일정/00-overall.md).
+
+⚠️ **Don't read the stubs as measurements.** The bundled corpus is dummy text marked `[더미]`; scoring 근거 일치율 against it measures agreement with a placeholder. `apps/frontend/` and `infra/` are still documented placeholders awaiting P1. Don't improvise a different structure — extend the one described under "Repo structure convention", and replace a stub at its seam rather than around it.
 
 Key hard dates: **preliminary round opens 2026-07-27**, **prelim submission (with measured metrics) due 2026-08-10 13:00**, **finals early September**; the build-out is a ~2-week sprint to 8/10 followed by a finals-prep track. All schedule phases (P1–P5) start on 2026-07-27 — no work is planned before the round opens; see [docs/역할_일정/00-overall.md](docs/역할_일정/00-overall.md) for the phased plan and per-role schedules.
 
@@ -155,6 +157,11 @@ pip install pre-commit && pre-commit install && pre-commit install --hook-type p
 
 uvicorn api.main:app --reload --port 8000              # backend    → :8000/docs
 uvicorn ai_engine.service:app --reload --port 8100     # ai-engine  → :8100/docs
+
+# Walking skeleton in one call: fires the demo 호우경보 over the seeded 행정동 and returns
+# session tokens + per-recipient latency. With ai-engine down it still returns 200, with
+# messageMode: official_fallback — that degradation is the designed behaviour, not a bug.
+curl -X POST localhost:8000/internal/alerts/dispatch
 
 bash scripts/run-tests.sh          # quality gate: ruff + mypy + pytest across all apps (= CI)
 bash scripts/run-tests.sh --tests  # pytest only (what the pre-push hook runs)

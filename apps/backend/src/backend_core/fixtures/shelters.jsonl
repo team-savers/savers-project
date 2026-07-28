@@ -1,0 +1,6 @@
+{"id": "shelter-seowon-001", "name": "서원초등학교 체육관", "address": "서울특별시 관악구 신림로 000", "lat": 37.4861, "lng": 126.9283, "isUnderground": false, "hasStairs": true, "capacity": 320, "dongCode": "1162064500"}
+{"id": "shelter-seowon-002", "name": "관악구민종합체육관", "address": "서울특별시 관악구 관악로 000", "lat": 37.4823, "lng": 126.9321, "isUnderground": false, "hasStairs": false, "capacity": 500, "dongCode": "1162064500"}
+{"id": "shelter-seowon-003", "name": "서원동주민센터 다목적실", "address": "서울특별시 관악구 서원길 00", "lat": 37.4848, "lng": 126.9268, "isUnderground": false, "hasStairs": true, "capacity": 90, "dongCode": "1162064500"}
+{"id": "shelter-seowon-004", "name": "신림동 지하상가 민방위대피소", "address": "서울특별시 관악구 신림로 000 지하1층", "lat": 37.4839, "lng": 126.9296, "isUnderground": true, "hasStairs": true, "capacity": 800, "dongCode": "1162064500"}
+{"id": "shelter-seowon-005", "name": "○○아파트 지하주차장 대피소", "address": "서울특별시 관악구 신림로 000 지하2층", "lat": 37.4877, "lng": 126.9312, "isUnderground": true, "hasStairs": true, "capacity": 400, "dongCode": "1162064500"}
+{"id": "shelter-seowon-006", "name": "난곡중학교 강당", "address": "서울특별시 관악구 난곡로 000", "lat": 37.4795, "lng": 126.9241, "isUnderground": false, "hasStairs": false, "capacity": 260, "dongCode": "1162064500"}
