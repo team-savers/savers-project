@@ -3,7 +3,7 @@
 - **상태**: 승인 (Accepted) — 생성 계약은 [ADR-0006](0006-generation-contract.md)을 따른다
 - **날짜**: 2026-07-28
 - **결정자**: 신호정 (Tech Lead)
-- **관련 문서**: [ADR-0001](0001-monorepo.md) (앱 경계), [ADR-0002](0002-frontloaded-tech-lead.md) (Walking Skeleton 정의), [ADR-0003](0003-single-vm-seoul.md) (단일 VM), [ADR-0005](0005-webpush-primary-channel.md) (웹푸시 1차·문안 그대로 전달), [ADR-0006](0006-generation-contract.md) (생성 계약 — **이 문서가 구현하는 기준선**), [packages/contracts/openapi.yaml](../../packages/contracts/openapi.yaml), [역할_일정/02-테크리드.md](../역할_일정/02-테크리드.md) S1-2
+- **관련 문서**: [ADR-0001](0001-monorepo.md) (앱 경계), [ADR-0002](0002-frontloaded-tech-lead.md) (Walking Skeleton 정의), [ADR-0003](0003-single-vm-seoul.md) (단일 VM), [ADR-0005](0005-webpush-primary-channel.md) (웹푸시 1차·문안 그대로 전달), [ADR-0006](0006-generation-contract.md) (생성 계약 — **이 문서가 구현하는 기준선**), [packages/contracts/openapi.yaml](../../packages/contracts/openapi.yaml), [역할_일정/02-테크리드.md](../역할_일정/02-테크리드.md) S1-2, [공통_가이드/워킹_스켈레톤_설명.md](../공통_가이드/워킹_스켈레톤_설명.md) (이 결정들이 코드에서 어떻게 동작하는지 — 모듈·이음매 상세)
 
 > **ADR-0006과의 관계.** 두 문서는 같은 날 병렬로 작성됐고 생성 구간이 한때 어긋나 있었다.
 > ADR-0006이 먼저 머지된 확정본이므로 **구현을 그쪽에 맞췄고**, 이 문서는 그 계약을 어떻게
