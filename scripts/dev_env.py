@@ -15,6 +15,7 @@ Failure codes (E01.., W01..) map 1:1 to docs/공통_가이드/환경_세팅_가�
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import shutil
 import subprocess
@@ -53,7 +54,7 @@ _COLOR = _supports_color()
 
 
 def _c(text: str, code: str) -> str:
-    return "\033[{}m{}\033[0m".format(code, text) if _COLOR else text
+    return f"\033[{code}m{text}\033[0m" if _COLOR else text
 
 
 def head(text: str) -> None:
@@ -67,7 +68,7 @@ MARK = {OK: "[ OK ]", MISSING: "[ !! ]", BROKEN: "[ !! ]", SKIP: "[ -- ]"}
 
 def line(status: str, code: str, title: str, detail: str = "") -> None:
     color = {OK: "32", MISSING: "31", BROKEN: "31", SKIP: "90"}[status]
-    tail = "  {}".format(detail) if detail else ""
+    tail = f"  {detail}" if detail else ""
     print("{} {:<4} {}{}".format(_c(MARK[status], color), code, title, _c(tail, "90")))
 
 
@@ -81,7 +82,7 @@ def run(cmd, cwd=None, capture=True):
         cwd=str(cwd) if cwd else None,
         stdout=subprocess.PIPE if capture else None,
         stderr=subprocess.STDOUT if capture else None,
-        universal_newlines=True,
+        text=True,
     )
 
 
@@ -106,7 +107,7 @@ def has_module(name: str) -> bool:
 
 def pip_install(*args: str) -> bool:
     print(_c("     $ pip install " + " ".join(args), "90"))
-    return run([sys.executable, "-m", "pip", "install"] + list(args), capture=False).returncode == 0
+    return run([sys.executable, "-m", "pip", "install", *args], capture=False).returncode == 0
 
 
 def _is_wsl_shim(path: str) -> bool:
@@ -117,12 +118,16 @@ def _is_wsl_shim(path: str) -> bool:
     """
     if os.name != "nt":
         return False
-    windir = os.environ.get("SystemRoot") or os.environ.get("WINDIR") or "C:\\Windows"
+    # Upper-case names: os.environ normalises Windows keys to upper case, so "SYSTEMROOT"
+    # and "SystemRoot" resolve identically -- and only the former satisfies SIM112.
+    windir = os.environ.get("SYSTEMROOT") or os.environ.get("WINDIR") or "C:\\Windows"
     try:
         resolved = os.path.normcase(os.path.realpath(path))
     except OSError:
         resolved = os.path.normcase(path)
-    return resolved.startswith(os.path.normcase(os.path.join(windir, "")))
+    # Trailing separator is load-bearing: without it "C:\WindowsApps\bash.exe" would match.
+    prefix = os.path.normcase(windir).rstrip(os.sep) + os.sep
+    return resolved.startswith(prefix)
 
 
 def _git_bash_candidates():
@@ -235,8 +240,8 @@ def probe_git(ctx):
 def probe_python(ctx):
     version = "{}.{}.{}".format(*sys.version_info[:3])
     if sys.version_info < (3, 12):
-        return BROKEN, "{} — 3.12 이상 필요".format(version)
-    return OK, "{} ({})".format(version, sys.executable)
+        return BROKEN, f"{version} — 3.12 이상 필요"
+    return OK, f"{version} ({sys.executable})"
 
 
 # --- E03 isolated interpreter -------------------------------------
@@ -246,11 +251,11 @@ def probe_isolation(ctx):
     if ctx.mode == "container":
         return OK, "컨테이너 내부 — 이미지가 격리를 담당"
     if sys.prefix != getattr(sys, "base_prefix", sys.prefix):
-        return OK, "venv: {}".format(sys.prefix)
+        return OK, f"venv: {sys.prefix}"
     conda = os.environ.get("CONDA_PREFIX")
     name = os.environ.get("CONDA_DEFAULT_ENV", "")
     if conda and name and name != "base":
-        return OK, "conda: {}".format(name)
+        return OK, f"conda: {name}"
     if conda:
         return BROKEN, "conda base 활성 — 프로젝트 전용 env 필요"
     return MISSING, "시스템 파이썬 — 격리 환경 없음"
@@ -266,12 +271,12 @@ def fix_isolation(ctx):
         return False
     venv = ctx.path(".venv")
     if not venv.exists():
-        print(_c("     $ {} -m venv .venv".format(sys.executable), "90"))
+        print(_c(f"     $ {sys.executable} -m venv .venv", "90"))
         if run([sys.executable, "-m", "venv", str(venv)], capture=False).returncode != 0:
             return False
     activate = r".venv\Scripts\activate" if os.name == "nt" else "source .venv/bin/activate"
     print("     .venv 생성 완료. 활성화 후 이 스크립트를 다시 실행하세요:")
-    print("       {}".format(activate))
+    print(f"       {activate}")
     ctx.needs_restart = True
     return False
 
@@ -298,7 +303,7 @@ def fix_editable(ctx):
 def probe_hookspath(ctx):
     value = out(["git", "config", "--get", "core.hooksPath"], cwd=ctx.root)
     if value:
-        return BROKEN, "core.hooksPath={} — pre-commit 설치가 무력화됨".format(value)
+        return BROKEN, f"core.hooksPath={value} — pre-commit 설치가 무력화됨"
     return OK, "미설정 (정상)"
 
 
@@ -327,7 +332,7 @@ def probe_precommit(ctx):
     cmd = tool_cmd("pre_commit", "pre-commit")
     if cmd is None:
         return MISSING, "pre-commit 미설치"
-    return OK, out(cmd + ["--version"], cwd=ctx.root) or "설치됨"
+    return OK, out([*cmd, "--version"], cwd=ctx.root) or "설치됨"
 
 
 def fix_precommit(ctx):
@@ -349,7 +354,7 @@ def _install_hook(ctx: Ctx, hook_type: str) -> bool:
     if cmd is None:
         print("     pre-commit이 이 인터프리터에 없습니다 — E06을 먼저 복구하세요.")
         return False
-    cmd = cmd + ["install"]
+    cmd = [*cmd, "install"]
     if hook_type != "pre-commit":
         cmd += ["--hook-type", hook_type]
     return run(cmd, cwd=ctx.root, capture=False).returncode == 0
@@ -390,8 +395,8 @@ def probe_nbstripout(ctx):
     # The driver pins an absolute interpreter path; a deleted env leaves a filter that fails
     # on every notebook checkout/commit instead of stripping.
     interpreter = clean.split()[0].strip('"')
-    if os.path.isabs(interpreter) and not Path(interpreter).exists():
-        return BROKEN, "필터가 사라진 인터프리터를 가리킴: {}".format(interpreter)
+    if Path(interpreter).is_absolute() and not Path(interpreter).exists():
+        return BROKEN, f"필터가 사라진 인터프리터를 가리킴: {interpreter}"
     return OK, clean
 
 
@@ -426,7 +431,7 @@ def fix_hook_envs(ctx):
     if cmd is None:
         return False
     print("     훅 환경을 내려받습니다 (최초 1회, 수 분 소요)")
-    return run(cmd + ["install-hooks"], cwd=ctx.root, capture=False).returncode == 0
+    return run([*cmd, "install-hooks"], cwd=ctx.root, capture=False).returncode == 0
 
 
 # --- E11 infra/.env -----------------------------------------------
@@ -523,7 +528,7 @@ def probe_e2e(ctx):
 def probe_bash(ctx):
     path, kind = find_bash()
     if kind == "wsl":
-        return MISSING, "WSL bash만 있음 — Windows venv를 못 봄({}#w05)".format(DOC)
+        return MISSING, f"WSL bash만 있음 — Windows venv를 못 봄({DOC}#w05)"
     if not path:
         return MISSING, "bash 없음 — run-tests.sh(로컬 CI)를 실행할 수 없음"
     return OK, path
@@ -581,7 +586,7 @@ def confirm(ctx: Ctx, question: str) -> bool:
         print("     (비대화 환경: 자동 설치를 건너뜁니다 — --yes 로 강제할 수 있습니다)")
         return False
     try:
-        answer = input("     {} [Y/n] ".format(question)).strip().lower()
+        answer = input(f"     {question} [Y/n] ").strip().lower()
     except (EOFError, KeyboardInterrupt):
         print()
         return False
@@ -618,16 +623,14 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    try:
+    with contextlib.suppress(AttributeError, ValueError):
         sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
-    except (AttributeError, ValueError):
-        pass
 
     ctx = Ctx(find_root(), detect_mode(args.mode), args.yes, args.check)
 
     head("SAVERS 개발 환경 점검")
-    print("  경로: {}".format(ctx.root))
-    print("  모드: {}   플랫폼: {}   파이썬: {}".format(ctx.mode, sys.platform, sys.executable))
+    print(f"  경로: {ctx.root}")
+    print(f"  모드: {ctx.mode}   플랫폼: {sys.platform}   파이썬: {sys.executable}")
 
     head("1. 진단")
     results = evaluate(ctx)
@@ -638,8 +641,8 @@ def main() -> int:
     if blocked:
         head("중단: 자동 복구할 수 없는 전제 조건")
         for check, _, _ in blocked:
-            print("  [{}] {}".format(check.code, check.hint))
-            print("       {}#{}".format(DOC, check.code.lower()))
+            print(f"  [{check.code}] {check.hint}")
+            print(f"       {DOC}#{check.code.lower()}")
         return 2
 
     repairable = [
@@ -649,13 +652,13 @@ def main() -> int:
     if repairable and not ctx.check_only:
         head("2. 복구")
         for check, _, _ in repairable:
-            print("  [{}] {}".format(check.code, check.title))
+            print(f"  [{check.code}] {check.title}")
             if not confirm(ctx, "복구할까요?"):
                 print("     건너뜀")
                 continue
             attempted = True
             if not check.fix(ctx):
-                print("     복구 실패 — {}#{}".format(DOC, check.code.lower()))
+                print(f"     복구 실패 — {DOC}#{check.code.lower()}")
     elif repairable:
         head("2. 복구 (--check: 생략)")
 
@@ -673,12 +676,12 @@ def main() -> int:
     if warned:
         head("선택 항목 (실패 아님)")
         for check, _, detail in warned:
-            print("  [{}] {} — {}".format(check.code, check.title, detail))
+            print(f"  [{check.code}] {check.title} — {detail}")
 
     if failed:
         head("남은 문제")
         for check, _, _ in failed:
-            print("  [{}] {}  ->  {}#{}".format(check.code, check.title, DOC, check.code.lower()))
+            print(f"  [{check.code}] {check.title}  ->  {DOC}#{check.code.lower()}")
         return 2 if ctx.needs_restart else 1
 
     if ctx.needs_restart:
@@ -693,15 +696,13 @@ def main() -> int:
     head("4. 로컬 CI 등가성 확인 (scripts/run-tests.sh)")
     bash, kind = find_bash()
     if kind == "wsl":
-        print("  Windows에 WSL bash({})만 있어 실행하지 못했습니다.".format(bash))
+        print(f"  Windows에 WSL bash({bash})만 있어 실행하지 못했습니다.")
         print("  WSL bash는 별도 리눅스 배포판에서 돌아 이 venv(ruff·mypy·pytest)를 보지 못합니다.")
-        print(
-            "  Git for Windows를 설치하거나, WSL 안에서 clone부터 다시 하세요 — {}#w05".format(DOC)
-        )
+        print(f"  Git for Windows를 설치하거나, WSL 안에서 clone부터 다시 하세요 — {DOC}#w05")
         return 0
     if not bash:
         print("  bash가 없어 실행하지 못했습니다 — Git Bash 설치 또는 WSL에서 실행하세요.")
-        print("  {}#w05".format(DOC))
+        print(f"  {DOC}#w05")
         return 0
     # Relative path on purpose: a Windows absolute path is not resolvable by every bash.
     code = run([bash, "scripts/run-tests.sh"], cwd=ctx.root, capture=False).returncode
