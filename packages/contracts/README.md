@@ -6,13 +6,20 @@
 
 ## 상태
 
-`openapi.yaml` — **프론트엔드 대면 구간만 v0 초안으로 채워져 있습니다** (2026-07-27, 이진호 제안 / Tech Lead 확정 대기).
+`openapi.yaml` — 두 구간이 v0 초안으로 채워져 있습니다.
 
 | 구간 | 상태 |
 |---|---|
-| frontend ↔ backend (세션·대피소·챗봇·기기등록·보호자 5개) | v0 초안 있음 |
-| backend ↔ ai-engine (검색·생성 파이프라인) | 미작성 |
+| frontend ↔ backend (세션·대피소·챗봇·기기등록·보호자 5개) | v0 초안 있음 (2026-07-27, 이진호 제안 / Tech Lead 확정 대기) |
+| backend ↔ ai-engine (`POST /v1/generate`, `generation` 태그) | v0 초안 있음 (2026-07-28, Tech Lead 작성) |
 | 재난 이벤트 스키마 (수집→매칭) | 미작성 |
+
+**두 구간을 한 파일에 둔 이유**는 [`contracts-check.yml`](../../.github/workflows/contracts-check.yml)이
+`packages/contracts/openapi.yaml` **하나만** 검증하기 때문입니다 — 파일을 나누면 새 스펙이
+유효성 검사를 못 받습니다. 소비자가 다른 구간은 태그(`generation`)와 경로 단위 `servers`
+오버라이드(:8100)로 구분하며, 내부 구간은 `security: []`로 세션 토큰을 요구하지 않습니다.
+⚠️ 내부 구간 경로는 **배포에서 외부에 열지 마세요** — 공개되면 취약계층 프로필이 인증 없이
+새어 나갑니다.
 
 **초안의 목적은 확정이 아니라 병렬화입니다.** 응답의 모양이 먼저 고정되면 프론트는 mock으로
 화면을 완성할 수 있고, 백엔드·AI 엔진은 나중에 합류해도 같은 모양만 맞추면 그대로 붙습니다.
