@@ -110,6 +110,54 @@ def pip_install(*args: str) -> bool:
     return run([sys.executable, "-m", "pip", "install", *args], capture=False).returncode == 0
 
 
+def _is_wsl_shim(path: str) -> bool:
+    """True for System32\\bash.exe -- the WSL launcher, not a usable Windows bash.
+
+    It runs inside the Linux distro, so it neither understands the Windows path we would
+    hand it nor sees the Windows venv that owns ruff/mypy/pytest.
+    """
+    if os.name != "nt":
+        return False
+    windir = os.environ.get("SystemRoot") or os.environ.get("WINDIR") or "C:\\Windows"
+    try:
+        resolved = os.path.normcase(os.path.realpath(path))
+    except OSError:
+        resolved = os.path.normcase(path)
+    return resolved.startswith(os.path.normcase(os.path.join(windir, "")))
+
+
+def _git_bash_candidates():
+    """Git for Windows ships bash.exe next to git.exe (…\\Git\\cmd → …\\Git\\bin)."""
+    git = shutil.which("git")
+    if git:
+        bindir = Path(git).resolve().parent
+        yield bindir / "bash.exe"  # PATH points at …\Git\bin
+        install = bindir.parent  # PATH points at …\Git\cmd
+        yield install / "bin" / "bash.exe"
+        yield install / "usr" / "bin" / "bash.exe"
+    for var in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"):
+        base = os.environ.get(var)
+        if base:
+            yield Path(base) / "Git" / "bin" / "bash.exe"
+
+
+def find_bash():
+    """Locate a bash that shares this interpreter's environment.
+
+    Returns (path, kind) with kind in {"native", "gitbash", "wsl", None}. On Windows
+    `which("bash")` usually resolves to the WSL shim, which is reported as "wsl" rather
+    than returned as usable -- see docs §W05.
+    """
+    found = shutil.which("bash")
+    if found and not _is_wsl_shim(found):
+        return found, "native"
+    if os.name == "nt":
+        for candidate in _git_bash_candidates():
+            if candidate.is_file():
+                return str(candidate), "gitbash"
+    return (found, "wsl") if found else (None, None)
+
+
 # ---------------------------------------------------------------- context
 
 
@@ -474,9 +522,12 @@ def probe_e2e(ctx):
 
 
 def probe_bash(ctx):
-    if not shutil.which("bash"):
+    path, kind = find_bash()
+    if kind == "wsl":
+        return MISSING, "WSL bash만 있음 — Windows venv를 못 봄({}#w05)".format(DOC)
+    if not path:
         return MISSING, "bash 없음 — run-tests.sh(로컬 CI)를 실행할 수 없음"
-    return OK, shutil.which("bash") or "bash"
+    return OK, path
 
 
 CHECKS = [
@@ -639,14 +690,20 @@ def main() -> int:
         return 0
 
     head("4. 로컬 CI 등가성 확인 (scripts/run-tests.sh)")
-    bash = shutil.which("bash")
+    bash, kind = find_bash()
+    if kind == "wsl":
+        print("  Windows에 WSL bash({})만 있어 실행하지 못했습니다.".format(bash))
+        print("  WSL bash는 별도 리눅스 배포판에서 돌아 이 venv(ruff·mypy·pytest)를 보지 못합니다.")
+        print(
+            "  Git for Windows를 설치하거나, WSL 안에서 clone부터 다시 하세요 — {}#w05".format(DOC)
+        )
+        return 0
     if not bash:
         print("  bash가 없어 실행하지 못했습니다 — Git Bash 설치 또는 WSL에서 실행하세요.")
         print(f"  {DOC}#w05")
         return 0
-    code = run(
-        [bash, str(ctx.path("scripts", "run-tests.sh"))], cwd=ctx.root, capture=False
-    ).returncode
+    # Relative path on purpose: a Windows absolute path is not resolvable by every bash.
+    code = run([bash, "scripts/run-tests.sh"], cwd=ctx.root, capture=False).returncode
     if code != 0:
         head("로컬 CI 실패 — 환경 문제가 아니라 코드/테스트 문제일 수 있습니다")
         return 1
