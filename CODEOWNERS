@@ -21,19 +21,19 @@
 *                            @Yopkigom @eunnamahn
 
 # 모듈 오너 (docs/역할_가이드/ 와 1:1) — 담당자 + Tech Lead + PM
-/apps/backend/               @twentycherry-gif @Yopkigom @eunnamahn
+/apps/backend/               @kimdohyuk8888-bot @Yopkigom @eunnamahn
 /apps/ai-engine/             @ksw199777-hue @Yopkigom @eunnamahn
 /apps/frontend/              @peedi8 @Yopkigom @eunnamahn
-/packages/contracts/         @Yopkigom @twentycherry-gif @eunnamahn
-/infra/                      @twentycherry-gif @Yopkigom @eunnamahn
+/packages/contracts/         @Yopkigom @kimdohyuk8888-bot @eunnamahn
+/infra/                      @kimdohyuk8888-bot @Yopkigom @eunnamahn
 /docs/adr/                   @Yopkigom @eunnamahn
 
 # 평가 하네스는 ai-engine 소속이지만 채점 기준은 QA와 공동 소유 (자기채점 편향 방지)
-/apps/ai-engine/eval/        @ksw199777-hue @kimdohyuk8888-bot @eunnamahn
+/apps/ai-engine/eval/        @ksw199777-hue @twentycherry-gif @eunnamahn
 
 # 앱을 가로지르는 관통 테스트 — 특정 앱이 아니라 QA 소유 (+ Tech Lead·PM 백업)
-/e2e/                        @kimdohyuk8888-bot @Yopkigom @eunnamahn
+/e2e/                        @twentycherry-gif @Yopkigom @eunnamahn
 
 # 파이프라인·품질 게이트 변경은 영향 범위가 넓으므로 Tech Lead + QA 동시 리뷰 (+ PM 백업)
-/.github/               @Yopkigom @kimdohyuk8888-bot @eunnamahn
-/scripts/               @Yopkigom @kimdohyuk8888-bot @eunnamahn
+/.github/               @Yopkigom @twentycherry-gif @eunnamahn
+/scripts/               @Yopkigom @twentycherry-gif @eunnamahn
