@@ -118,12 +118,16 @@ def _is_wsl_shim(path: str) -> bool:
     """
     if os.name != "nt":
         return False
-    windir = os.environ.get("SystemRoot") or os.environ.get("WINDIR") or "C:\\Windows"
+    # Upper-case names: os.environ normalises Windows keys to upper case, so "SYSTEMROOT"
+    # and "SystemRoot" resolve identically -- and only the former satisfies SIM112.
+    windir = os.environ.get("SYSTEMROOT") or os.environ.get("WINDIR") or "C:\\Windows"
     try:
         resolved = os.path.normcase(os.path.realpath(path))
     except OSError:
         resolved = os.path.normcase(path)
-    return resolved.startswith(os.path.normcase(os.path.join(windir, "")))
+    # Trailing separator is load-bearing: without it "C:\WindowsApps\bash.exe" would match.
+    prefix = os.path.normcase(windir).rstrip(os.sep) + os.sep
+    return resolved.startswith(prefix)
 
 
 def _git_bash_candidates():
@@ -524,7 +528,7 @@ def probe_e2e(ctx):
 def probe_bash(ctx):
     path, kind = find_bash()
     if kind == "wsl":
-        return MISSING, "WSL bash만 있음 — Windows venv를 못 봄({}#w05)".format(DOC)
+        return MISSING, f"WSL bash만 있음 — Windows venv를 못 봄({DOC}#w05)"
     if not path:
         return MISSING, "bash 없음 — run-tests.sh(로컬 CI)를 실행할 수 없음"
     return OK, path
@@ -692,11 +696,9 @@ def main() -> int:
     head("4. 로컬 CI 등가성 확인 (scripts/run-tests.sh)")
     bash, kind = find_bash()
     if kind == "wsl":
-        print("  Windows에 WSL bash({})만 있어 실행하지 못했습니다.".format(bash))
+        print(f"  Windows에 WSL bash({bash})만 있어 실행하지 못했습니다.")
         print("  WSL bash는 별도 리눅스 배포판에서 돌아 이 venv(ruff·mypy·pytest)를 보지 못합니다.")
-        print(
-            "  Git for Windows를 설치하거나, WSL 안에서 clone부터 다시 하세요 — {}#w05".format(DOC)
-        )
+        print(f"  Git for Windows를 설치하거나, WSL 안에서 clone부터 다시 하세요 — {DOC}#w05")
         return 0
     if not bash:
         print("  bash가 없어 실행하지 못했습니다 — Git Bash 설치 또는 WSL에서 실행하세요.")
