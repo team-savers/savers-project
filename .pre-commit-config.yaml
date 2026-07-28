@@ -41,10 +41,17 @@ repos:
 
   # ruff — CI의 lint/format 게이트와 동일 검사 (pyproject [tool.ruff] 설정 공유).
   # ruff-check는 자동 수정(--fix), ruff-format은 자동 포맷.
+  # ⚠️ 아래 rev는 apps/backend·apps/ai-engine의 dev extra `ruff==` 와 **한 쌍**입니다
+  #    (gitleaks의 rev ↔ ci.yml GITLEAKS_VERSION 규약과 동일). 이 잡과 CI의 lint 잡은
+  #    서로 다른 경로로 ruff를 설치하므로, 한쪽만 올리면 같은 코드가 한쪽에서만 통과합니다.
+  #    ruff는 0.x라 마이너 업그레이드에서 기본 규칙셋 자체가 넓어집니다 — 버전 상향은
+  #    "린트 설정 변경"으로 취급해 세 파일을 같은 PR에서 함께 올리세요.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+    rev: v0.15.22
     hooks:
-      - id: ruff
+      # id는 `ruff-check`. 예전 이름 `ruff`는 legacy alias로 아직 동작하지만 실행할 때마다
+      # "(legacy alias)" 경고를 찍으므로, 버전 상향과 함께 정식 id로 정리합니다.
+      - id: ruff-check
         args: ["--fix"]
         files: ^(apps|packages|scripts|e2e)/.*\.py$
       - id: ruff-format
