@@ -37,6 +37,9 @@ curl localhost:8100/health
 |---|---|
 | `CLOVA_API_KEY` | HyperCLOVA X 생성 호출 |
 | `CHROMA_PERSIST_DIR` | Chroma 벡터 DB 저장 경로 |
+| `RETRIEVER_BACKEND` | 검색 백엔드 스위치. `fixture`(기본값) \| `chroma` |
+| `ACTION_MANUAL_COLLECTION` | `chroma` 백엔드가 읽을 컬렉션 이름 — `build_index.py --collection`과 반드시 일치해야 함 |
+| `ACTION_MANUAL_API_KEY` | 국민행동요령 코퍼스 API(safetydata.go.kr) 서비스키 — `scripts/fetch_corpus.py` 전용 |
 
 ## 엔드포인트
 
@@ -58,15 +61,22 @@ FastAPI에 의존하지 않아야 합니다.
 
 ## 현재 구현 상태 (워킹 스켈레톤)
 
-**검색·생성 모두 오프라인 스텁입니다.** 이음매는 두 곳이고, 교체해도 호출부는 바뀌지 않습니다.
+이음매는 두 곳입니다. `generation.Generator`는 아직 오프라인 스텁이고, `retrieval.Retriever`는
+**구현 자체는 끝났지만 기본값이 여전히 스텁 쪽**입니다 — 둘을 구분해서 보세요.
 
-| 이음매 | 지금 | 교체 대상 | 소관 |
+| 이음매 | 기본값 | 실제 구현 | 소관 |
 |---|---|---|---|
-| `retrieval.Retriever` | `FixtureRetriever` (더미 코퍼스 + 어휘 검색) | Chroma + 한국어 임베딩 | 김소원 (S1-1~S1-2) |
-| `generation.Generator` | `StubGenerator` (근거 인용 조합) | HyperCLOVA X 클라이언트 | 신호정 |
+| `retrieval.Retriever` | `FixtureRetriever` (더미 코퍼스 + 어휘 검색) | `ChromaRetriever` (BGE-M3 + Chroma) — 구현·실데이터 색인·검증 완료, `RETRIEVER_BACKEND=chroma`로 옵트인 | 김소원 (S1-1~S1-2) |
+| `generation.Generator` | `StubGenerator` (근거 인용 조합) | HyperCLOVA X 클라이언트 — 아직 없음 | 신호정 |
+
+⚠️ 기본값이 `chroma`가 아닌 이유는 "데이터가 없어서"가 아니라 **운영 기본값 전환이 별도
+결정**이기 때문입니다 — CI/새 클론은 `rag` extra를 안 깔아서 여전히 `fixture`로 동작해야
+합니다. 자세한 내용은 `ai_engine.config.Settings.retriever_backend` 참고.
 
 ⚠️ `src/ai_engine/fixtures/action_manual.jsonl`은 **검증되지 않은 더미**입니다. 이걸로 근거
-일치율을 재면 지표가 무의미해집니다 — [fixtures/README.md](src/ai_engine/fixtures/README.md) 참고.
+일치율을 재면 지표가 무의미해집니다 — 실제 원문은 같은 디렉토리의 `flood_action_manual.csv`
+(`fetch_corpus.py`로 실제 API에서 수집)이며, 출처·라이선스는
+[fixtures/SOURCE.md](src/ai_engine/fixtures/SOURCE.md) 참고.
 
 가드레일은 **프롬프트 + 출력 사후검증** 2단이며(`guardrail.py`), on/off는 요청 파라미터입니다.
 ⚠️ off는 환각 억제율 대조군 측정 전용이고 **운영 기본값은 항상 on**입니다 — 테스트를
@@ -79,4 +89,4 @@ ruff check apps/ai-engine && ruff format --check apps/ai-engine
 cd apps/ai-engine && mypy && pytest
 ```
 
-> TODO(P1): 실제 코퍼스·Chroma 인덱스 연결, 평가 하네스(`apps/ai-engine/eval/`) 배선.
+> TODO(P1): `RETRIEVER_BACKEND=chroma`를 운영 기본값으로 전환, 평가 하네스(`apps/ai-engine/eval/`) 배선.

@@ -9,8 +9,14 @@
 
 ⚠️ **이 파일 그대로 근거 일치율을 측정하면 지표가 무의미합니다.** 근거 일치율은 "생성 문안이
 국민행동요령 **원문**과 일치하는가"를 재는 지표인데, 원문 자리에 더미가 있으면 더미와의 일치를
-재게 됩니다. S1-1의 원문 수집·파싱·청킹(AI/RAG, 김소원)이 끝나면 Chroma 인덱스로 교체되며,
-그 시점에 이 디렉토리는 검색 구현 교체 테스트용 소형 픽스처로만 남습니다.
+재게 됩니다.
+
+원문 수집·파싱·청킹·Chroma 색인(AI/RAG, 김소원)은 **이미 끝났습니다** — 같은 디렉토리의
+`flood_action_manual.csv`가 실제 원문(`fetch_corpus.py`로 safetydata.go.kr에서 수집)이고,
+`ChromaRetriever`가 이걸 검색합니다. 다만 **운영 기본값은 여전히 이 `FixtureRetriever` +
+더미 조합**입니다 — `RETRIEVER_BACKEND=chroma`로 켜야 실제 코퍼스를 씁니다(사유는
+`ai_engine.config.Settings.retriever_backend` 참고). `chroma`가 기본값이 되고 나면 이
+디렉토리는 검색 구현 교체 테스트용 소형 픽스처로만 남습니다.
 
 ## 스키마
 

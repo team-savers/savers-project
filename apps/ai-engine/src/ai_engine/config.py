@@ -19,10 +19,12 @@ class Settings(BaseSettings):
     # `chroma` service note).
     chroma_persist_dir: str = "./.chroma"
 
-    # ⚠️ Default stays "fixture": a fresh clone / CI never installs the `rag` extra, and no
-    # `flood`-tagged Chroma index exists yet (only the typhoon pipeline smoke test does) —
-    # switching the default would turn every generation request into a no_evidence refusal.
-    # Same swap-when-ready idiom as generation.get_generator()'s StubGenerator.
+    # ⚠️ Default stays "fixture": a fresh clone / CI never installs the `rag` extra, so
+    # switching the default would break every environment that hasn't opted into `rag`.
+    # A real `flood`-tagged index (`flood_action_manual`) does exist and has been
+    # validated (see docs), but promoting `chroma` to the default is a separate decision
+    # from "the data is ready" — same swap-when-ready idiom as
+    # generation.get_generator()'s StubGenerator.
     retriever_backend: Literal["fixture", "chroma"] = "fixture"
 
     # ⚠️ Must match whatever `--collection` build_index.py was actually run with.
