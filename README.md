@@ -13,7 +13,8 @@
 하는지"* 입니다.
 
 SAVERS는 경보 발령 시 등록 주민을 매칭하고, **알림 링크 진입 시점에 현재 위치를 단 한 번만**
-확인한 뒤, 행정안전부 국민행동요령에 근거한 개인 맞춤 행동지침을 카카오 알림톡·PWA로 전달합니다.
+확인한 뒤, 행정안전부 국민행동요령에 근거한 개인 맞춤 행동지침을 **PWA 웹푸시(FCM)** 로 전달합니다
+([ADR-0005](docs/adr/0005-webpush-primary-channel.md) — 카카오 알림톡은 예선 범위에서 제외).
 
 MVP 1차 대상 재난: **호우·도시침수**.
 
@@ -33,7 +34,7 @@ MVP 1차 대상 재난: **호우·도시침수**.
 ├── apps/
 │   ├── backend/        # FastAPI — 재난 Open API 수집, 행정동/위치 매칭, 발송 오케스트레이션
 │   ├── ai-engine/      # 독립 배포 단위 — RAG + 가드레일 생성, eval/ 품질 측정 하네스 포함
-│   └── frontend/       # PWA · 알림톡 진입 화면 · Interactive Care 챗봇 (스캐폴딩 예정)
+│   └── frontend/       # PWA · 웹푸시 딥링크 랜딩 · Interactive Care 챗봇 (스캐폴딩 예정)
 ├── packages/contracts/ # 모듈 간 계약(OpenAPI·공유 스키마) 단일 원천
 ├── infra/              # docker-compose, .env 템플릿, AWS 프로비저닝
 ├── notebooks/          # 실험 기록 (검증되면 apps/<app>/src 로 함수화 이전)
@@ -88,7 +89,7 @@ bash scripts/run-tests.sh        # 전체 앱 lint + mypy + pytest
 | 안은남 | PM | 마일스톤·통합·최종 데모 |
 | 신호정 | Tech Lead | 아키텍처·모듈 간 계약·워킹 스켈레톤·가드레일 설계 |
 | 김소원 | AI/RAG | 국민행동요령 전처리·청킹, Chroma 인덱싱, 검색 튜닝 |
-| 이진호 | Frontend/UX | PWA·알림톡, 챗봇 UI, 접근성(다국어·쉬운 말·음성) |
+| 이진호 | Frontend/UX | PWA·웹푸시(FCM), 챗봇 UI, 접근성(다국어·쉬운 말·음성) |
 | 김도혁 | Backend/Infra | 공공 API 연동, 위치 매칭 엔진, 인프라·오프라인 폴백 |
 | 최혜리 | QA/Security | 최소수집·암호화, 가드레일 검증, E2E 테스트 |
 
@@ -96,6 +97,8 @@ bash scripts/run-tests.sh        # 전체 앱 lint + mypy + pytest
 
 - [AGENTS.md](AGENTS.md) — 프로젝트 단일 브리프(사람·코딩 에이전트 공용). **먼저 읽으세요.**
 - [docs/공통_가이드/](docs/공통_가이드/) — 아키텍처·리스크·구현 범위·외부 승인·환경 세팅·저장소 운영
+- [docs/공통_가이드/워킹_스켈레톤_설명.md](docs/공통_가이드/워킹_스켈레톤_설명.md) — 지금 돌아가는 관통 경로의 모듈·이음매 상세
+- [docs/공통_가이드/워킹_스켈레톤_점검.md](docs/공통_가이드/워킹_스켈레톤_점검.md) — 단계별 동작 확인 명령과 통과 기준
 - [docs/adr/](docs/adr/) — 아키텍처 결정 기록
 - [docs/역할_가이드/](docs/역할_가이드/) · [docs/역할_일정/](docs/역할_일정/) — 역할별 담당과 일정
 - [docs/pr-checklist.md](docs/pr-checklist.md) — PR 절차

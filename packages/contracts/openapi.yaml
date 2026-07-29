@@ -469,7 +469,9 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-  /v1/devices:
+    # ⚠️ 이 delete는 위 post와 **같은 `/v1/devices` 항목 아래**에 있어야 합니다.
+    #    이전 판은 `/v1/devices:` 키를 두 번 선언했는데, YAML 매핑에서 중복 키는 뒤가 앞을
+    #    덮으므로 등록(post) 정의가 통째로 사라진 상태였습니다(파서에 따라 조용히 통과).
     delete:
       tags: [device]
       summary: 웹푸시 등록 토큰 해제
@@ -687,6 +689,61 @@ paths:
           description: |
             생성 백엔드(HyperCLOVA X) 또는 벡터 DB 장애. 백엔드는 이 응답을
             타임아웃과 동일하게 취급해 `official_fallback`으로 전환합니다.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/answer:
+    servers:
+      - url: http://localhost:8100
+        description: 로컬 개발 (ai-engine) — backend와 별도 배포 단위입니다
+    post:
+      tags: [generation]
+      summary: Interactive Care 후속 질의 답변
+      security: []   # 세션 토큰 없음 — 브라우저가 아니라 백엔드가 호출합니다
+      description: |
+        프론트 대면 `POST /v1/chat`의 뒷단입니다. 백엔드가 세션 토큰으로 프로필과 재난
+        맥락을 조회한 뒤, **식별 정보를 뺀 `RecipientContext`만** 실어 이 경로로 넘깁니다.
+
+        `POST /v1/generate`와 다른 점은 **폴백이 없다는 것**입니다. 발송 문안은 반드시
+        도달해야 하지만, 질의 답변은 근거가 없으면 침묵하는 편이 안전합니다 — 재난 중
+        지어낸 답은 지어낸 지시와 같은 종류의 사고입니다. 근거를 회수하지 못하면
+        `answer: null` + `refusalReason`으로 응답하며, 이는 오류가 아니라 정상 200입니다.
+
+        ⚠️ 이 무응답률은 제출 지표이므로, 답변률을 올리려고 근거 없는 생성을 허용해서는
+        안 됩니다.
+
+        ## 검색(retrieval)은 왜 계약에 없는가
+
+        검색은 ai-engine 내부의 단방향 파이프라인(파싱 → 청킹 → 임베딩 → 검색 → 생성)
+        중간 단계이며, 외부에서 부를 대상이 아닙니다([ADR-0006](../../docs/adr/0006-generation-contract.md)).
+        평가 하네스는 HTTP가 아니라 `ai_engine.retrieval` 모듈을 직접 import해 채점합니다 —
+        그래서 그 모듈이 FastAPI에 의존하지 않아야 합니다.
+      operationId: postAnswer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnswerRequest'
+      responses:
+        '200':
+          description: '답변, 또는 근거 부족에 따른 정상 무응답(`answer: null`)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnswerResponse'
+        '400':
+          description: 잘못된 요청(본문 검증 실패)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          description: |
+            생성 백엔드 또는 벡터 DB 장애. 백엔드는 챗봇 경로에서 이를 무응답으로
+            표시합니다(폴백 문구를 지어내지 않습니다).
           content:
             application/json:
               schema:
@@ -1412,6 +1469,57 @@ components:
         reason:
           type: string
           enum: [flood_risk_underpass, lowland, riverside]
+
+    AnswerRequest:
+      type: object
+      description: |
+        챗봇 질의. `GenerationContext`와 같은 최소 수집 원칙을 따릅니다 — 이름·연락처·
+        `dongCode`·`vision`·`hearing`은 넘기지 않습니다.
+      required: [question, recipient, disaster]
+      properties:
+        question:
+          type: string
+          description: 사용자 질문 원문. **상황에 대한 사실로 취급하지 않습니다** — 질문은 질문일 뿐입니다.
+          example: 지하 주차장에 차 빼러 가도 되나요?
+        recipient:
+          $ref: '#/components/schemas/RecipientContext'
+        disaster:
+          $ref: '#/components/schemas/DisasterContext'
+        locale:
+          type: string
+          enum: [ko, vi, zh, en]
+          default: ko
+          description: 출력 언어. 번역이 아니라 해당 언어로 생성합니다.
+        guardrail:
+          type: boolean
+          default: true
+          description: |
+            ⚠️ 운영 기본값은 항상 `true`입니다. `false`는 환각 억제율 대조군 측정 전용입니다.
+
+    AnswerResponse:
+      type: object
+      description: |
+        `answer`가 `null`인 것은 오류가 아니라 **정상적인 무응답**입니다(근거 없이 지어내지
+        않았다는 뜻). 프론트 대면 `ChatResponse`가 이 응답에서 파생됩니다.
+      required: [answer, sources, refusalReason, guardrailApplied]
+      properties:
+        answer:
+          type: [string, 'null']
+          description: |
+            답변 본문. 키는 항상 존재하며 값이 `null`일 수 있습니다 — 키를 생략하면 "무응답"과
+            "응답 누락"을 구분할 수 없어 무응답률 지표가 무효가 됩니다.
+        sources:
+          type: array
+          description: 비어 있으면 `answer`는 반드시 `null`이어야 합니다.
+          items:
+            $ref: '#/components/schemas/Source'
+        refusalReason:
+          type: [string, 'null']
+          enum: [no_evidence, out_of_scope, unsafe, 'null']
+          description: '`answer`가 `null`일 때의 사유.'
+        guardrailApplied:
+          type: boolean
+          description: 이 응답을 만들 때 가드레일이 실제로 적용됐는지(요청값 반사가 아니라 실행 결과).
 
     GenerationResponse:
       type: object

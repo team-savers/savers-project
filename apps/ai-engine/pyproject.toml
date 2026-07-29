@@ -40,6 +40,12 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# ⚠️ 코퍼스 픽스처는 .py가 아니므로 명시하지 않으면 wheel/컨테이너 이미지에서 빠집니다.
+#    editable 설치에서는 소스를 직접 가리키므로 증상이 없다가 Dockerfile 빌드에서만
+#    FileNotFoundError로 터집니다 — 실제 코퍼스(Chroma)로 교체되기 전까지 유지하세요.
+[tool.setuptools.package-data]
+ai_engine = ["fixtures/*.jsonl"]
+
 [tool.pyright]
 extraPaths = ["src"]
 

@@ -30,12 +30,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # ⚠️ 대상은 파일명 고정이 아니라 packages/contracts의 **모든 스펙**입니다.
+      #    지금은 openapi.yaml 하나지만, 파일명을 하드코딩해 두면 계약이 분리되는 순간
+      #    새 스펙이 조용히 검증 대상에서 빠집니다(그리고 그 사실은 아무도 모릅니다).
       - name: Skip notice (스펙 없음)
-        if: hashFiles('packages/contracts/openapi.yaml', 'packages/contracts/openapi.yml') == ''
-        run: echo "packages/contracts/openapi.yaml이 아직 없습니다 — P1에서 작성됩니다(신호정)."
+        if: hashFiles('packages/contracts/*.yaml', 'packages/contracts/*.yml') == ''
+        run: echo "packages/contracts에 OpenAPI 스펙이 없습니다 — 계약이 추가되면 자동으로 검증됩니다."
 
       - uses: actions/setup-python@v7
-        if: hashFiles('packages/contracts/openapi.yaml', 'packages/contracts/openapi.yml') != ''
+        if: hashFiles('packages/contracts/*.yaml', 'packages/contracts/*.yml') != ''
         with:
           python-version: '3.12'
           cache: 'pip'
@@ -43,11 +46,11 @@ jobs:
       # openapi-spec-validator는 OpenAPI 3.x 스키마 자체를 검증합니다(노드 툴체인 불필요 —
       # 이 레포의 CI를 파이썬 단일 스택으로 유지하기 위한 선택).
       - name: Validate spec
-        if: hashFiles('packages/contracts/openapi.yaml', 'packages/contracts/openapi.yml') != ''
+        if: hashFiles('packages/contracts/*.yaml', 'packages/contracts/*.yml') != ''
         run: |
           pip install openapi-spec-validator
-          for spec in packages/contracts/openapi.yaml packages/contracts/openapi.yml; do
-            [ -f "$spec" ] || continue
+          shopt -s nullglob
+          for spec in packages/contracts/*.yaml packages/contracts/*.yml; do
             echo "==> $spec"
             openapi-spec-validator "$spec"
           done
