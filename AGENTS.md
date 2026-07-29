@@ -8,13 +8,15 @@ This repository holds the planning set — design docs (`docs/공통_가이드/`
 
 **This repository is public** — judges browse it directly. Treat every commit as published: no secrets, no personal data beyond team member names, no competition submission forms (see "Not in this repository" below).
 
-What exists in code today is a **walking-skeleton scaffold, not an implementation**: each Python app has a `/health` endpoint, a smoke test, and a passing CI/lint/type gate. `apps/frontend/`, `packages/contracts/`, and `infra/` are documented placeholders awaiting P1. Don't mistake the scaffold for working features, and don't improvise a different structure — extend the one described under "Repo structure convention".
+What exists in code today is a **walking skeleton, not a working service**. One disaster event threads the whole path — `수신 → 매칭 → 검색 → 생성(가드레일) → 세션 발급 → 웹푸시 발송 → 대피소 안내 → 챗봇 → 보호자 상태` — with every external dependency replaced by an offline stub behind a named seam ([ADR-0007](docs/adr/0007-walking-skeleton.md)). Nothing here talks to a real API yet: the disaster feed, the 국민행동요령 corpus, HyperCLOVA X, FCM, the shelter API and the resident store are all stubbed or in-memory, and each has an owner and a phase in [docs/역할_일정/](docs/역할_일정/00-overall.md).
+
+⚠️ **Don't read the stubs as measurements.** The bundled corpus is dummy text marked `[더미]`; scoring 근거 일치율 against it measures agreement with a placeholder. `apps/frontend/` and `infra/` are still documented placeholders awaiting P1. Don't improvise a different structure — extend the one described under "Repo structure convention", and replace a stub at its seam rather than around it.
 
 Key hard dates: **preliminary round opens 2026-07-27**, **prelim submission (with measured metrics) due 2026-08-10 13:00**, **finals early September**; the build-out is a ~2-week sprint to 8/10 followed by a finals-prep track. All schedule phases (P1–P5) start on 2026-07-27 — no work is planned before the round opens; see [docs/역할_일정/00-overall.md](docs/역할_일정/00-overall.md) for the phased plan and per-role schedules.
 
 ## What SAVERS is
 
-SAVERS is a disaster-response assistant for people who cannot judge or evacuate on their own — safety-vulnerable groups (children, elderly, disabled) and foreign workers facing language barriers. Its thesis: the problem is not lack of disaster information, but the "부재는 정보를 개인의 행동으로 전환하는 능력의 부재" — the inability to turn information into a concrete personal action. Existing channels (긴급재난문자/CBS, 안전디딤돌) broadcast the same regional content to everyone; SAVERS instead matches a registered resident to a live alert, confirms their **current location exactly once** at the moment they open the notification link (no background/continuous tracking, location used per-session and never persisted), and generates a personalized, guardrail-constrained action instruction delivered via 카카오 알림톡 / PWA.
+SAVERS is a disaster-response assistant for people who cannot judge or evacuate on their own — safety-vulnerable groups (children, elderly, disabled) and foreign workers facing language barriers. Its thesis: the problem is not lack of disaster information, but the "부재는 정보를 개인의 행동으로 전환하는 능력의 부재" — the inability to turn information into a concrete personal action. Existing channels (긴급재난문자/CBS, 안전디딤돌) broadcast the same regional content to everyone; SAVERS instead matches a registered resident to a live alert, confirms their **current location exactly once** at the moment they open the notification link (no background/continuous tracking, location used per-session and never persisted), and generates a personalized, guardrail-constrained action instruction delivered via PWA web push (FCM) — see [ADR-0005](docs/adr/0005-webpush-primary-channel.md).
 
 First-target disaster type for the MVP: 호우·도시침수 (heavy rain / urban flooding).
 
@@ -23,7 +25,7 @@ First-target disaster type for the MVP: 호우·도시침수 (heavy rain / urban
 1. **실시간 위치 매칭 엔진 (Location Matching Engine)** — normally matches users by registered 행정동 (administrative district) only; on alert, does a one-time browser Geolocation lookup, reverse-geocoded via 카카오맵 API, to check danger-zone membership and shelter distance.
 2. **Advanced RAG 파이프라인** — chunks/embeds 행정안전부 국민행동요령 (official action manuals) into a Chroma vector DB; retrieval is conditioned on disaster type + user vulnerability profile.
 3. **에이전틱 LLM 메시지 생성 (Agentic persona LLM)** — LangChain-orchestrated, HyperCLOVA X-generated messages, constrained by a guardrail prompt that forces answers to cite only retrieved official source text (hallucination suppression).
-4. **무설치 사용자 터미널 (Zero-install terminal)** — delivery via Kakao 알림톡 and PWA/web push, including an interactive chatbot ("Interactive Care") for follow-up Q&A, with accessibility features (TTS, plain-language rewriting, auto-translation for foreign workers).
+4. **무설치 사용자 터미널 (Zero-install terminal)** — delivery via PWA web push (FCM); the generated message is delivered **verbatim, with no template-slot substitution** ([ADR-0005](docs/adr/0005-webpush-primary-channel.md) — do not reintroduce a rendering adapter). Includes an interactive chatbot ("Interactive Care") for follow-up Q&A, with accessibility features (TTS, plain-language rewriting, auto-translation for foreign workers).
 
 ### Tech stack by layer
 
@@ -33,7 +35,7 @@ First-target disaster type for the MVP: 호우·도시침수 (heavy rain / urban
 | Location processing | Browser Geolocation API, 카카오맵 역지오코딩 API, 행정동 code matching table |
 | Knowledge base | 행정안전부 국민행동요령 corpus, Chroma vector DB |
 | Generation/control | LangChain orchestration, HyperCLOVA X, guardrail prompts |
-| Delivery/accessibility | 카카오 알림톡 API, PWA (web push fallback), TTS, multilingual translation |
+| Delivery/accessibility | PWA web push (Firebase Cloud Messaging) as the **primary** channel — 카카오 알림톡 dropped from the preliminary-round scope ([ADR-0005](docs/adr/0005-webpush-primary-channel.md)), TTS, multilingual translation |
 | Infra/ops | AWS **single VM** (Seoul region ap-northeast-2, CPU-only — HyperCLOVA X/embedding are external APIs, **no GPU**; whole stack via docker-compose, managed redundancy deferred — see [ADR-0003](docs/adr/0003-single-vm-seoul.md)), log-based latency measurement, offline cache fallback mode |
 
 ## Non-negotiable design constraints
@@ -65,9 +67,9 @@ All of the above targets are placeholder hypotheses to be replaced with real pro
 | 안은남 | PM | Milestones, integration, final demo |
 | 신호정 | Tech Lead | System architecture + inter-module contracts (OpenAPI/schemas), a walking skeleton threading the full flow, guardrail prompt design principles + initial version, repo scaffolding/CI/eval-harness skeleton — **concentrated up front** — then ongoing review/advisory. Architecture decisions are recorded as ADRs in `docs/adr/` so contract/skeleton knowledge is not siloed. |
 | 김소원 | AI/RAG Engineer | 국민행동요령 preprocessing/chunking, Chroma indexing, semantic search tuning, 근거 일치율 measurement |
-| 이진호 | Frontend/UX | PWA/알림톡 integration, chatbot UI/UX, accessibility (multilingual/plain-language/voice), clarity metric instrumentation |
-| 최혜리 | Backend/Infra | 기상청·소방청 API integration, location matching engine, FastAPI backend, infra redundancy, offline fallback |
-| 김도혁 | QA/Security | Minimal-collection/encryption, guardrail validation, web-push fallback path, E2E testing, demo material |
+| 이진호 | Frontend/UX | PWA/웹푸시(FCM) integration, chatbot UI/UX, accessibility (multilingual/plain-language/voice), clarity metric instrumentation |
+| 김도혁 | Backend/Infra | 기상청·소방청 API integration, location matching engine, FastAPI backend, infra redundancy, offline fallback |
+| 최혜리 | QA/Security | Minimal-collection/encryption, guardrail validation, web-push fallback path, E2E testing, demo material |
 
 ## Naming convention (documents & folders)
 
@@ -82,7 +84,7 @@ All planning docs live under `docs/`; the repo root keeps only `AGENTS.md`, `CLA
 
 | Folder | Holds |
 |---|---|
-| `docs/공통_가이드/` | Project-wide design docs everyone reads — `개발자_가이드.md`, `환경_세팅_가이드.md`, `저장소_운영.md`, `아키텍처.md`, `리스크.md`, `구현_범위.md`, `외부_승인.md`, `비용_산정.md` |
+| `docs/공통_가이드/` | Project-wide design docs everyone reads — `개발자_가이드.md`, `환경_세팅_가이드.md`, `저장소_운영.md`, `아키텍처.md`, `워킹_스켈레톤_설명.md`, `워킹_스켈레톤_점검.md`, `리스크.md`, `구현_범위.md`, `외부_승인.md`, `비용_산정.md` |
 | `docs/역할_가이드/` | Per-role playbooks — who does what. `01-기획총괄.md` … `06-QA-보안.md` |
 | `docs/역할_일정/` | Per-role timelines — when it must be done. Same role numbering as `역할_가이드/` |
 | `docs/adr/` | Architecture decision records (English filenames) |
@@ -155,6 +157,11 @@ pip install pre-commit && pre-commit install && pre-commit install --hook-type p
 
 uvicorn api.main:app --reload --port 8000              # backend    → :8000/docs
 uvicorn ai_engine.service:app --reload --port 8100     # ai-engine  → :8100/docs
+
+# Walking skeleton in one call: fires the demo 호우경보 over the seeded 행정동 and returns
+# session tokens + per-recipient latency. With ai-engine down it still returns 200, with
+# messageMode: official_fallback — that degradation is the designed behaviour, not a bug.
+curl -X POST localhost:8000/internal/alerts/dispatch
 
 bash scripts/run-tests.sh          # quality gate: ruff + mypy + pytest across all apps (= CI)
 bash scripts/run-tests.sh --tests  # pytest only (what the pre-push hook runs)

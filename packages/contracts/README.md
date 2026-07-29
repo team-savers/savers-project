@@ -6,13 +6,27 @@
 
 ## 상태
 
-`openapi.yaml` — **프론트엔드 대면 구간만 v0 초안으로 채워져 있습니다** (2026-07-27, 이진호 제안 / Tech Lead 확정 대기).
+`openapi.yaml` 한 파일에 공개·내부 두 구간이 공존합니다.
 
-| 구간 | 상태 |
-|---|---|
-| frontend ↔ backend (세션·대피소·챗봇·기기등록·보호자 5개) | v0 초안 있음 |
-| backend ↔ ai-engine (검색·생성 파이프라인) | 미작성 |
-| 재난 이벤트 스키마 (수집→매칭) | 미작성 |
+| 구간 | 경로 | 상태 |
+|---|---|---|
+| frontend ↔ backend | 세션·대피소·챗봇·기기등록·보호자 5개 | v0 초안 (2026-07-27, 이진호 제안 / Tech Lead 확정 대기) |
+| backend ↔ ai-engine (생성) | `POST /v1/generate` | v0 ([ADR-0006](../../docs/adr/0006-generation-contract.md)) · **구현됨** |
+| backend ↔ ai-engine (챗봇) | `POST /v1/answer` | v0 ([ADR-0007](../../docs/adr/0007-walking-skeleton.md)) · **구현됨** |
+| 재난 이벤트 스키마 (수집→매칭) | — | 미작성 (백엔드 내부 모델 `backend_core.models.DisasterEvent`로만 존재) |
+
+**검색(retrieval)은 계약에 없습니다.** ai-engine 내부 단방향 파이프라인의 중간 단계이며
+외부에서 부를 대상이 아닙니다(ADR-0006). 평가 하네스는 HTTP가 아니라 `ai_engine.retrieval`을
+직접 import해 채점합니다.
+
+ADR-0006이 **두 구간을 한 파일에 둔 이유**는 당시 [`contracts-check.yml`](../../.github/workflows/contracts-check.yml)이
+`packages/contracts/openapi.yaml` **하나만** 검증했기 때문입니다 — 파일을 나누면 새 스펙이
+유효성 검사를 못 받는 상태였습니다. (그 제약은 해소됐습니다. 이제 이 디렉토리의 모든 스펙이
+검증됩니다 — 아래 "규칙" 참고. 따라서 파일 분리 여부는 이제 검증이 아니라 **변경 주기**로
+판단할 사안입니다.) 소비자가 다른 구간은 태그(`generation`)와 경로 단위 `servers`
+오버라이드(:8100)로 구분하며, 내부 구간은 `security: []`로 세션 토큰을 요구하지 않습니다.
+⚠️ 내부 구간 경로는 **배포에서 외부에 열지 마세요** — 공개되면 취약계층 프로필이 인증 없이
+새어 나갑니다.
 
 **초안의 목적은 확정이 아니라 병렬화입니다.** 응답의 모양이 먼저 고정되면 프론트는 mock으로
 화면을 완성할 수 있고, 백엔드·AI 엔진은 나중에 합류해도 같은 모양만 맞추면 그대로 붙습니다.
@@ -22,10 +36,15 @@
 
 ## 규칙
 
-- `openapi.yaml`이 추가되면 [`.github/workflows/contracts-check.yml`](../../.github/workflows/contracts-check.yml)이
-  자동으로 스펙 유효성을 검증합니다(non-required, `paths` 필터). 파일이 없는 지금은 건너뜁니다.
+- [`.github/workflows/contracts-check.yml`](../../.github/workflows/contracts-check.yml)이 이 디렉토리의
+  **모든** `*.yaml`/`*.yml` 스펙 유효성을 검증합니다(non-required, `paths` 필터).
+  파일명을 하드코딩하지 않으므로 새 계약을 추가해도 검증 대상에서 빠지지 않습니다.
   ⚠️ 이 검사는 **스펙 자체의 유효성까지**입니다 — 라우터 응답이 스펙과 다른 드리프트는
-  각 앱의 계약 준수 테스트로 잡아야 합니다.
+  각 앱의 계약 준수 테스트로 잡아야 합니다(`apps/backend/tests/api/test_main.py`,
+  `apps/ai-engine/tests/test_service.py`).
+- ⚠️ **YAML 중복 키를 주의하세요.** 같은 경로를 두 번 선언하면 뒤가 앞을 덮어 앞의 정의가
+  조용히 사라집니다(v0.3의 `/v1/devices`가 실제로 이 상태였습니다 — 한 경로 아래에 `post`와
+  `delete`를 함께 두는 것이 맞습니다). 스펙 검증기는 이를 잡지 못합니다.
 - 계약 변경은 **소비자 앱 변경과 같은 PR**에 담습니다(모노레포를 택한 이유가 이 원자성입니다).
 - 계약이 바뀌면 `docs/adr/`에 배경을 남기세요 — "왜 이 모양인지"가 복원 가능해야 합니다.
 - 민감 필드(위치, 장애 여부)는 **최소 수집·암호화**가 전제입니다. 스키마에 필드를 추가할 때

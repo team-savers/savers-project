@@ -16,6 +16,9 @@ dependencies = [
     "uvicorn[standard]>=0.29.0",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
+    # ai-engine 호출용 — 앱 간 결합이 HTTP 계약뿐이므로 HTTP 클라이언트가 런타임 필수입니다
+    # (dev extra의 httpx는 TestClient용이라 별개 목적입니다).
+    "httpx>=0.27.0",
 ]
 
 [project.optional-dependencies]
@@ -23,7 +26,12 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
     "httpx>=0.27.0",          # FastAPI TestClient 백엔드
-    "ruff>=0.6.0",
+    # ⚠️ ruff는 .pre-commit-config.yaml의 rev와 **정확히 같은 버전**으로 고정합니다.
+    #    범위(>=)로 두면 CI의 lint 잡은 최신 ruff를, pre-commit 잡은 rev 버전을 쓰게 돼
+    #    같은 코드가 한쪽만 통과합니다. ruff는 0.x라 마이너 업그레이드에서 기본 규칙셋이
+    #    넓어집니다(실측: 0.15 통과 → 0.16에서 scripts/dev_env.py 23건 신규 검출).
+    #    올릴 때는 세 파일(여기·ai-engine·.pre-commit-config.yaml)을 같은 PR에서 함께.
+    "ruff==0.15.22",
     "mypy>=1.10.0",
 ]
 # ── 무거운 의존성(DB 드라이버, 지오 연산 등)은 core에 넣지 말고 별도 extra로 분리할 것.
@@ -34,6 +42,12 @@ dev = [
 # 코드는 `import backend_core` / `from api import ...` 형태 (⚠️ `src.` 접두어 없음).
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# ⚠️ 대피소 사전 캐시는 .py가 아니므로 명시하지 않으면 wheel/컨테이너 이미지에서 빠집니다.
+#    editable 설치에서는 소스를 직접 가리켜 증상이 없다가, 배포 이미지에서 오프라인
+#    폴백만 FileNotFoundError로 죽습니다 — 즉 장애 상황에서만 터지는 종류의 누락입니다.
+[tool.setuptools.package-data]
+backend_core = ["fixtures/*.jsonl"]
 
 # Pylance/pyright 경로 — 없으면 IDE에서 내부 import가 unresolved로 표시됨.
 [tool.pyright]
