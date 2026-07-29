@@ -25,6 +25,11 @@ import httpx
 
 API_URL = "https://www.safetydata.go.kr/V2/api/DSSP-IF-20588"
 
+# Hard stop on pagination regardless of what `totalCount` claims — a wrong/stale count (or
+# a server that keeps re-serving the same page) must fail loudly, not spin forever burning
+# quota against a rate-limited public API.
+MAX_PAGES = 1000
+
 # Same 9 keys as the CSV columns `chunking.parse_rows()` reads — this is the shape
 # `chunk_rows()` is written against, independent of whether the source is a CSV or the API.
 ROW_FIELDS = (
@@ -50,6 +55,19 @@ def _normalize(item: dict[str, Any]) -> dict[str, str]:
     return {field: str(item.get(field) or "") for field in ROW_FIELDS}
 
 
+def _redact_service_key(url: httpx.URL) -> str:
+    """URL with `serviceKey` masked.
+
+    `httpx`'s default `raise_for_status()` exception embeds the full request URL —
+    including the raw key — in its message. This is the only place that string gets built
+    for an error path, so redacting it here is the single fix point.
+    """
+    params = dict(url.params)
+    if "serviceKey" in params:
+        params["serviceKey"] = "REDACTED"
+    return str(url.copy_with(params=params))
+
+
 def fetch_action_manual_rows(
     api_key: str,
     *,
@@ -57,6 +75,7 @@ def fetch_action_manual_rows(
     page_size: int = 100,
     client: httpx.Client | None = None,
     sleep_between_pages_s: float = 0.2,
+    max_pages: int = MAX_PAGES,
 ) -> list[dict[str, str]]:
     """Fetch and normalize every row for the given `safety_cate` code(s).
 
@@ -77,7 +96,9 @@ def fetch_action_manual_rows(
         rows: list[dict[str, str]] = []
         for code in codes:
             rows.extend(
-                _fetch_one_category(http_client, api_key, code, page_size, sleep_between_pages_s)
+                _fetch_one_category(
+                    http_client, api_key, code, page_size, sleep_between_pages_s, max_pages
+                )
             )
         return rows
     finally:
@@ -91,12 +112,12 @@ def _fetch_one_category(
     safety_cate: str | None,
     page_size: int,
     sleep_between_pages_s: float,
+    max_pages: int,
 ) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
-    page_no = 1
     total_count: int | None = None
 
-    while total_count is None or len(rows) < total_count:
+    for page_no in range(1, max_pages + 1):
         params: dict[str, str | int] = {
             "serviceKey": api_key,
             "numOfRows": page_size,
@@ -107,7 +128,14 @@ def _fetch_one_category(
             params["safety_cate"] = safety_cate
 
         response = client.get(API_URL, params=params)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            # `from None`, not `from exc`: chaining would keep the original (key-bearing)
+            # exception attached, and any traceback printer downstream would still leak it.
+            raise ActionManualApiError(
+                f"HTTP {exc.response.status_code} calling {_redact_service_key(exc.request.url)}"
+            ) from None
         payload = response.json()
 
         header = payload.get("header", {})
@@ -116,11 +144,23 @@ def _fetch_one_category(
                 f"{header.get('resultCode')}: {header.get('resultMsg')} ({header.get('errorMsg')})"
             )
 
-        total_count = payload["totalCount"]
-        rows.extend(_normalize(item) for item in payload.get("body") or [])
-        page_no += 1
+        body = payload.get("body") or []
+        if not body:
+            # Server has nothing more, regardless of what totalCount claims — stop rather
+            # than looping on empty pages forever.
+            break
+        rows.extend(_normalize(item) for item in body)
 
-        if sleep_between_pages_s and len(rows) < total_count:
+        total_count = payload["totalCount"]
+        if len(rows) >= total_count:
+            break
+
+        if sleep_between_pages_s:
             time.sleep(sleep_between_pages_s)
+    else:
+        raise ActionManualApiError(
+            f"exceeded max_pages={max_pages} while paginating (safety_cate={safety_cate!r}); "
+            "totalCount may be wrong or the API may be repeating pages"
+        )
 
     return rows

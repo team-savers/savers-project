@@ -77,31 +77,34 @@ def _retriever(rows: list[dict[str, Any]]) -> tuple[ChromaRetriever, _FakeCollec
 
 
 def test_disaster_type_is_a_hard_filter() -> None:
-    """다른 재난유형의 청크는 애초에 후보에 오르지 않아야 한다 (FixtureRetriever와 동일 계약)."""
+    """다른 재난유형의 청크는 애초에 후보에 오르지 않아야 한다 (FixtureRetriever와 동일 계약).
+
+    "flood"는 build_index.py가 호우/홍수 라벨을 매핑한 실제 계약 값, "태풍"은 아직
+    매핑이 없어 원본 라벨 그대로 남는 값 — 같은 컬렉션에 섞여 있어도 격리돼야 한다."""
     retriever, _ = _retriever(
         [
             {
                 "id": "a",
-                "document": "태풍 지침",
-                "distance": 0.1,
-                "metadata": {"disaster_type": "태풍", "stage": "특보중 행동요령"},
-            },
-            {
-                "id": "b",
                 "document": "호우 지침",
                 "distance": 0.1,
                 "metadata": {"disaster_type": "flood", "stage": "특보중 행동요령"},
             },
+            {
+                "id": "b",
+                "document": "태풍 지침",
+                "distance": 0.1,
+                "metadata": {"disaster_type": "태풍", "stage": "특보중 행동요령"},
+            },
         ]
     )
-    passages = retriever.search("질의", disaster_type="태풍", tags=[], top_k=5)
+    passages = retriever.search("질의", disaster_type="flood", tags=[], top_k=5)
     assert [p.id for p in passages] == ["a"]
 
 
 def test_candidate_pool_uses_multiplier() -> None:
     """부스트 재정렬을 위해 top_k보다 넉넉히 후보를 가져와야 한다."""
     retriever, collection = _retriever([])
-    retriever.search("질의", disaster_type="태풍", tags=[], top_k=4)
+    retriever.search("질의", disaster_type="flood", tags=[], top_k=4)
     assert collection.last_n_results == 4 * ChromaRetriever.CANDIDATE_MULTIPLIER
 
 
@@ -113,12 +116,12 @@ def test_score_is_similarity_plus_tag_boost() -> None:
                 "id": "a",
                 "document": "지침",
                 "distance": 0.3,
-                "metadata": {"disaster_type": "태풍", "stage": "특보중 행동요령"},
+                "metadata": {"disaster_type": "flood", "stage": "특보중 행동요령"},
             }
         ]
     )
     # 지금 청크에는 취약성 태그가 없어 disaster_type 자체를 태그로 넘겨 부스트 메커니즘만 검증한다.
-    passages = retriever.search("질의", disaster_type="태풍", tags=["태풍"], top_k=1)
+    passages = retriever.search("질의", disaster_type="flood", tags=["flood"], top_k=1)
     assert passages[0].score == pytest.approx(0.7 + ChromaRetriever.TAG_BOOST)
 
 
@@ -130,23 +133,23 @@ def test_tie_break_is_deterministic_by_id() -> None:
                 "id": "z",
                 "document": "지침",
                 "distance": 0.2,
-                "metadata": {"disaster_type": "태풍", "stage": "예보시 행동요령"},
+                "metadata": {"disaster_type": "flood", "stage": "예보시 행동요령"},
             },
             {
                 "id": "a",
                 "document": "지침",
                 "distance": 0.2,
-                "metadata": {"disaster_type": "태풍", "stage": "예보시 행동요령"},
+                "metadata": {"disaster_type": "flood", "stage": "예보시 행동요령"},
             },
         ]
     )
-    passages = retriever.search("질의", disaster_type="태풍", tags=[], top_k=2)
+    passages = retriever.search("질의", disaster_type="flood", tags=[], top_k=2)
     assert [p.id for p in passages] == ["a", "z"]
 
 
 def test_no_candidates_returns_empty_list() -> None:
     retriever, _ = _retriever([])
-    assert retriever.search("질의", disaster_type="태풍", tags=[], top_k=5) == []
+    assert retriever.search("질의", disaster_type="flood", tags=[], top_k=5) == []
 
 
 _RAG_EXTRA_INSTALLED = importlib.util.find_spec("sentence_transformers") is not None
@@ -171,4 +174,4 @@ def test_from_persist_dir_round_trip(tmp_path: Path) -> None:
     # No indexing helper is called here on purpose — this test only proves the seam
     # constructs and queries a real Chroma collection without raising; build_index.py
     # owns actually populating it.
-    assert retriever.search("태풍 대비", disaster_type="태풍", tags=[], top_k=3) == []
+    assert retriever.search("호우 대비", disaster_type="flood", tags=[], top_k=3) == []

@@ -15,6 +15,8 @@ import pytest
 
 from ai_engine.ingestion import ActionManualApiError, fetch_action_manual_rows
 
+_FAKE_API_KEY = "not-a-real-key-just-for-this-test"
+
 _OK_HEADER = {"resultMsg": "NORMAL SERVICE", "resultCode": "00", "errorMsg": None}
 
 
@@ -162,3 +164,73 @@ def test_non_zero_result_code_raises() -> None:
         fetch_action_manual_rows(
             "key", safety_cate="01003", client=_client(handler), sleep_between_pages_s=0
         )
+
+
+def test_stops_when_body_is_empty_even_if_total_count_not_reached() -> None:
+    """totalCount가 실제보다 크게 잘못 와도, 빈 body를 받으면 더 돌지 않고 멈춰야 한다."""
+    pages_requested: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        page_no = int(request.url.params["pageNo"])
+        pages_requested.append(page_no)
+        # totalCount는 100이라고 우기지만, 2페이지째부터 실제로는 줄 게 없다.
+        body = [_item("호우", "- 지침")] if page_no == 1 else []
+        return httpx.Response(
+            200,
+            json={
+                "header": _OK_HEADER,
+                "numOfRows": 1,
+                "pageNo": page_no,
+                "totalCount": 100,
+                "body": body,
+            },
+        )
+
+    rows = fetch_action_manual_rows(
+        "key", safety_cate="01003", page_size=1, client=_client(handler), sleep_between_pages_s=0
+    )
+    assert pages_requested == [1, 2]
+    assert len(rows) == 1
+
+
+def test_raises_when_max_pages_exceeded() -> None:
+    """서버가 계속 (빈 아닌) 페이지를 주는데 totalCount에 영영 못 미치면, 무한 루프 대신
+    max_pages에서 명시적으로 실패해야 한다."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        page_no = int(request.url.params["pageNo"])
+        return httpx.Response(
+            200,
+            json={
+                "header": _OK_HEADER,
+                "numOfRows": 1,
+                "pageNo": page_no,
+                "totalCount": 1_000_000,  # 절대 못 채우는 값
+                "body": [_item("호우", f"- 지침 {page_no}")],
+            },
+        )
+
+    with pytest.raises(ActionManualApiError, match="max_pages"):
+        fetch_action_manual_rows(
+            "key",
+            safety_cate="01003",
+            page_size=1,
+            client=_client(handler),
+            sleep_between_pages_s=0,
+            max_pages=3,
+        )
+
+
+def test_http_error_message_does_not_leak_the_api_key() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, text="not found")
+
+    with pytest.raises(ActionManualApiError) as exc_info:
+        fetch_action_manual_rows(
+            _FAKE_API_KEY,
+            safety_cate="01003",
+            client=_client(handler),
+            sleep_between_pages_s=0,
+        )
+    assert _FAKE_API_KEY not in str(exc_info.value)
+    assert "REDACTED" in str(exc_info.value)
