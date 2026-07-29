@@ -51,8 +51,9 @@ def get_retriever() -> Retriever:
     Backend picked by `Settings.retriever_backend` (default `fixture`) — see
     `ai_engine.config` for why the default cannot be `chroma` yet.
     """
-    if get_settings().retriever_backend == "chroma":
-        return ChromaRetriever.from_persist_dir()
+    settings = get_settings()
+    if settings.retriever_backend == "chroma":
+        return ChromaRetriever.from_persist_dir(collection_name=settings.action_manual_collection)
     return FixtureRetriever.from_jsonl()
 
 

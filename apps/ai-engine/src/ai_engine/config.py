@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     # Same swap-when-ready idiom as generation.get_generator()'s StubGenerator.
     retriever_backend: Literal["fixture", "chroma"] = "fixture"
 
+    # ⚠️ Must match whatever `--collection` build_index.py was actually run with.
+    # `ChromaRetriever.from_persist_dir()`'s own default ("action_manual") has never been
+    # built — only "flood_action_manual" has — so leaving this unset would make the
+    # `chroma` backend silently query an empty auto-created collection (no error, just
+    # every request refusing with no_evidence).
+    action_manual_collection: str = "flood_action_manual"
+
     # 국민행동요령 코퍼스 API(safetydata.go.kr, DSSP-IF-20588) 서비스키. 배치 스크립트
     # (scripts/fetch_corpus.py)만 읽는다 — 라이브 요청 경로는 이미 만들어진 인덱스만
     # 읽으므로 이 값이 필요 없다.

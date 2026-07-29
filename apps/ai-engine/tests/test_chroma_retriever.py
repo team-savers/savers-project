@@ -171,6 +171,13 @@ def test_from_persist_dir_round_trip(tmp_path: Path) -> None:
     assert chunks  # sanity: the fixture actually produced chunks to index
 
     retriever = ChromaRetriever.from_persist_dir(tmp_path, collection_name="test_action_manual")
+
+    # Regression guard: Chroma's own default is "l2", which search()'s `1 - distance`
+    # would silently misinterpret as a cosine distance (this broke once already —
+    # see build_index.py / from_persist_dir()'s `metadata={"hnsw:space": "cosine"}`).
+    space = retriever._collection.configuration_json["hnsw"]["space"]
+    assert space == "cosine"
+
     # No indexing helper is called here on purpose — this test only proves the seam
     # constructs and queries a real Chroma collection without raising; build_index.py
     # owns actually populating it.

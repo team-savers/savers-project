@@ -130,11 +130,20 @@ def test_get_retriever_honors_configured_backend(monkeypatch: pytest.MonkeyPatch
     from ai_engine import service
 
     sentinel = object()
-    monkeypatch.setattr(service.ChromaRetriever, "from_persist_dir", lambda: sentinel)
+    calls: list[str] = []
+
+    def fake_from_persist_dir(*, collection_name: str) -> object:
+        calls.append(collection_name)
+        return sentinel
+
+    monkeypatch.setattr(service.ChromaRetriever, "from_persist_dir", fake_from_persist_dir)
     monkeypatch.setenv("RETRIEVER_BACKEND", "chroma")
     service.get_retriever.cache_clear()
     try:
         assert service.get_retriever() is sentinel
+        # 회귀 방지: from_persist_dir()의 자체 기본값("action_manual")은 실제로 색인된 적이
+        # 없다 — 여기서 실제 색인된 컬렉션 이름이 넘어가는지까지 확인해야 하는 이유.
+        assert calls == [service.get_settings().action_manual_collection]
     finally:
         service.get_retriever.cache_clear()
 
