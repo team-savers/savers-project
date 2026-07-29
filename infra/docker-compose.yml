@@ -24,6 +24,9 @@ services:
       # HyperCLOVA X 클라이언트가 이 값을 읽습니다.
       CLOVA_API_KEY: ${CLOVA_API_KEY:-}
       CHROMA_PERSIST_DIR: ${CHROMA_PERSIST_DIR:-/data/chroma}
+      # "fixture"(기본값) | "chroma". chroma로 켜는 시점에 /data/chroma용 볼륨도
+      # 함께 추가하세요 — 지금은 볼륨 없이 값 전달 경로만 뚫어 둔 상태입니다.
+      RETRIEVER_BACKEND: ${RETRIEVER_BACKEND:-fixture}
     ports:
       # ⚠️ 배포에서는 이 포트를 외부에 열지 마세요. 내부 계약 경로(/v1/generate·/v1/answer)는
       #    인증이 없고 취약계층 프로필을 받습니다(ADR-0006). 로컬 디버깅 편의로만 노출합니다.

@@ -1,5 +1,8 @@
 # fixtures — 워킹 스켈레톤용 더미 코퍼스
 
+출처·라이선스는 [SOURCE.md](SOURCE.md) 참고 (`flood_action_manual.csv`, `typhoon_sample.csv`에 적용 —
+`action_manual.jsonl`은 더미라 해당 없음).
+
 `action_manual.jsonl`은 **검증되지 않은 더미 텍스트**입니다. 파이프라인이 관통하는지 보기 위한
 자리표시자일 뿐, 행정안전부 국민행동요령 원문이 아닙니다 — 모든 `title`에 `[더미]` 접두어와
 `placeholder-` id 접두어를 둔 이유가 이것입니다.
