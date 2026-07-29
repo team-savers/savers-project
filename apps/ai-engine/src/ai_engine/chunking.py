@@ -27,6 +27,7 @@ guidance sentence per row, tagged with a disaster type + lifecycle stage (예보
 from __future__ import annotations
 
 import csv
+import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -110,3 +111,14 @@ def chunk_rows(rows: list[dict[str, str]]) -> list[Chunk]:
 
 def chunk_csv(path: Path) -> list[Chunk]:
     return chunk_rows(parse_rows(path))
+
+
+def chunk_id(chunk: Chunk) -> str:
+    """Stable id for indexing (Chroma upsert key).
+
+    Hashed from content, not row position: re-exporting the same CSV with rows reordered
+    (or re-running the indexing script) must land on the same ids, or upsert becomes
+    silent duplication instead of an update.
+    """
+    key = f"{chunk.disaster_type}|{chunk.stage}|{chunk.step_order}|{chunk.text}"
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]  # noqa: S324 -- content id, not security

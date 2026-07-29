@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 from ai_engine.models import DisasterType, Passage, RecipientContext
 
@@ -176,5 +176,90 @@ class FixtureRetriever:
             scored.append(passage.model_copy(update={"score": round(overlap + boost, 4)}))
 
         # id is the tie-breaker so repeated runs (and therefore KPI scoring) are stable.
+        scored.sort(key=lambda p: (-p.score, p.id))
+        return scored[:top_k]
+
+
+class ChromaRetriever:
+    """Chroma + BGE-M3 embedding retriever — the S1-1~S1-2 replacement for
+    `FixtureRetriever` (see `apps/ai-engine/scripts/build_index.py` for the indexing side).
+
+    ⚠️ `chromadb`/`sentence_transformers` are only imported inside this class's methods,
+    never at module level. This module sits on the core import path
+    (service -> generation -> retrieval), and CI's required jobs install core + dev only
+    — never the `rag` extra — so a top-level import here would break every test that
+    merely imports `ai_engine.retrieval`.
+
+    Indexed chunks currently carry no vulnerability tags (the source CSV has none), so
+    `tags` only ever contains `disaster_type` — the boost below has nothing to boost until
+    a vulnerability-tagged corpus exists. That is a data gap, not a bug in this class.
+    """
+
+    # `tags` boosts rather than hard-filters (same contract as FixtureRetriever), but
+    # Chroma's `where` can only hard-filter. So `disaster_type` goes into `where` and we
+    # over-fetch candidates to re-rank by tag overlap in Python, same as the lexical path.
+    CANDIDATE_MULTIPLIER = 3
+    TAG_BOOST = FixtureRetriever.TAG_BOOST
+
+    def __init__(self, collection: Any, model: Any) -> None:
+        self._collection = collection
+        self._model = model
+
+    @classmethod
+    def from_persist_dir(
+        cls,
+        path: str | Path | None = None,
+        *,
+        collection_name: str = "action_manual",
+        model_name: str = "BAAI/bge-m3",
+    ) -> ChromaRetriever:
+        import chromadb
+        from sentence_transformers import SentenceTransformer
+
+        from ai_engine.config import get_settings
+
+        persist_dir = str(path) if path is not None else get_settings().chroma_persist_dir
+        client = chromadb.PersistentClient(path=persist_dir)
+        collection = client.get_or_create_collection(collection_name)
+        return cls(collection, SentenceTransformer(model_name))
+
+    def search(
+        self,
+        query: str,
+        *,
+        disaster_type: DisasterType,
+        tags: list[str],
+        top_k: int,
+    ) -> list[Passage]:
+        query_embedding = self._model.encode(query).tolist()
+        result = self._collection.query(
+            query_embeddings=[query_embedding],
+            n_results=top_k * self.CANDIDATE_MULTIPLIER,
+            where={"disaster_type": disaster_type},
+        )
+        ids = result["ids"][0]
+        if not ids:
+            return []
+
+        wanted = set(tags)
+        scored: list[Passage] = []
+        for id_, text, distance, metadata in zip(
+            ids, result["documents"][0], result["distances"][0], result["metadatas"][0], strict=True
+        ):
+            passage_tags = [str(metadata["disaster_type"])]
+            similarity = 1.0 - distance
+            boost = self.TAG_BOOST * len(wanted & set(passage_tags))
+            scored.append(
+                Passage(
+                    id=id_,
+                    title=str(metadata.get("stage", "")),
+                    text=text,
+                    score=round(similarity + boost, 4),
+                    tags=passage_tags,
+                    url=metadata.get("url"),
+                )
+            )
+
+        # Same tie-breaker as FixtureRetriever, for the same reproducibility reason.
         scored.sort(key=lambda p: (-p.score, p.id))
         return scored[:top_k]
