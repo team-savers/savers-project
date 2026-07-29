@@ -17,6 +17,9 @@ guidance sentence per row, tagged with a disaster type + lifecycle stage (예보
   fragment of it) -> chunked like the "-" rows rather than forced into the numbered group.
 - Rows with only a `contentsUrl` and no stage are video-teaser rows with no actionable
   text -> excluded; there is nothing here for the guardrail to cite.
+- Rows with an empty `actRmks` are excluded regardless of stage — the real flood corpus
+  has icon-image rows (`contentsUrl` pointing at a `.png`, not a video) that carry a stage
+  but no text at all. Same reasoning as the video-teaser case: no text, nothing to cite.
 
 ⚠️ Known backlog (tracked here, not blocking this pass):
 - 실제 코퍼스 확보 후 KURE(한국어 특화 임베딩)와 BGE-M3의 근거 일치율을 비교해 볼 것.
@@ -58,14 +61,14 @@ class Chunk:
 
 
 def parse_rows(path: Path) -> list[dict[str, str]]:
-    """Read the CSV export, dropping the repeated-header decoy row."""
+    """Read the CSV export, dropping the repeated-header decoy row.
+
+    A trailing blank line at end-of-file needs no special handling here: `csv.DictReader`
+    already skips a genuinely empty line without producing a row for it.
+    """
     with path.open(encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
-        return [
-            row
-            for row in reader
-            if row["actRmks"] and not row["actRmks"].startswith(_HEADER_ECHO_SENTINEL)
-        ]
+        return [row for row in reader if not row["actRmks"].startswith(_HEADER_ECHO_SENTINEL)]
 
 
 def chunk_rows(rows: list[dict[str, str]]) -> list[Chunk]:
@@ -74,12 +77,17 @@ def chunk_rows(rows: list[dict[str, str]]) -> list[Chunk]:
     numbered_groups: dict[tuple[str, str], list[dict[str, str]]] = {}
 
     for row in rows:
+        text = row["actRmks"].strip()
+        if not text:
+            # Icon-image / video-teaser row (no body text) -> nothing here to chunk,
+            # regardless of whether a stage is present.
+            continue
+
         stage = row["safety_cate_nm3"].strip()
         if not stage:
             # contentsUrl-only teaser row (no stage) -> nothing here to chunk.
             continue
 
-        text = row["actRmks"].strip()
         disaster_type = row["safety_cate_nm2"].strip()
         url = row["contentsUrl"].strip() or None
 

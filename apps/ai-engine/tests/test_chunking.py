@@ -88,6 +88,21 @@ def test_url_only_row_without_stage_is_excluded(tmp_path: Path) -> None:
     assert chunk_csv(path) == []
 
 
+def test_empty_act_rmks_row_is_excluded_even_with_a_stage(tmp_path: Path) -> None:
+    """실제 홍수 코퍼스의 아이콘 이미지 행(본문 텍스트 없음, 단계는 있음) 회귀 테스트 —
+    인용할 텍스트가 없으니 stage 유무와 무관하게 제외돼야 한다."""
+    path = _write_csv(
+        tmp_path,
+        _row(
+            "",
+            contents_url="http://mepv2.safekorea.go.kr/.../icon_07.png",
+            stage="홍수 우려 때는",
+            disaster_type="홍수",
+        ),
+    )
+    assert chunk_csv(path) == []
+
+
 def test_numbered_rows_are_grouped_with_step_order_and_total(tmp_path: Path) -> None:
     path = _write_csv(
         tmp_path,

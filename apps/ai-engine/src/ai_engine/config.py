@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     # Same swap-when-ready idiom as generation.get_generator()'s StubGenerator.
     retriever_backend: Literal["fixture", "chroma"] = "fixture"
 
+    # 국민행동요령 코퍼스 API(safetydata.go.kr, DSSP-IF-20588) 서비스키. 배치 스크립트
+    # (scripts/fetch_corpus.py)만 읽는다 — 라이브 요청 경로는 이미 만들어진 인덱스만
+    # 읽으므로 이 값이 필요 없다.
+    action_manual_api_key: str | None = None
+
 
 def get_settings() -> Settings:
     return Settings()
