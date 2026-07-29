@@ -21,6 +21,7 @@ from functools import lru_cache
 
 from fastapi import FastAPI, HTTPException
 
+from ai_engine.config import get_settings
 from ai_engine.generation import (
     GenerationFailedError,
     Generator,
@@ -34,7 +35,7 @@ from ai_engine.models import (
     GenerationRequest,
     GenerationResponse,
 )
-from ai_engine.retrieval import FixtureRetriever, Retriever
+from ai_engine.retrieval import ChromaRetriever, FixtureRetriever, Retriever
 
 app = FastAPI(title="savers-ai-engine")
 
@@ -46,7 +47,12 @@ def get_retriever() -> Retriever:
     Cached because reloading the corpus per request would land directly in the ≤30s
     end-to-end budget. Tests call the generation functions directly with their own
     retriever instead of poking at this cache.
+
+    Backend picked by `Settings.retriever_backend` (default `fixture`) — see
+    `ai_engine.config` for why the default cannot be `chroma` yet.
     """
+    if get_settings().retriever_backend == "chroma":
+        return ChromaRetriever.from_persist_dir()
     return FixtureRetriever.from_jsonl()
 
 
