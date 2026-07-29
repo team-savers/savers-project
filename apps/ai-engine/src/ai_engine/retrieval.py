@@ -220,7 +220,13 @@ class ChromaRetriever:
 
         persist_dir = str(path) if path is not None else get_settings().chroma_persist_dir
         client = chromadb.PersistentClient(path=persist_dir)
-        collection = client.get_or_create_collection(collection_name)
+        # hnsw:space="cosine": only applies if this call creates the collection (Chroma's
+        # default is "l2", which `search()`'s `1 - distance` would misinterpret). The usual
+        # path is build_index.py creating it first with the same setting; this covers the
+        # case where a query runs against a not-yet-indexed, freshly created collection.
+        collection = client.get_or_create_collection(
+            collection_name, metadata={"hnsw:space": "cosine"}
+        )
         return cls(collection, SentenceTransformer(model_name))
 
     def search(
@@ -231,7 +237,9 @@ class ChromaRetriever:
         tags: list[str],
         top_k: int,
     ) -> list[Passage]:
-        query_embedding = self._model.encode(query).tolist()
+        # normalize_embeddings=True: matches build_index.py — cosine similarity is only
+        # well-defined for unit vectors, and the "flood" indexed collection assumes it.
+        query_embedding = self._model.encode(query, normalize_embeddings=True).tolist()
         result = self._collection.query(
             query_embeddings=[query_embedding],
             n_results=top_k * self.CANDIDATE_MULTIPLIER,

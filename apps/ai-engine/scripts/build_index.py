@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 from pathlib import Path
 
 from ai_engine.chunking import chunk_csv, chunk_id
@@ -28,6 +29,7 @@ def build_index(
     model_name: str,
 ) -> int:
     import chromadb
+    from chromadb.errors import NotFoundError
     from sentence_transformers import SentenceTransformer
 
     chunks = chunk_csv(csv_path)
@@ -36,10 +38,19 @@ def build_index(
         return 0
 
     model = SentenceTransformer(model_name)
-    embeddings = model.encode([c.text for c in chunks]).tolist()
+    # normalize_embeddings=True: cosine similarity is only well-defined for unit vectors —
+    # explicit here rather than relying on BAAI/bge-m3 happening to normalize by default.
+    embeddings = model.encode([c.text for c in chunks], normalize_embeddings=True).tolist()
 
     client = chromadb.PersistentClient(path=persist_dir)
-    collection = client.get_or_create_collection(collection_name)
+    # Drop and recreate rather than upsert-only: chunk ids are content hashes
+    # (chunking.chunk_id), so a row whose text changed (or was removed from the source)
+    # gets a new id and its old entry would otherwise linger forever as a stale duplicate.
+    with contextlib.suppress(NotFoundError):
+        client.delete_collection(collection_name)  # first run: nothing to clean up yet
+    # hnsw:space="cosine": Chroma's default is "l2", which `ChromaRetriever.search()`'s
+    # `1 - distance` score would silently misinterpret as a cosine distance.
+    collection = client.get_or_create_collection(collection_name, metadata={"hnsw:space": "cosine"})
     collection.upsert(
         ids=[chunk_id(c) for c in chunks],
         embeddings=embeddings,

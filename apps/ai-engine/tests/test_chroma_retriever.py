@@ -39,7 +39,7 @@ class _FakeVector:
 class _FakeModel:
     """Stands in for `SentenceTransformer` — only `.encode(text).tolist()` is used."""
 
-    def encode(self, _text: str) -> _FakeVector:
+    def encode(self, _text: str, normalize_embeddings: bool = False) -> _FakeVector:
         return _FakeVector([0.0])
 
 
