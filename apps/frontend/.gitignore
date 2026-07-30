@@ -1,0 +1,42 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# vite-plugin-pwa dev build output (devOptions) — never commit
+dev-dist/
+
+# Vercel CLI local state — never commit
+.vercel/
+
+# ⚠️ Vercel CLI가 자동 추가한 .env* 는 .env.example 까지 무시한다.
+#    .env.example 은 키 이름만 담은 커밋 대상이므로 예외를 유지할 것.
+.env*
+!.env.example
+
+# 프론트 작업용 로컬 메모 — 산출물이 아니라 작업 중 메모라 추적하지 않는다.
+# 내용은 정리되는 대로 팀 문서·ADR·PR 설명으로 옮긴다.
+# 로컬에는 그대로 남는다(파일이 지워지는 것이 아니라 깃 추적만 끊는다).
+# README.md 만 커밋 대상이며, 그 외 로컬 메모는 모두 무시한다.
+*.md
+!README.md
