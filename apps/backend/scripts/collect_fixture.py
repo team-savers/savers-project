@@ -174,38 +174,133 @@ def fetch_safetydata(*, key: str, endpoint: str, rows: int, timeout_s: float) ->
     return payload
 
 
+# ── 기상청 단기예보 ─────────────────────────────────────────────────────────────────────
+
+KMA_CHOICE = "kma-forecast"
+KMA_SOURCE = "kma_vilage_fcst"
+KMA_ENV_KEY = "KMA_APIHUB_KEY"
+KMA_BASE = "https://apihub.kma.go.kr/api/typ02/openApi/VilageFcstInfoService_2.0"
+
+# 발표 시각(KST). 자료는 각 시각 +10분쯤 올라오므로 조금 물러선 뒤 고른다.
+KMA_BASE_TIMES = (2, 5, 8, 11, 14, 17, 20, 23)
+KMA_PUBLISH_LAG = timedelta(minutes=15)
+
+# 한 시각당 12개 안팎의 카테고리가 나오므로, 10건만 받으면 PCP/POP가 아예 안 들어온
+# 픽스처가 나올 수 있다. 기상청 한도는 일 20000회로 safetydata와 별개다.
+KMA_DEFAULT_ROWS = 300
+
+
+def latest_kma_base(now: datetime) -> tuple[str, str]:
+    """Most recent 발표 시각 whose data should already be published."""
+    candidate = now - KMA_PUBLISH_LAG
+    for hour in reversed(KMA_BASE_TIMES):
+        if candidate.hour >= hour:
+            return candidate.strftime("%Y%m%d"), f"{hour:02d}00"
+    previous_day = candidate - timedelta(days=1)
+    return previous_day.strftime("%Y%m%d"), f"{KMA_BASE_TIMES[-1]:02d}00"
+
+
+def fetch_kma(
+    *, key: str, nx: int, ny: int, rows: int, timeout_s: float
+) -> tuple[dict[str, Any], str, str]:
+    """Fetch one 단기예보 page and return it **exactly as received**.
+
+    Only the authentication and request shape are shared with
+    scripts/fetch_kma_forecast.py; its 3시간 합산과 범주 문자열 해석은 의도적으로 가져오지
+    않는다. 그 계산은 소비자 쪽 로직이라, 픽스처에 넣으면 관측이 아니라 해석을 얼리게 된다.
+    """
+    base_date, base_time = latest_kma_base(datetime.now(KST))
+    params = {
+        "authKey": key,  # API허브는 authKey — 공공데이터포털의 serviceKey와 다르다
+        "pageNo": "1",
+        "numOfRows": str(rows),
+        "dataType": "JSON",
+        "base_date": base_date,
+        "base_time": base_time,
+        "nx": str(nx),
+        "ny": str(ny),
+    }
+
+    try:
+        response = httpx.get(f"{KMA_BASE}/getVilageFcst", params=params, timeout=timeout_s)
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise CollectError(f"요청 실패 (HTTP {exc.response.status_code}) — 기상청") from None
+    except httpx.HTTPError as exc:
+        raise CollectError(f"요청 실패 ({type(exc).__name__}) — 기상청") from None
+
+    try:
+        payload: dict[str, Any] = response.json()
+    except ValueError:
+        raise CollectError(
+            "JSON 파싱 실패 — 기상청. 인증키 미등록이거나 한도 초과일 때 XML 오류 문서가 "
+            "돌아옵니다. 본문은 키가 섞일 수 있어 출력하지 않습니다."
+        ) from None
+
+    header = payload.get("response", {}).get("header", {})
+    code = str(header.get("resultCode", "")).strip()
+    if code and code != "00":
+        raise CollectError(f"기상청 resultCode={code} ({header.get('resultMsg')})")
+
+    return payload, base_date, base_time
+
+
 # ── CLI ─────────────────────────────────────────────────────────────────────────────────
 
 
 def describe(payload: dict[str, Any]) -> str:
-    """One-line summary for stdout. Never touches the saved bytes."""
+    """One-line summary for stdout. Reads the payload but never alters the saved bytes."""
     body = payload.get("body")
-    count = len(body) if isinstance(body, list) else "?"
-    total = (payload.get("totalCount")) or (payload.get("header") or {}).get("totalCount")
-    return f"body {count}건 수신 (상류 totalCount={total})"
+    if isinstance(body, list):  # safetydata
+        total = payload.get("totalCount") or (payload.get("header") or {}).get("totalCount")
+        return f"body {len(body)}건 수신 (상류 totalCount={total})"
+
+    items = payload.get("response", {}).get("body", {}).get("items", {}).get("item")
+    if isinstance(items, list):  # 기상청
+        categories = sorted({str(i.get("category")) for i in items if isinstance(i, dict)})
+        return f"item {len(items)}건 수신 (카테고리: {', '.join(categories)})"
+
+    return "수신 완료 — 알 수 없는 응답 형태(원본 그대로 저장)"
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="재난 API 응답을 픽스처로 동결")
-    parser.add_argument("target", choices=sorted(SAFETYDATA_TARGETS), help="수집 대상")
+    parser.add_argument(
+        "target", choices=[*sorted(SAFETYDATA_TARGETS), KMA_CHOICE], help="수집 대상"
+    )
     parser.add_argument("event_type", help="픽스처 이름에 들어갈 상황 라벨 (예: baseline)")
-    parser.add_argument("--rows", type=int, default=SAFETYDATA_DEFAULT_ROWS, help="numOfRows")
+    parser.add_argument("--rows", type=int, default=None, help="numOfRows (대상별 기본값 사용)")
+    parser.add_argument("--nx", type=int, default=60, help="기상청 예보 격자 X (기본: 종로구)")
+    parser.add_argument("--ny", type=int, default=127, help="기상청 예보 격자 Y (기본: 종로구)")
     parser.add_argument("--timeout", type=float, default=20.0)
     parser.add_argument("--env", type=Path, default=ENV_DEFAULT, help="인증키를 읽을 .env 경로")
     args = parser.parse_args(argv)
 
-    target = SAFETYDATA_TARGETS[args.target]
+    is_kma = args.target == KMA_CHOICE
+    source = KMA_SOURCE if is_kma else SAFETYDATA_TARGETS[args.target].source
+    env_key = KMA_ENV_KEY if is_kma else SAFETYDATA_TARGETS[args.target].env_key
+    rows = args.rows or (KMA_DEFAULT_ROWS if is_kma else SAFETYDATA_DEFAULT_ROWS)
+
     try:
-        key = load_key_from_env_file(args.env, target.env_key)
-        payload = fetch_safetydata(
-            key=key, endpoint=target.endpoint, rows=args.rows, timeout_s=args.timeout
-        )
+        key = load_key_from_env_file(args.env, env_key)
+        if is_kma:
+            payload, base_date, base_time = fetch_kma(
+                key=key, nx=args.nx, ny=args.ny, rows=rows, timeout_s=args.timeout
+            )
+            print(f"기상청 발표 {base_date} {base_time}, 격자 nx={args.nx} ny={args.ny}")
+        else:
+            payload = fetch_safetydata(
+                key=key,
+                endpoint=SAFETYDATA_TARGETS[args.target].endpoint,
+                rows=rows,
+                timeout_s=args.timeout,
+            )
     except CollectError as exc:
         print(f"실패: {exc}", file=sys.stderr)
         return 1
 
     print(describe(payload))
-    save_fixture(target.source, args.event_type, payload)
+    save_fixture(source, args.event_type, payload)
     return 0
 
 
