@@ -1,3 +1,9 @@
 *.ipynb filter=nbstripout
 *.zpln filter=nbstripout
 *.ipynb diff=ipynb
+
+# Shell scripts must check out LF even on Windows. With core.autocrlf=true a CRLF
+# checkout makes bash read `set -o pipefail\r` as an unknown option and abort, so
+# scripts/run-tests.sh dies before running the quality gate. Pinning it here fixes it
+# for every clone — telling each person to set autocrlf does not.
+*.sh text eol=lf
