@@ -23,7 +23,7 @@
 # 모듈 오너 (docs/역할_가이드/ 와 1:1) — 담당자 + Tech Lead + PM
 /apps/backend/               @kimdohyuk8888-bot @Yopkigom @eunnamahn
 /apps/ai-engine/             @ksw199777-hue @Yopkigom @eunnamahn
-/apps/frontend/              @peedi8 @Yopkigom @eunnamahn
+/apps/frontend/              @twentycherry-gif @Yopkigom @eunnamahn
 /packages/contracts/         @Yopkigom @kimdohyuk8888-bot @eunnamahn
 /infra/                      @kimdohyuk8888-bot @Yopkigom @eunnamahn
 /docs/adr/                   @Yopkigom @eunnamahn

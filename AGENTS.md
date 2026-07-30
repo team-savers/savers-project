@@ -67,7 +67,7 @@ All of the above targets are placeholder hypotheses to be replaced with real pro
 | 안은남 | PM | Milestones, integration, final demo |
 | 신호정 | Tech Lead | System architecture + inter-module contracts (OpenAPI/schemas), a walking skeleton threading the full flow, guardrail prompt design principles + initial version, repo scaffolding/CI/eval-harness skeleton — **concentrated up front** — then ongoing review/advisory. Architecture decisions are recorded as ADRs in `docs/adr/` so contract/skeleton knowledge is not siloed. |
 | 김소원 | AI/RAG Engineer | 국민행동요령 preprocessing/chunking, Chroma indexing, semantic search tuning, 근거 일치율 measurement |
-| 이진호 | Frontend/UX | PWA/웹푸시(FCM) integration, chatbot UI/UX, accessibility (multilingual/plain-language/voice), clarity metric instrumentation |
+| 최혜리 (겸임) | Frontend/UX | PWA/웹푸시(FCM) integration, chatbot UI/UX, accessibility (multilingual/plain-language/voice), clarity metric instrumentation |
 | 김도혁 | Backend/Infra | 기상청·소방청 API integration, location matching engine, FastAPI backend, infra redundancy, offline fallback |
 | 최혜리 | QA/Security | Minimal-collection/encryption, guardrail validation, web-push fallback path, E2E testing, demo material |
 
@@ -84,7 +84,7 @@ All planning docs live under `docs/`; the repo root keeps only `AGENTS.md`, `CLA
 
 | Folder | Holds |
 |---|---|
-| `docs/공통_가이드/` | Project-wide design docs everyone reads — `개발자_가이드.md`, `환경_세팅_가이드.md`, `저장소_운영.md`, `아키텍처.md`, `워킹_스켈레톤_설명.md`, `워킹_스켈레톤_점검.md`, `리스크.md`, `구현_범위.md`, `외부_승인.md`, `비용_산정.md`, `개인정보_체크리스트.md` |
+| `docs/공통_가이드/` | Project-wide design docs everyone reads — `개발자_가이드.md`, `환경_세팅_가이드.md`, `저장소_운영.md`, `아키텍처.md`, `워킹_스켈레톤_설명.md`, `워킹_스켈레톤_점검.md`, `리스크.md`, `구현_범위.md`, `외부_승인.md`, `비용_산정.md`, `개인정보_체크리스트.md`, `후속_과제.md` |
 | `docs/역할_가이드/` | Per-role playbooks — who does what. `01-기획총괄.md` … `06-QA-보안.md` |
 | `docs/역할_일정/` | Per-role timelines — when it must be done. Same role numbering as `역할_가이드/` |
 | `docs/adr/` | Architecture decision records (English filenames) |
@@ -103,6 +103,41 @@ These are kept **outside** the repo because it is public, and `.gitignore` block
 | `내부_인수인계.md` — Tech Lead handover plan | team's local/shared drive | Contains the personal circumstances behind ADR-0002; the public-facing rationale is in [docs/adr/0002-frontloaded-tech-lead.md](docs/adr/0002-frontloaded-tech-lead.md) |
 
 If a doc in this repo needs to cite one of them, cite the ADR or the summary — never re-commit the source file.
+
+## Markdown line wrapping (committed files only)
+
+**Committed `.md` files are hard-wrapped at sentence boundaries. GitHub comments are not.**
+The two render differently, and that difference is the whole rule:
+
+| Target | A newline inside a paragraph | Therefore |
+|---|---|---|
+| **Committed `.md`** (docs, README, ADRs) | collapses to a space (CommonMark soft break) | wrapping changes nothing on screen — **wrap it** |
+| **GitHub comments** (issue / PR body, review) | survives as `<br>` (GFM hardbreaks) | wrapping inserts visible breaks mid-sentence — **leave one paragraph per line** |
+
+Why wrap at all: an unwrapped paragraph is one long line,
+so correcting a single word marks the **entire paragraph** as changed in a diff.
+Reviewers then re-read a whole block to find one edit.
+
+**Break at sentence or clause boundaries, capped at roughly 50 Korean characters (~100 English).**
+The cap is a ceiling, not a target — never pad a line to reach it.
+Fixed-column wrapping is explicitly *not* what this asks for:
+reflowing to a column means one edited word pushes every following line,
+which reproduces the whole-paragraph diff this rule exists to avoid.
+One sentence per line is the ideal; split long sentences at a comma or connective.
+
+Never break inside these — the line break either breaks parsing or breaks the link:
+
+- table rows (a GFM row must be a single line)
+- fenced code blocks (content is literal)
+- headings
+- `[text](url)` — breaking the URL half kills the link
+
+List items and blockquotes wrap normally;
+keep continuation lines indented to the item's text column.
+
+Existing unwrapped docs are **not** rewrapped in a dedicated pass —
+a reflow-only PR is pure diff noise and buries the real history.
+Rewrap a file's paragraphs when you are already editing them for another reason.
 
 ## Repo structure convention (monorepo)
 
