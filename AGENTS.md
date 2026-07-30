@@ -10,7 +10,15 @@ This repository holds the planning set — design docs (`docs/공통_가이드/`
 
 What exists in code today is a **walking skeleton, not a working service**. One disaster event threads the whole path — `수신 → 매칭 → 검색 → 생성(가드레일) → 세션 발급 → 웹푸시 발송 → 대피소 안내 → 챗봇 → 보호자 상태` — with every external dependency replaced by an offline stub behind a named seam ([ADR-0007](docs/adr/0007-walking-skeleton.md)). Nothing here talks to a real API yet: the disaster feed, the 국민행동요령 corpus, HyperCLOVA X, FCM, the shelter API and the resident store are all stubbed or in-memory, and each has an owner and a phase in [docs/역할_일정/](docs/역할_일정/00-overall.md).
 
-⚠️ **Don't read the stubs as measurements.** The bundled corpus is dummy text marked `[더미]`; scoring 근거 일치율 against it measures agreement with a placeholder. `apps/frontend/` and `infra/` are still documented placeholders awaiting P1. Don't improvise a different structure — extend the one described under "Repo structure convention", and replace a stub at its seam rather than around it.
+⚠️ **Don't read the stubs as measurements.**
+The bundled corpus is dummy text marked `[더미]`;
+scoring 근거 일치율 against it measures agreement with a placeholder.
+`apps/frontend/` is a real PWA now, but every backend call still resolves to an in-memory mock
+(`VITE_USE_MOCK=true` is the default) — no HTTP wiring to `apps/backend` exists yet,
+and `src/api/http.ts` holds contract path constants with unimplemented bodies.
+`infra/docker-compose.yml` brings up backend + ai-engine only; the frontend is not a compose service.
+Don't improvise a different structure — extend the one described under "Repo structure convention",
+and replace a stub at its seam rather than around it.
 
 Key hard dates: **preliminary round opens 2026-07-27**, **prelim submission (with measured metrics) due 2026-08-10 13:00**, **finals early September**; the build-out is a ~2-week sprint to 8/10 followed by a finals-prep track. All schedule phases (P1–P5) start on 2026-07-27 — no work is planned before the round opens; see [docs/역할_일정/00-overall.md](docs/역할_일정/00-overall.md) for the phased plan and per-role schedules.
 

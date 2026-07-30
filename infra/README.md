@@ -22,7 +22,10 @@ curl -X POST localhost:8000/internal/alerts/dispatch    # 관통 1회
 - **chroma** — 지금 검색은 번들 픽스처 기반이라 붙을 대상이 없습니다. 아무도 말을 걸지 않는
   컨테이너를 띄우면 "돌아간다"는 착각만 만듭니다. 실제 인덱스가 들어올 때(AI/RAG S1-1~S1-2)
   서비스 + 영속 볼륨을 추가하고 `CHROMA_PERSIST_DIR`을 그 볼륨으로 돌리세요.
-- **frontend** — `apps/frontend` 스캐폴딩 전(Frontend/UX S1-1).
+- **frontend** — `apps/frontend`는 구현돼 있지만 compose 서비스로는 없습니다. 정적 산출물이라
+  CPU VM에서 서빙할 이유가 없어 별도 호스팅으로 나가 있는데, 그 결정이 [ADR-0003](../docs/adr/0003-single-vm-seoul.md)
+  ("전체 스택을 단일 VM에")과 어긋난 채 기록이 없습니다. 정리 방향은
+  [후속_과제.md](../docs/공통_가이드/후속_과제.md)의 "프론트엔드 배포처" 항목을 참고하세요.
 - **AWS 프로비저닝 스크립트/IaC**
 
 [`.github/workflows/docker-build.yml`](../.github/workflows/docker-build.yml)의 `compose` 잡이
