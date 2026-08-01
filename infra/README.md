@@ -1,7 +1,17 @@
 # infra — 로컬/배포 공통 인프라
 
-담당: 김도혁(백엔드/인프라). 배포 대상은 **AWS 서울 리전 단일 CPU VM**이며 전체 스택을
-docker-compose로 올립니다(ADR-0003). 관리형 이중화는 예선 범위에서 유보했습니다.
+담당: 김도혁(백엔드/인프라). 배포 대상은 **AWS 서울 리전 단일 CPU VM**이며
+**백엔드·AI 엔진**을 docker-compose로 올립니다(ADR-0003). 관리형 이중화는 예선 범위에서 유보했습니다.
+프론트엔드는 정적 빌드라 VM에 올리지 않고 별도 정적 호스팅(Vercel)으로 나갑니다
+([ADR-0008](../docs/adr/0008-frontend-static-hosting.md)) — **기동 절차가 둘이라는 뜻입니다.**
+
+| | 로컬 | 배포 |
+|---|---|---|
+| 백엔드·AI 엔진 | `docker compose -f infra/docker-compose.yml up --build` | 같은 compose를 VM에서 |
+| 프론트엔드 | `cd apps/frontend && npm run dev` | Vercel 빌드(`vercel.json`) |
+
+프론트가 백엔드를 실제로 호출하려면 `VITE_API_BASE_URL`(절대 URL)과,
+백엔드 쪽 TLS 종단·CORS 허용이 필요합니다. 둘 다 ADR-0008의 미해결 후속 작업입니다.
 
 ## 상태
 
@@ -22,10 +32,9 @@ curl -X POST localhost:8000/internal/alerts/dispatch    # 관통 1회
 - **chroma** — 지금 검색은 번들 픽스처 기반이라 붙을 대상이 없습니다. 아무도 말을 걸지 않는
   컨테이너를 띄우면 "돌아간다"는 착각만 만듭니다. 실제 인덱스가 들어올 때(AI/RAG S1-1~S1-2)
   서비스 + 영속 볼륨을 추가하고 `CHROMA_PERSIST_DIR`을 그 볼륨으로 돌리세요.
-- **frontend** — `apps/frontend`는 구현돼 있지만 compose 서비스로는 없습니다. 정적 산출물이라
-  CPU VM에서 서빙할 이유가 없어 별도 호스팅으로 나가 있는데, 그 결정이 [ADR-0003](../docs/adr/0003-single-vm-seoul.md)
-  ("전체 스택을 단일 VM에")과 어긋난 채 기록이 없습니다. 정리 방향은
-  [후속_과제.md](../docs/공통_가이드/후속_과제.md) 11번(ADR로 기록 vs compose에 편입)을 참고하세요.
+- **frontend** — 없는 것이 아니라 **의도적으로 뺀 것**입니다. 정적 산출물이라 CPU VM에서
+  서빙할 이유가 없어 정적 호스팅으로 분리했습니다([ADR-0008](../docs/adr/0008-frontend-static-hosting.md)).
+  compose에 추가하지 마세요 — 되돌리려면 ADR-0008의 재검토 조건을 먼저 확인해야 합니다.
 - **AWS 프로비저닝 스크립트/IaC**
 
 [`.github/workflows/docker-build.yml`](../.github/workflows/docker-build.yml)의 `compose` 잡이
