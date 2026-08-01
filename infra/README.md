@@ -25,7 +25,7 @@ curl -X POST localhost:8000/internal/alerts/dispatch    # 관통 1회
 - **frontend** — `apps/frontend`는 구현돼 있지만 compose 서비스로는 없습니다. 정적 산출물이라
   CPU VM에서 서빙할 이유가 없어 별도 호스팅으로 나가 있는데, 그 결정이 [ADR-0003](../docs/adr/0003-single-vm-seoul.md)
   ("전체 스택을 단일 VM에")과 어긋난 채 기록이 없습니다. 정리 방향은
-  [후속_과제.md](../docs/공통_가이드/후속_과제.md)의 "프론트엔드 배포처" 항목을 참고하세요.
+  [후속_과제.md](../docs/공통_가이드/후속_과제.md) 11번(ADR로 기록 vs compose에 편입)을 참고하세요.
 - **AWS 프로비저닝 스크립트/IaC**
 
 [`.github/workflows/docker-build.yml`](../.github/workflows/docker-build.yml)의 `compose` 잡이
