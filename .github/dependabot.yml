@@ -48,8 +48,9 @@ updates:
       ai-engine-minor-patch:
         update-types: ["minor", "patch"]
 
-  # ── 프론트엔드: package.json이 없는 디렉토리를 등록하면 Dependabot이 매주 파싱 오류를
-  #    기록합니다. 스캐폴딩(P1, 이진호) 후 아래 블록의 주석을 해제하세요.
+  # ── 프론트엔드: 등록을 막던 조건(package.json 부재)은 #32로 해소됐습니다. 활성화 여부는
+  #    스프린트 중 PR 소음과의 트레이드오프라 프론트엔드 오너(최혜리) 판단으로 남깁니다
+  #    (후속_과제.md 12번). 켤 때는 아래 블록의 주석만 해제하면 됩니다.
   # - package-ecosystem: "npm"
   #   directory: "/apps/frontend"
   #   schedule:
