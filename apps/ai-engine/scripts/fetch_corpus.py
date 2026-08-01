@@ -1,6 +1,6 @@
 """Fetch the real 국민행동요령 corpus (safetydata.go.kr, DSSP-IF-20588) and snapshot it to CSV.
 
-Requires `ACTION_MANUAL_API_KEY` (infra/.env). This is the network-calling, non-deterministic
+Requires `SAFETYDATA_ACTION_MANUAL_KEY` (infra/.env). This is the network-calling, non-deterministic
 half of corpus prep — kept separate from `build_index.py` (CSV -> Chroma), which stays
 deterministic given a fixed CSV.
 
@@ -40,9 +40,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    api_key = get_settings().action_manual_api_key
+    api_key = get_settings().safetydata_action_manual_key
     if not api_key:
-        raise SystemExit("ACTION_MANUAL_API_KEY not set (infra/.env)")
+        raise SystemExit("SAFETYDATA_ACTION_MANUAL_KEY not set (infra/.env)")
 
     rows = fetch_action_manual_rows(api_key, safety_cate=args.safety_cate or DEFAULT_SAFETY_CATES)
     if not rows:

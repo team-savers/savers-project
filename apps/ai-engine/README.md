@@ -39,7 +39,7 @@ curl localhost:8100/health
 | `CHROMA_PERSIST_DIR` | Chroma 벡터 DB 저장 경로 |
 | `RETRIEVER_BACKEND` | 검색 백엔드 스위치. `fixture`(기본값) \| `chroma` |
 | `ACTION_MANUAL_COLLECTION` | `chroma` 백엔드가 읽을 컬렉션 이름 — `build_index.py --collection`과 반드시 일치해야 함 |
-| `ACTION_MANUAL_API_KEY` | 국민행동요령 코퍼스 API(safetydata.go.kr) 서비스키 — `scripts/fetch_corpus.py` 전용 |
+| `SAFETYDATA_ACTION_MANUAL_KEY` | 국민행동요령 코퍼스 API(safetydata.go.kr) 서비스키 — `scripts/fetch_corpus.py` 전용 |
 
 ## 엔드포인트
 

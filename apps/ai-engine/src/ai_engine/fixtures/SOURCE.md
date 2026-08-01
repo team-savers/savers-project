@@ -8,7 +8,7 @@
 
 - **원문**: 행정안전부 국민행동요령
 - **API**: 공공데이터포털 재난안전데이터 공유 플랫폼(safetydata.go.kr), 서비스 `DSSP-IF-20588`
-- 수집 스크립트: `apps/ai-engine/scripts/fetch_corpus.py` (인증키는 `ACTION_MANUAL_API_KEY`, `infra/.env.example` 참고)
+- 수집 스크립트: `apps/ai-engine/scripts/fetch_corpus.py` (인증키는 `SAFETYDATA_ACTION_MANUAL_KEY`, `infra/.env.example` 참고)
 
 ## 라이선스
 
