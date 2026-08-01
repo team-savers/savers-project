@@ -1,0 +1,54 @@
+/* Global base styles. Design tokens live in src/lib/tokens.ts. */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+}
+
+body {
+  /* Pretendard is the primary face; the system-ui stack is a hard offline
+     fallback so text stays legible when the CDN cannot be reached. */
+  font-family: 'Pretendard', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
+@keyframes savers-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* LocationConsent 위치핀에서 퍼지는 흰 링. 2.8초 주기 = 초당 0.36회.
+   WCAG 2.3.1 상한(초당 3회)의 1/10. */
+@keyframes savers-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  70% {
+    transform: scale(2.3);
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* 움직임을 줄이도록 설정한 기기에서는 애니메이션·전환을 사실상 즉시 끝낸다.
+   이 블록이 savers-spin·savers-pulse 도 함께 멈춘다 — 광과민성 문제라 타협
+   대상이 아니다. 프로젝트 전체에 정확히 한 벌만 둔다. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
