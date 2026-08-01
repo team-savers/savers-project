@@ -221,6 +221,47 @@ def test_raises_when_max_pages_exceeded() -> None:
         )
 
 
+def test_missing_total_count_raises() -> None:
+    """body는 왔는데 totalCount가 빠진 응답 형식 이탈 — KeyError가 아니라 명시적으로 실패해야 한다."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "header": _OK_HEADER,
+                "numOfRows": 1,
+                "pageNo": 1,
+                "body": [_item("호우", "- 지침")],
+            },
+        )
+
+    with pytest.raises(ActionManualApiError, match="totalCount"):
+        fetch_action_manual_rows(
+            "key", safety_cate="01003", client=_client(handler), sleep_between_pages_s=0
+        )
+
+
+def test_non_integer_total_count_raises() -> None:
+    """totalCount가 정수가 아닌 형태로 오는 경우도 같은 방식으로 실패해야 한다."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "header": _OK_HEADER,
+                "numOfRows": 1,
+                "pageNo": 1,
+                "totalCount": "1",
+                "body": [_item("호우", "- 지침")],
+            },
+        )
+
+    with pytest.raises(ActionManualApiError, match="totalCount"):
+        fetch_action_manual_rows(
+            "key", safety_cate="01003", client=_client(handler), sleep_between_pages_s=0
+        )
+
+
 def test_http_error_message_does_not_leak_the_api_key() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(404, text="not found")

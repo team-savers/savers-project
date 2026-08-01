@@ -27,8 +27,9 @@ services:
       # "fixture"(기본값) | "chroma". chroma로 켜는 시점에 /data/chroma용 볼륨도
       # 함께 추가하세요 — 지금은 볼륨 없이 값 전달 경로만 뚫어 둔 상태입니다.
       RETRIEVER_BACKEND: ${RETRIEVER_BACKEND:-fixture}
-      # build_index.py --collection과 반드시 일치해야 합니다 — 기본값이 실제로
-      # 색인된 적 없는 이름("action_manual")과 다르다는 걸 잊고 비워두면 안 됩니다.
+      # build_index.py --collection과 반드시 일치해야 합니다 — 빈 문자열로 두면(값 자체를
+      # 지우면) 빈 컬렉션에 조용히 연결되어 모든 요청이 no_evidence로 거부됩니다. 아래
+      # 기본값이 실제로 색인된 이름이니, 다른 컬렉션을 쓸 게 아니면 지우지 마세요.
       ACTION_MANUAL_COLLECTION: ${ACTION_MANUAL_COLLECTION:-flood_action_manual}
     ports:
       # ⚠️ 배포에서는 이 포트를 외부에 열지 마세요. 내부 계약 경로(/v1/generate·/v1/answer)는

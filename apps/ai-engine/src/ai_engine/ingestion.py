@@ -151,7 +151,16 @@ def _fetch_one_category(
             break
         rows.extend(_normalize(item) for item in body)
 
-        total_count = payload["totalCount"]
+        # `.get()`, not `payload["totalCount"]`: a non-empty body with a missing/malformed
+        # totalCount is a response-shape drift the API could hand us at any time. It must
+        # fail loudly as ActionManualApiError, not as an uncaught KeyError/TypeError that
+        # skips the redaction in the except-block above.
+        total_count = payload.get("totalCount")
+        if not isinstance(total_count, int):
+            raise ActionManualApiError(
+                f"malformed response: totalCount={total_count!r} (expected int) for "
+                f"safety_cate={safety_cate!r}, page {page_no}"
+            )
         if len(rows) >= total_count:
             break
 

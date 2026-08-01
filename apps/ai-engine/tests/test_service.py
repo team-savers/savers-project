@@ -141,8 +141,9 @@ def test_get_retriever_honors_configured_backend(monkeypatch: pytest.MonkeyPatch
     service.get_retriever.cache_clear()
     try:
         assert service.get_retriever() is sentinel
-        # 회귀 방지: from_persist_dir()의 자체 기본값("action_manual")은 실제로 색인된 적이
-        # 없다 — 여기서 실제 색인된 컬렉션 이름이 넘어가는지까지 확인해야 하는 이유.
+        # service.py는 여전히 collection_name을 명시적으로 전달한다 — from_persist_dir()
+        # 이 이제 같은 설정값으로 폴백하더라도(test_config_hygiene.py), 호출부가 암묵적
+        # 기본값에 기대는 순간 다시 드리프트가 시작될 수 있으므로 방어적으로 유지한다.
         assert calls == [service.get_settings().action_manual_collection]
     finally:
         service.get_retriever.cache_clear()

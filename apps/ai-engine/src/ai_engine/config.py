@@ -27,11 +27,12 @@ class Settings(BaseSettings):
     # generation.get_generator()'s StubGenerator.
     retriever_backend: Literal["fixture", "chroma"] = "fixture"
 
-    # ⚠️ Must match whatever `--collection` build_index.py was actually run with.
-    # `ChromaRetriever.from_persist_dir()`'s own default ("action_manual") has never been
-    # built — only "flood_action_manual" has — so leaving this unset would make the
-    # `chroma` backend silently query an empty auto-created collection (no error, just
-    # every request refusing with no_evidence).
+    # The single source of truth for the Chroma collection name. `build_index.py`'s
+    # `--collection` flag and `ChromaRetriever.from_persist_dir()`'s `collection_name`
+    # param both fall back to *this* value when left unset — neither hardcodes its own
+    # default anymore, after the same "built one name, queried another" mismatch surfaced
+    # three times. `test_config_hygiene.py` enforces that no third literal reappears
+    # elsewhere in `src/`/`scripts/`.
     action_manual_collection: str = "flood_action_manual"
 
     # 국민행동요령 코퍼스 API(safetydata.go.kr, DSSP-IF-20588) 서비스키. 배치 스크립트

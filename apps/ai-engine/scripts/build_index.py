@@ -67,15 +67,22 @@ def main() -> None:
     parser.add_argument(
         "--persist-dir", default=None, help="기본값: CHROMA_PERSIST_DIR 환경변수/설정"
     )
-    parser.add_argument("--collection", default="action_manual")
+    # 기본값을 리터럴로 박지 않고 config를 통해 읽는다: 이 스크립트가 만드는 컬렉션과
+    # service.py의 ChromaRetriever가 실제로 읽는 컬렉션이 서로 다른 상수를 가리키면
+    # --collection을 깜빡하는 순간 조용히 빈 컬렉션에 색인하고 만다 (과거 실제로 발생).
+    parser.add_argument(
+        "--collection", default=None, help="기본값: ACTION_MANUAL_COLLECTION 환경변수/설정"
+    )
     parser.add_argument("--model", default="BAAI/bge-m3")
     args = parser.parse_args()
 
-    persist_dir = args.persist_dir or get_settings().chroma_persist_dir
+    settings = get_settings()
+    persist_dir = args.persist_dir or settings.chroma_persist_dir
+    collection_name = args.collection or settings.action_manual_collection
     build_index(
         args.csv,
         persist_dir=persist_dir,
-        collection_name=args.collection,
+        collection_name=collection_name,
         model_name=args.model,
     )
 

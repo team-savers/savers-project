@@ -210,7 +210,7 @@ class ChromaRetriever:
         cls,
         path: str | Path | None = None,
         *,
-        collection_name: str = "action_manual",
+        collection_name: str | None = None,
         model_name: str = "BAAI/bge-m3",
     ) -> ChromaRetriever:
         import chromadb
@@ -218,14 +218,21 @@ class ChromaRetriever:
 
         from ai_engine.config import get_settings
 
-        persist_dir = str(path) if path is not None else get_settings().chroma_persist_dir
+        settings = get_settings()
+        persist_dir = str(path) if path is not None else settings.chroma_persist_dir
+        # `None` (not a literal default) so this can never silently drift from
+        # build_index.py's own default — both now resolve through the same
+        # `Settings.action_manual_collection` (see its docstring for why that matters).
+        resolved_collection_name = (
+            collection_name if collection_name is not None else settings.action_manual_collection
+        )
         client = chromadb.PersistentClient(path=persist_dir)
         # hnsw:space="cosine": only applies if this call creates the collection (Chroma's
         # default is "l2", which `search()`'s `1 - distance` would misinterpret). The usual
         # path is build_index.py creating it first with the same setting; this covers the
         # case where a query runs against a not-yet-indexed, freshly created collection.
         collection = client.get_or_create_collection(
-            collection_name, metadata={"hnsw:space": "cosine"}
+            resolved_collection_name, metadata={"hnsw:space": "cosine"}
         )
         return cls(collection, SentenceTransformer(model_name))
 
