@@ -69,7 +69,7 @@ npm run build      # 프로덕션 빌드
 
 ## 알림 채널
 
-1차 알림 채널은 웹푸시(FCM)이다. 카카오 알림톡은 예선 범위에서 제외됐다 — ADR-0005 참조.
+1차 알림 채널은 웹푸시(FCM)이다. 카카오 알림톡은 예선·본선 모두 채택하지 않는다 — ADR-0005 참조.
 
 - 알림 액션 버튼에 의존하지 않는다 (플랫폼별 최대 2개 제한). 알림은 제목+본문+탭 → 랜딩 진입으로 단순화한다.
 - 서비스워커는 1개다. FCM의 `firebase-messaging-sw.js` 와 vite-plugin-pwa 의 SW가 같은 스코프에서 충돌하므로, `strategies: 'injectManifest'` + 커스텀 `src/sw.ts` 안에서 Workbox 캐싱과 `onBackgroundMessage`를 함께 처리한다.
