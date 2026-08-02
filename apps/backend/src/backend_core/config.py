@@ -27,6 +27,24 @@ class Settings(BaseSettings):
     # Deep-link origin baked into the push payload (PWA landing).
     public_base_url: str = "http://localhost:5173"
 
+    # Browser origins allowed to call this API, comma-separated.
+    #
+    # A plain string rather than `list[str]` on purpose: pydantic-settings parses list
+    # fields as JSON, so `SAVERS_CORS_ALLOW_ORIGINS=https://a,https://b` would fail to load
+    # and the service would refuse to start. In docker-compose and .env a comma-separated
+    # line is what people actually write.
+    #
+    # Empty by default = same-origin only. The frontend deploys to static hosting off the
+    # VM (ADR-0008), so cross-origin is the *deployed* topology, not the local one —
+    # `npm run dev` proxies to this app and needs no entry here. Defaulting to open would
+    # mean the day someone forgets to set this is the day any site can drive our API.
+    cors_allow_origins: str = ""
+
+    @property
+    def cors_origins(self) -> list[str]:
+        """Parsed allow-list. Blank entries dropped so a trailing comma is harmless."""
+        return [origin.strip() for origin in self.cors_allow_origins.split(",") if origin.strip()]
+
 
 def get_settings() -> Settings:
     """Read settings. Callers cache — see api.deps, which holds the single instance."""
