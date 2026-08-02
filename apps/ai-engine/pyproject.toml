@@ -18,6 +18,9 @@ dependencies = [
     "uvicorn[standard]>=0.29.0",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
+    # 국민행동요령 코퍼스 API(safetydata.go.kr) 호출용 — ingestion.py가 런타임에 씁니다
+    # (dev extra의 httpx는 FastAPI TestClient용이라 별개 목적입니다. apps/backend와 동일 패턴).
+    "httpx>=0.27.0",
 ]
 
 [project.optional-dependencies]
@@ -32,10 +35,15 @@ dev = [
 ]
 # ── RAG 스택은 무거우므로 core가 아닌 extra로 분리합니다 (CI를 가볍게 유지).
 #    실제 개발 시: pip install -e "./apps/ai-engine[rag]"
-# rag = [
-#     "langchain>=0.2.0",
-#     "chromadb>=0.5.0",
-# ]
+# sentence-transformers: 로컬 BGE-M3 임베딩 (한국어 검색 벤치마크 기준 확정).
+#    ⚠️ 백로그: 실제 코퍼스 확보 후 KURE(한국어 특화 모델)와 근거 일치율 비교 예정.
+#    ⚠️ 백로그: CPU 추론 지연이 알림 도달 속도 KPI(≤30s, ADR-0003 GPU 없음)에 주는
+#       영향은 아직 미측정 — 임베딩을 실제로 붙이는 시점에 반드시 실측할 것.
+rag = [
+    "langchain>=0.2.0",
+    "chromadb>=0.5.0",
+    "sentence-transformers>=2.7.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -44,7 +52,7 @@ where = ["src"]
 #    editable 설치에서는 소스를 직접 가리키므로 증상이 없다가 Dockerfile 빌드에서만
 #    FileNotFoundError로 터집니다 — 실제 코퍼스(Chroma)로 교체되기 전까지 유지하세요.
 [tool.setuptools.package-data]
-ai_engine = ["fixtures/*.jsonl"]
+ai_engine = ["fixtures/*.jsonl", "fixtures/*.csv"]
 
 [tool.pyright]
 extraPaths = ["src"]
@@ -58,10 +66,9 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 no_implicit_optional = true
 
-# RAG extra는 타입 스텁이 없으므로 도입 시 아래 예외를 켜세요.
-# [[tool.mypy.overrides]]
-# module = ["langchain.*", "chromadb.*"]
-# ignore_missing_imports = true
+[[tool.mypy.overrides]]
+module = ["langchain.*", "chromadb.*", "sentence_transformers.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 # eval/도 수집 대상입니다 — 지표 함수(근거 일치율·명확성 등)는 제출물의 근거가 되는 코드라

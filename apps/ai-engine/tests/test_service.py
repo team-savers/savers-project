@@ -124,6 +124,44 @@ def test_screen_only_recipient_fields_are_rejected(client: TestClient) -> None:
     assert response.status_code == 422
 
 
+def test_get_retriever_honors_configured_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`RETRIEVER_BACKEND=chroma`가 켜지면 FixtureRetriever가 아니라 ChromaRetriever 생성
+    경로를 탄다. 실제 Chroma/임베딩 모델은 필요 없다 — 분기 자체만 검증한다."""
+    from ai_engine import service
+
+    sentinel = object()
+    calls: list[str] = []
+
+    def fake_from_persist_dir(*, collection_name: str) -> object:
+        calls.append(collection_name)
+        return sentinel
+
+    monkeypatch.setattr(service.ChromaRetriever, "from_persist_dir", fake_from_persist_dir)
+    monkeypatch.setenv("RETRIEVER_BACKEND", "chroma")
+    service.get_retriever.cache_clear()
+    try:
+        assert service.get_retriever() is sentinel
+        # service.py는 여전히 collection_name을 명시적으로 전달한다 — from_persist_dir()
+        # 이 이제 같은 설정값으로 폴백하더라도(test_config_hygiene.py), 호출부가 암묵적
+        # 기본값에 기대는 순간 다시 드리프트가 시작될 수 있으므로 방어적으로 유지한다.
+        assert calls == [service.get_settings().action_manual_collection]
+    finally:
+        service.get_retriever.cache_clear()
+
+
+def test_get_retriever_defaults_to_fixture(monkeypatch: pytest.MonkeyPatch) -> None:
+    """환경변수를 아무것도 안 건드리면 워킹 스켈레톤은 그대로 FixtureRetriever를 쓴다."""
+    from ai_engine.retrieval import FixtureRetriever
+    from ai_engine.service import get_retriever
+
+    monkeypatch.delenv("RETRIEVER_BACKEND", raising=False)
+    get_retriever.cache_clear()
+    try:
+        assert isinstance(get_retriever(), FixtureRetriever)
+    finally:
+        get_retriever.cache_clear()
+
+
 def test_unsupported_disaster_type_is_rejected(client: TestClient) -> None:
     """코퍼스가 없는 재난유형을 받으면 전량 거절이 되므로 입력 단계에서 막는다."""
     response = client.post(
