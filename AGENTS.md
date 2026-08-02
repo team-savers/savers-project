@@ -43,8 +43,9 @@ First-target disaster type for the MVP: 호우·도시침수 (heavy rain / urban
 | Location processing | Browser Geolocation API, 카카오맵 역지오코딩 API, 행정동 code matching table |
 | Knowledge base | 행정안전부 국민행동요령 corpus, Chroma vector DB |
 | Generation/control | LangChain orchestration, HyperCLOVA X, guardrail prompts |
-| Delivery/accessibility | PWA web push (Firebase Cloud Messaging) as the **primary** channel — 카카오 알림톡 dropped from the preliminary-round scope ([ADR-0005](docs/adr/0005-webpush-primary-channel.md)), TTS, multilingual translation |
+| Delivery/accessibility | PWA web push (Firebase Cloud Messaging) as the **primary** channel — 카카오 알림톡 not adopted, in the preliminary round or the finals ([ADR-0005](docs/adr/0005-webpush-primary-channel.md)), TTS, multilingual translation |
 | Infra/ops | AWS **single VM** (Seoul region ap-northeast-2, CPU-only — HyperCLOVA X/embedding are external APIs, **no GPU**; backend + ai-engine via docker-compose, managed redundancy deferred — see [ADR-0003](docs/adr/0003-single-vm-seoul.md); the PWA is a static build served off-VM by Vercel — see [ADR-0008](docs/adr/0008-frontend-static-hosting.md)), log-based latency measurement, offline cache fallback mode |
+=
 
 ## Non-negotiable design constraints
 
