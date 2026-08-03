@@ -16,38 +16,39 @@
 //        소유가 상위여도 본문에 직접 적용된다.
 //      - 원문 보기: RAG 근거 인용(sources)을 펼치는 토글이다. 치환 전 원문을
 //        보여주는 버튼이 아니다.
+//   5. 문장이 둘 이상이면(단계적 노출) "다음" 버튼으로 한 번에 하나씩만
+//      펼친다. 문장이 하나뿐이면 이 버튼 자체가 렌더되지 않는다(기존과
+//      동일한 한 문단 렌더). 다 펼쳐도 버튼을 없애지 않고 비활성화 + 라벨
+//      교체("모두 보여드렸습니다")로 남긴다 — 언마운트하면 포커스가 body로
+//      떨어지고 아래 읽어주기 버튼이 그 자리로 튀어 오탭을 유발한다(PR #50
+//      리뷰, 접근성 블로킹 코멘트).
+//
+// 단계적 노출 순서: 문장 분리(splitIntoSteps)와 행동 지침 우선 노출
+// (orderStepsDirectiveFirst)은 lib/readability.ts로 옮겼다 — 순수 함수라
+// 프론트엔드에 테스트 러너가 들어오면 바로 테스트할 수 있게 하기 위해서다
+// (PR #50 리뷰).
 //
 // 본 컴포넌트는 평가 지표 수집을 하지 않는다 — 측정은 상위에서
 // measureReadability(original) 로 1회만 수행한다(한 화면 렌더당 1회).
 // 여기서는 화면만 담당한다.
 //
 // VISUAL TREATMENT: the palette follows SAVERS tokens (lib/tokens.ts).
-// Text and borders use tealText (#0B6E69, 6.09:1). The three action buttons
-// are color-coded by role: speak = teal fill (primary), enlarge = soft teal
-// fill (secondary), sources = teal outline (reference). Touch targets are
-// 52px. The body sits inside a card so the "instruction" region is
-// visually distinct from the surrounding surface.
+// Text and borders use tealText (#0B6E69, 6.09:1). Action buttons are
+// color-coded by role: speak = teal fill (the card's one primary action).
+// "다음"(단계적 노출)과 크게 보기는 같은 연틸 secondary 채움을 공유한다 —
+// 다음 버튼은 별도 틸 채움을 새로 만들지 않고 toggleStyle('secondary', …)
+// 을 그대로 재사용한다(PR #50 리뷰 — 새 버튼이 읽어주기와 같은 색이면
+// "켜진 상태는 색 하나로 읽힌다"는 규칙이 흐려진다는 지적). sources = teal
+// outline (reference). Touch targets are MIN_TOUCH_PX(52px). The body sits
+// inside a card so the "instruction" region is visually distinct from the
+// surrounding surface.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
-import { substituteAdminTerms } from '../lib/readability'
+import { orderStepsDirectiveFirst, splitIntoSteps, substituteAdminTerms } from '../lib/readability'
 import type { Language, Source } from '../api/types'
 import { SpeakButton } from './SpeakButton'
 import { C, SHADOW_CARD } from '../lib/tokens'
-
-// 단계적 안내: 문장 단위로 쪼개 한 번에 하나씩 노출한다(2026-08-03 회의 —
-// "글이 많으면 당황한 사람은 읽지 못한다" 지적 대응). 문장 경계는 마침표·
-// 물음표·느낌표 뒤 공백, 또는 줄바꿈으로 잡는다 — apps/ai-engine의
-// guardrail._SENTENCE_SPLIT과 같은 기준을 그대로 따른다(두 곳이 서로 다른
-// 문장 경계를 쓰면 "몇 문장인지"가 화면마다 달라진다).
-const SENTENCE_SPLIT = /(?<=[.!?。])\s+|\n+/
-
-function splitIntoSteps(text: string): string[] {
-  return text
-    .split(SENTENCE_SPLIT)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
-}
 
 interface Props {
   // 원문 메시지 본문. children 으로 받되 문자열만 허용한다 —
@@ -156,15 +157,22 @@ export function EasyText({
   )
 
   // 단계적 노출. steps.length <= 1 이면 문장을 쪼갤 필요가 없어 기존과 동일한
-  // 한 문단 렌더로 폴백한다(hasSteps === false 분기).
-  const steps = useMemo(() => splitIntoSteps(plain), [plain])
+  // 한 문단 렌더로 폴백한다(hasSteps === false 분기). orderStepsDirectiveFirst
+  // 가 행동 지침 문장을 맨 앞으로 옮긴다 — 원문이 "상황 설명 → 행동 지침"
+  // 순서라도 첫 화면에 행동 지침이 없는 일이 없게 한다(PR #50 리뷰).
+  const steps = useMemo(() => orderStepsDirectiveFirst(splitIntoSteps(plain)), [plain])
   const hasSteps = steps.length > 1
   const [revealedCount, setRevealedCount] = useState<number>(1)
   // 본문이 바뀌면(새 알림 도착 등) 처음부터 다시 보여준다. 이전 알림을 다
   // 펼쳐본 상태로 다음 알림을 맞으면 안 된다 — 새 지침은 항상 1문장부터.
-  useEffect(() => {
+  // 렌더 중에 조정한다(useEffect가 아니라) — effect는 페인트 이후에 돌기
+  // 때문에, 새 본문 문장들이 이전 revealedCount로 먼저 한 프레임 그려졌다가
+  // 1문장으로 접히는 깜빡임이 생긴다(PR #50 리뷰 버그 코멘트).
+  const [prevPlain, setPrevPlain] = useState(plain)
+  if (prevPlain !== plain) {
+    setPrevPlain(plain)
     setRevealedCount(1)
-  }, [plain])
+  }
   const visibleSteps = hasSteps ? steps.slice(0, revealedCount) : [plain]
   const allRevealed = !hasSteps || revealedCount >= steps.length
 
@@ -213,30 +221,28 @@ export function EasyText({
         ))}
       </div>
 
-      {/* "다음" 버튼. 문장이 둘 이상일 때만 렌더하고, 다 펼치면 사라진다.
-          한 번 누를 때마다 문장 하나씩만 늘린다 — 여러 개를 한꺼번에
-          펼치면 애초에 쪼갠 의미가 없다. */}
-      {hasSteps && !allRevealed && (
+      {/* "다음" 버튼. 문장이 둘 이상일 때만 렌더한다. 한 번 누를 때마다
+          문장 하나씩만 늘린다 — 여러 개를 한꺼번에 펼치면 애초에 쪼갠
+          의미가 없다. 다 펼쳐도 언마운트하지 않고 비활성화 + 라벨 교체로
+          남긴다(PR #50 리뷰 접근성 코멘트 — 언마운트하면 포커스가 body로
+          떨어지고 아래 읽어주기 버튼이 그 자리로 튀어 오탭을 유발한다).
+          스타일은 크게 보기와 같은 toggleStyle('secondary', …)를 재사용해
+          "다음"이 읽어주기(주 동작)처럼 보이지 않게 한다. */}
+      {hasSteps && (
         <button
           type="button"
-          onClick={() => setRevealedCount((n) => n + 1)}
+          onClick={() => setRevealedCount((n) => Math.min(n + 1, steps.length))}
+          disabled={allRevealed}
+          aria-disabled={allRevealed}
           style={{
+            ...toggleStyle('secondary', false),
             width: '100%',
-            minHeight: '52px',
             marginTop: '10px',
-            padding: '14px',
-            fontFamily: 'inherit',
-            fontSize: '17px',
-            fontWeight: 800,
-            letterSpacing: '-.015em',
-            color: C.white,
-            background: C.tealText,
-            border: 'none',
-            borderRadius: '13px',
-            cursor: 'pointer',
+            opacity: allRevealed ? 0.6 : 1,
+            cursor: allRevealed ? 'default' : 'pointer',
           }}
         >
-          다음 ({revealedCount}/{steps.length})
+          {allRevealed ? '모두 보여드렸습니다' : `다음 (${revealedCount}/${steps.length})`}
         </button>
       )}
 

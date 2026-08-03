@@ -928,3 +928,82 @@ function countSentences(text: string): number {
   const pieces = text.split(SENTENCE_END).filter((s) => s.trim().length > 0)
   return Math.max(1, pieces.length)
 }
+
+// ---- 단계적 노출(EasyText "다음" 버튼) ----------------------------------
+//
+// splitIntoSteps/orderStepsDirectiveFirst는 원래 EasyText.tsx 안에 있었다
+// (PR #50). 순수 함수라 프론트엔드에 테스트 러너가 들어오면 바로 테스트할
+// 수 있도록 여기로 옮겼다(PR #50 리뷰 코멘트).
+
+// apps/ai-engine의 guardrail._SENTENCE_SPLIT과 반드시 같은 기준을 써야
+// 한다 — 두 곳이 서로 다른 문장 경계를 쓰면 "몇 문장인지"가 화면마다
+// 달라진다.
+const STEP_SENTENCE_SPLIT = /(?<=[.!?。])\s+|\n+/
+
+// lookbehind(`(?<=...)`)는 Safari 16.4 이상에서만 지원된다. esbuild는 이
+// 정규식 리터럴을 낮추지 못해(down-level 불가) 대상 브라우저가 이를
+// 지원하지 않으면 경고만 내고 그대로 둔다 — `npm run build` 확인 결과
+// (2026-08-04) 이 저장소의 기본 build target에서는 경고가 뜨지 않았다.
+// 다시 확인하려면 `npm run build` 출력에 lookbehind 관련 경고가 있는지만
+// 보면 된다(PR #50 리뷰).
+
+// 숫자/구두점만 남은 조각("1.", "-", "②" 등 번호 매기기 목록의 마커)인지
+// 판별한다. 이런 조각은 단독 스텝으로 두면 안 된다 — 사용자가 "1."만 있는
+// 화면을 보고 탭해야 다음 내용이 나오는 결함이 생긴다.
+const STEP_FRAGMENT_ONLY = /^[\s\d.\-)②③④⑤①]+$/
+
+// apps/ai-engine의 guardrail._DIRECTIVE_PATTERN과 같은 기준. "한 가지 행동
+// 지침" 문장을 이 어미로 판별한다.
+const STEP_DIRECTIVE_PATTERN = /(하세요|하십시오|주세요|가세요|마세요)/
+
+// 문장 단위로 쪼갠다. 번호 매기기 목록의 마커 조각("1." 등)은 독립 스텝으로
+// 두지 않고 인접 문장에 붙인다.
+export function splitIntoSteps(text: string): string[] {
+  const raw = text
+    .split(STEP_SENTENCE_SPLIT)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+
+  const merged: string[] = []
+  for (const piece of raw) {
+    const last = merged[merged.length - 1]
+    if (last !== undefined && STEP_FRAGMENT_ONLY.test(last)) {
+      // 이전 조각이 마커뿐이었다면(마커 혼자만 있어도) 지금 조각을 그 뒤에
+      // 붙인다 — 마커가 연달아 나오는 경우("1." "-")도 이 분기로 합쳐진다.
+      merged[merged.length - 1] = `${last} ${piece}`
+      continue
+    }
+    merged.push(piece)
+  }
+
+  // 텍스트 마지막이 마커뿐으로 끝나는 드문 경우 — 붙일 다음 문장이 없으니
+  // 이전 문장에 붙인다.
+  if (merged.length > 1) {
+    const lastIdx = merged.length - 1
+    const last = merged[lastIdx]
+    const prev = merged[lastIdx - 1]
+    if (last !== undefined && prev !== undefined && STEP_FRAGMENT_ONLY.test(last)) {
+      merged[lastIdx - 1] = `${prev} ${last}`
+      merged.pop()
+    }
+  }
+
+  return merged
+}
+
+// 행동 지침 문장을 첫 스텝으로 끌어올린다. 원문 순서가 "상황 설명 → 행동
+// 지침"이면 단계적 노출의 첫 화면에 행동 지침이 없어, 사용자가 왜
+// 대피해야 하는지도 모른 채 화면을 넘겨야 정작 무엇을 해야 하는지 보게
+// 된다 — Landing.tsx의 "푸시로 읽은 문장과 화면 문장이 같아야 한다"
+// 불변식, ai-engine의 test_message_is_self_contained(ADR-0005, "본문만
+// 읽어도 행동이 나와야 한다")와 충돌한다(PR #50 리뷰 블로킹 코멘트).
+// 지침 문장을 찾아 맨 앞으로 옮기고 나머지는 원래 상대 순서를 유지한다.
+// 지침 문장이 없으면(이미 첫 문장이거나, 매칭되는 어미가 없으면) 원문
+// 순서를 그대로 둔다.
+export function orderStepsDirectiveFirst(steps: string[]): string[] {
+  const idx = steps.findIndex((s) => STEP_DIRECTIVE_PATTERN.test(s))
+  if (idx <= 0) return steps
+  const directive = steps[idx]
+  if (directive === undefined) return steps
+  return [directive, ...steps.slice(0, idx), ...steps.slice(idx + 1)]
+}
