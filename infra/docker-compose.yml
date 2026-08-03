@@ -53,7 +53,8 @@ services:
       SAVERS_AI_ENGINE_URL: http://ai-engine:8100
       SAVERS_AI_ENGINE_TIMEOUT_S: ${SAVERS_AI_ENGINE_TIMEOUT_S:-8.0}
       SAVERS_SESSION_TTL_S: ${SAVERS_SESSION_TTL_S:-21600}
-      SAVERS_PUBLIC_BASE_URL: ${SAVERS_PUBLIC_BASE_URL:-http://localhost:5173}
+      # 프론트 개발 서버는 3000 고정입니다(카카오맵 SDK 허용 도메인 · vite strictPort).
+      SAVERS_PUBLIC_BASE_URL: ${SAVERS_PUBLIC_BASE_URL:-http://localhost:3000}
     ports:
       - "8000:8000"
     depends_on:
