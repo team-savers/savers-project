@@ -16,7 +16,7 @@ from backend_core.registry import Resident, ResidentRegistry
 from backend_core.sessions import SessionStore
 from backend_core.shelters import ShelterRepository
 
-BASE_URL = "http://localhost:5173"
+BASE_URL = "http://localhost:3000"
 
 
 def _run(
