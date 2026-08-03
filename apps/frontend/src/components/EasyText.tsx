@@ -28,12 +28,26 @@
 // 52px. The body sits inside a card so the "instruction" region is
 // visually distinct from the surrounding surface.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { substituteAdminTerms } from '../lib/readability'
 import type { Language, Source } from '../api/types'
 import { SpeakButton } from './SpeakButton'
 import { C, SHADOW_CARD } from '../lib/tokens'
+
+// 단계적 안내: 문장 단위로 쪼개 한 번에 하나씩 노출한다(2026-08-03 회의 —
+// "글이 많으면 당황한 사람은 읽지 못한다" 지적 대응). 문장 경계는 마침표·
+// 물음표·느낌표 뒤 공백, 또는 줄바꿈으로 잡는다 — apps/ai-engine의
+// guardrail._SENTENCE_SPLIT과 같은 기준을 그대로 따른다(두 곳이 서로 다른
+// 문장 경계를 쓰면 "몇 문장인지"가 화면마다 달라진다).
+const SENTENCE_SPLIT = /(?<=[.!?。])\s+|\n+/
+
+function splitIntoSteps(text: string): string[] {
+  return text
+    .split(SENTENCE_SPLIT)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+}
 
 interface Props {
   // 원문 메시지 본문. children 으로 받되 문자열만 허용한다 —
@@ -141,6 +155,19 @@ export function EasyText({
     [children, lang],
   )
 
+  // 단계적 노출. steps.length <= 1 이면 문장을 쪼갤 필요가 없어 기존과 동일한
+  // 한 문단 렌더로 폴백한다(hasSteps === false 분기).
+  const steps = useMemo(() => splitIntoSteps(plain), [plain])
+  const hasSteps = steps.length > 1
+  const [revealedCount, setRevealedCount] = useState<number>(1)
+  // 본문이 바뀌면(새 알림 도착 등) 처음부터 다시 보여준다. 이전 알림을 다
+  // 펼쳐본 상태로 다음 알림을 맞으면 안 된다 — 새 지침은 항상 1문장부터.
+  useEffect(() => {
+    setRevealedCount(1)
+  }, [plain])
+  const visibleSteps = hasSteps ? steps.slice(0, revealedCount) : [plain]
+  const allRevealed = !hasSteps || revealedCount >= steps.length
+
   const bodyStyle: CSSProperties = {
     fontSize: largeActive ? `${LARGE_FONT_PX}px` : `${BASE_FONT_PX}px`,
     lineHeight: largeActive ? 1.48 : 1.58,
@@ -157,10 +184,10 @@ export function EasyText({
   const hasSources = sourceList.length > 0
 
   // 음성으로 낭독할 문자열. 화면에 보이는 본문과 같은 문장을 읽어야 한다 —
-  // 시각 채널과 음성 채널이 다른 문장을 말하면 접근성 결함이 된다. 본문 자리는
-  // 쉬운 말 치환본(한국어) 또는 서버 문안 원문(베트남어)이므로, 음성도 그것을
-  // 읽는다.
-  const spokenText = plain
+  // 시각 채널과 음성 채널이 다른 문장을 말하면 접근성 결함이 된다. 단계적
+  // 노출 중에는 "화면에 보이는 것"이 전체 본문이 아니라 지금까지 펼친
+  // 문장들이므로, 아직 안 보여준 뒷문장을 미리 읽어버리면 안 된다.
+  const spokenText = visibleSteps.join(' ')
 
   return (
     <div
@@ -173,10 +200,45 @@ export function EasyText({
     >
       {/* 본문. 이 영역이 화면에 보이는 유일한 본문이다. 한국어 화면에서는
           원문(message.body)을 쉬운 우리말로 치환한 결과를, 베트남어 화면에서는
-          서버 문안 원문을 그대로 보여준다. 글자 크기는 large 상태를 따른다. */}
-      <p aria-live="polite" style={bodyStyle}>
-        {plain}
-      </p>
+          서버 문안 원문을 그대로 보여준다. 글자 크기는 large 상태를 따른다.
+          문장이 여럿이면(hasSteps) 한 번에 하나씩 펼치고, 한 문장뿐이면
+          기존과 동일하게 통째로 보여준다. aria-live 컨테이너가 문단 전체를
+          감싸므로 "다음" 탭으로 새 문장이 추가될 때 화면낭독기가 그 문장만
+          알린다. */}
+      <div aria-live="polite" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        {visibleSteps.map((step, i) => (
+          <p key={i} style={bodyStyle}>
+            {step}
+          </p>
+        ))}
+      </div>
+
+      {/* "다음" 버튼. 문장이 둘 이상일 때만 렌더하고, 다 펼치면 사라진다.
+          한 번 누를 때마다 문장 하나씩만 늘린다 — 여러 개를 한꺼번에
+          펼치면 애초에 쪼갠 의미가 없다. */}
+      {hasSteps && !allRevealed && (
+        <button
+          type="button"
+          onClick={() => setRevealedCount((n) => n + 1)}
+          style={{
+            width: '100%',
+            minHeight: '52px',
+            marginTop: '10px',
+            padding: '14px',
+            fontFamily: 'inherit',
+            fontSize: '17px',
+            fontWeight: 800,
+            letterSpacing: '-.015em',
+            color: C.white,
+            background: C.tealText,
+            border: 'none',
+            borderRadius: '13px',
+            cursor: 'pointer',
+          }}
+        >
+          다음 ({revealedCount}/{steps.length})
+        </button>
+      )}
 
       {/* 고지 줄 — "어려운 말 N종을 쉬운 우리말로 바꿨습니다". 문장이 바뀌었다는
           안내다. 치환이 하나도 없거나 베트남어 화면이면 숨긴다. N 은 치환된
