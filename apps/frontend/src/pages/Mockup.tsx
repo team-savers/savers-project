@@ -230,6 +230,62 @@ function StatusRow({ label, value, tone }: { label: string; value: string; tone?
   )
 }
 
+// 최근 알림 이력 — wwit.design "알림" 패턴(아이콘 + 카테고리 라벨 + 제목 +
+// 상대시간)을 참고했다. GuardianStatus 계약 필드(openedAt/respondedAt/
+// lastResponse)로 실제 나올 수 있는 이벤트만 나열한다 — 지어낸 알림 종류는
+// 없다.
+const MOCK_NOTIFICATION_HISTORY: Array<{ icon: string; category: string; title: string; time: string }> = [
+  { icon: '🌧️', category: '재난 경보', title: '서원동 호우경보 발령', time: '09:10' },
+  { icon: '📍', category: '열람', title: '안내 링크를 열어 확인함', time: '09:12' },
+  { icon: '✅', category: '응답', title: '"밖으로 대피 중" 응답', time: '09:14' },
+]
+
+function NotificationHistoryList({ items }: { items: typeof MOCK_NOTIFICATION_HISTORY }) {
+  return (
+    <div style={card}>
+      <p style={{ fontSize: '14px', fontWeight: 700, color: C.body, margin: '0 0 12px' }}>최근 알림 이력</p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        {items.map((item, i) => (
+          <div
+            key={item.title}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '8px 0',
+              borderBottom: i < items.length - 1 ? `1px solid ${C.border}` : 'none',
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '10px',
+                background: C.tealBg,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '15px',
+                flex: 'none',
+              }}
+            >
+              {item.icon}
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontSize: '11px', fontWeight: 700, color: C.tealText, margin: '0 0 2px' }}>
+                {item.category}
+              </p>
+              <p style={{ fontSize: '13.5px', color: C.navy, margin: 0 }}>{item.title}</p>
+            </div>
+            <span style={{ fontSize: '12px', color: C.tertiary, flex: 'none' }}>{item.time}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function GuardianConceptScreen() {
   const g = MOCK_GUARDIAN_STATUS
   return (
@@ -245,6 +301,10 @@ function GuardianConceptScreen() {
         <StatusRow label="알림 확인" value={`확인함 (${g.openedAt})`} tone="safe" />
         <StatusRow label="응답" value={g.lastResponse} tone="safe" />
         <StatusRow label="마지막 응답 시각" value={g.respondedAt} />
+      </div>
+
+      <div style={{ marginTop: '14px' }}>
+        <NotificationHistoryList items={MOCK_NOTIFICATION_HISTORY} />
       </div>
 
       <div style={{ ...card, marginTop: '14px', background: C.warnBg, border: `1px solid ${C.warn}` }}>
@@ -376,10 +436,59 @@ function StatCard({ label, value, tone }: { label: string; value: string; tone?:
   )
 }
 
+// 도넛차트 색상 3개 — 관리자(비긴급) 화면이라 하자드/알럿 톤을 쓰지 않고
+// 차분한 틸·네이비 계열로만 구성한다(wwit.design "알림" 패턴에서 참고한
+// 소비 리포트 카드의 도넛+인사이트 조합).
+const DISTRIBUTION_COLORS = [C.tealText, C.navy, C.mint]
+
+function DonutChart({
+  segments,
+  size = 116,
+  strokeWidth = 20,
+}: {
+  segments: Array<{ label: string; count: number; color: string }>
+  size?: number
+  strokeWidth?: number
+}) {
+  const total = segments.reduce((sum, seg) => sum + seg.count, 0)
+  const radius = (size - strokeWidth) / 2
+  const circumference = 2 * Math.PI * radius
+  let offset = 0
+  return (
+    <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} style={{ transform: 'rotate(-90deg)', flex: 'none' }}>
+      <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={C.greyBg} strokeWidth={strokeWidth} />
+      {segments.map((seg) => {
+        const frac = total > 0 ? seg.count / total : 0
+        const dash = frac * circumference
+        const dashOffset = -offset
+        offset += dash
+        return (
+          <circle
+            key={seg.label}
+            cx={size / 2}
+            cy={size / 2}
+            r={radius}
+            fill="none"
+            stroke={seg.color}
+            strokeWidth={strokeWidth}
+            strokeDasharray={`${dash} ${circumference - dash}`}
+            strokeDashoffset={dashOffset}
+          />
+        )
+      })}
+    </svg>
+  )
+}
+
 function OpsSummaryMockupScreen() {
   const s = MOCK_OPS_STATS
   const sentRate = Math.round((s.sent / s.total) * 100)
   const respondRate = Math.round((s.responded / s.total) * 100)
+
+  const byTypeWithColor = s.byType.map((t, i) => ({ ...t, color: DISTRIBUTION_COLORS[i % DISTRIBUTION_COLORS.length] }))
+  const top = byTypeWithColor.reduce((max, t) => (t.count > max.count ? t : max), byTypeWithColor[0])
+  const topPct = Math.round((top.count / s.total) * 100)
+
   return (
     <div style={{ padding: '16px' }}>
       <ConceptBadge>Ops.tsx 현황 탭 재구성 시안 · 예시 숫자</ConceptBadge>
@@ -393,17 +502,30 @@ function OpsSummaryMockupScreen() {
       </div>
 
       <div style={card}>
-        <p style={{ fontSize: '14px', fontWeight: 700, color: C.body, margin: '0 0 10px' }}>취약 유형 분포</p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {s.byType.map((t) => (
-            <div key={t.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ width: '64px', fontSize: '13px', color: C.body, flex: 'none' }}>{t.label}</span>
-              <div style={{ flex: 1, height: '8px', borderRadius: '4px', background: C.greyBg, overflow: 'hidden' }}>
-                <div style={{ width: `${(t.count / s.total) * 100}%`, height: '100%', background: C.tealText }} />
+        <p style={{ fontSize: '14px', fontWeight: 700, color: C.body, margin: '0 0 4px' }}>취약 유형 분포</p>
+        {/* 인사이트 한 줄 — wwit.design 소비 리포트의 "가장 많은 돈을 쓴 곳은
+            운동이네요" 문장 패턴. 계산값 그대로 문장화한 것이라 지어낸
+            분석이 아니다. */}
+        <p style={{ fontSize: '13px', color: C.tealDeep, margin: '0 0 14px', lineHeight: 1.5 }}>
+          가장 큰 비중은 <strong>{top.label}</strong>이에요 ({topPct}%)
+        </p>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+          <DonutChart segments={byTypeWithColor} />
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {byTypeWithColor.map((t) => (
+              <div key={t.label} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span
+                  aria-hidden="true"
+                  style={{ width: '10px', height: '10px', borderRadius: '50%', background: t.color, flex: 'none' }}
+                />
+                <span style={{ fontSize: '13px', color: C.body, flex: 1 }}>{t.label}</span>
+                <span style={{ fontSize: '13px', fontWeight: 700, color: C.navy }}>
+                  {Math.round((t.count / s.total) * 100)}%
+                </span>
               </div>
-              <span style={{ fontSize: '13px', color: C.tertiary, flex: 'none' }}>{t.count}명</span>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
     </div>
