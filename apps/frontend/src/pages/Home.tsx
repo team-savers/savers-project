@@ -873,6 +873,50 @@ export function Home(): React.ReactElement {
           <br />
           ‘지금 위층으로’가 됩니다.
         </div>
+
+        {/* 실제 안내 체험 링크. 등록 전에 화면을 직접 눌러볼 수 있게 한다 —
+            "우리 가족이 위급 상황에 이런 안내를 받는구나"를 미리
+            보여줘서, 정작 재난이 닥쳤을 때는 낯선 화면이 아니게 하려는
+            목적이다(2026-08-04). /preview는 실제 세션 데이터를 쓰는
+            체험 화면이라 실제 알림과 문구가 동일하다 — 다만 이건 미리보기지
+            실제 알림이 아니라는 점을 링크 문구·부제 양쪽에 명시한다. */}
+        <div data-reveal style={{ marginTop: '22px' }}>
+          <a
+            href="/preview?t=p001"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '9px',
+              background: C.white,
+              color: C.tealText,
+              border: `1.5px solid ${C.tealText}`,
+              borderRadius: '16px',
+              padding: '18px',
+              fontSize: '16px',
+              fontWeight: 700,
+              textDecoration: 'none',
+              minHeight: '56px',
+            }}
+          >
+            실제 안내 화면 미리 체험해보기
+            <svg viewBox="0 0 24 24" style={{ ...ICON_BASE, width: 18, height: 18 }}>
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+          </a>
+          <p
+            style={{
+              fontSize: '13px',
+              lineHeight: 1.6,
+              color: C.tertiary,
+              textAlign: 'center',
+              marginTop: '8px',
+            }}
+          >
+            실제 알림이 아니라 미리보기입니다 — 등록해두면 위급 상황에 가족이
+            이런 화면을 받게 됩니다.
+          </p>
+        </div>
       </section>
 
       {/* ===================== 03 작동 방식 ===================== */}

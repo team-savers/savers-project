@@ -437,9 +437,20 @@ function IntroScreenTakeAction({ title, onNext }: { title: string; onNext: () =>
         </p>
       </div>
       <div style={{ padding: '20px' }}>
+        {/* 미세한 펄스 — 게임 QTE 디자인 리서치의 "지금 눌러야 할 것을
+            시각적으로 놓치지 않게" 원칙. 사이렌·흔들림 같은 자극적인
+            연출은 피하고(같은 리서치의 반면교사), 크기 1.5%만 오가는
+            느린 펄스로 "여기가 지금 할 행동"이라는 신호만 준다.
+            prefers-reduced-motion이면 애니메이션 자체를 끈다. */}
+        <style>{`
+          @keyframes savers-cta-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.015); } }
+          .savers-cta-pulse { animation: savers-cta-pulse 2.2s ease-in-out infinite; }
+          @media (prefers-reduced-motion: reduce) { .savers-cta-pulse { animation: none; } }
+        `}</style>
         <button
           type="button"
           onClick={onNext}
+          className="savers-cta-pulse"
           style={{
             width: '100%',
             minHeight: `${touchTarget.ctaMin}px`,
@@ -634,9 +645,30 @@ function SummaryScreen({
 
         <div style={{ background: C.greyBg, borderRadius: '16px', padding: '18px', marginBottom: '16px' }}>
           <p style={{ fontSize: '14px', fontWeight: 700, color: C.body, margin: '0 0 10px' }}>나가기 전 일반 안전수칙</p>
+          {/* 번호(1→2→3) — 항공기 안전카드가 텍스트 없이도 순서를 전달하는
+              방식(화살표/번호 시퀀스)을 참고했다. 순서대로 하나씩 하면
+              된다는 걸 숫자로도 확인시킨다. */}
           <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {SAFETY_CHECKLIST.map(({ icon: Icon, text }) => (
+            {SAFETY_CHECKLIST.map(({ icon: Icon, text }, i) => (
               <li key={text} style={{ fontSize: '15.5px', color: C.body, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: '18px',
+                    height: '18px',
+                    borderRadius: '50%',
+                    background: C.mandatory,
+                    color: C.white,
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flex: 'none',
+                  }}
+                >
+                  {i + 1}
+                </span>
                 <Icon />
                 {text}
               </li>

@@ -3,6 +3,11 @@
 // 여기서도 빨강은 쓰지 않는다(경고가 끝났다는 뜻). 인트로에서 우산을 쓰고
 // 있던 마스코트가 여기선 safe 포즈로 건물 옆에 서 있다 — 같은 캐릭터가
 // 대피를 마쳤다는 걸 보여준다.
+//
+// 완료 배지는 사각형이다 — ISO 7010은 "안전조건(대피구 등)" 신호를 초록
+// 사각형으로 규정하고, 원형은 파랑(지시)에 예약돼 있다. 체크리스트
+// 아이콘이 이미 파랑 원형(C.mandatory)을 쓰고 있으므로, 이 배지를 원형
+// 대신 사각형으로 그려서 "지시"와 "안전 확인"이 형태로도 구분되게 한다.
 import { C } from '../../lib/tokens'
 import { MascotGraphic } from './Mascot'
 
@@ -32,9 +37,9 @@ export function SafeArrivalIllustration() {
       <rect x="52" y="104" width="18" height="18" fill={C.white} opacity="0.9" />
       <rect x="130" y="104" width="18" height="18" fill={C.white} opacity="0.9" />
 
-      {/* 완료 배지 */}
-      <circle cx="152" cy="118" r="18" fill={C.white} />
-      <circle cx="152" cy="118" r="18" fill="none" stroke={C.safe} strokeWidth="3" />
+      {/* 완료 배지 — ISO 안전조건 사각형 규격 */}
+      <rect x="136" y="102" width="32" height="32" rx="7" fill={C.white} />
+      <rect x="136" y="102" width="32" height="32" rx="7" fill="none" stroke={C.safe} strokeWidth="3" />
       <path d="M144 118 l6 6 l12 -13" stroke={C.safe} strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
 
       {/* 마스코트 — 건물 옆에서 safe 포즈 */}
