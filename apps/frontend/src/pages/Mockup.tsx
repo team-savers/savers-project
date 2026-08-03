@@ -32,15 +32,23 @@ import type { CSSProperties, ReactNode } from 'react'
 import { C, MOBILE_WIDTH, SHADOW_CARD, touchTarget } from '../lib/tokens'
 
 type MockupScreen = 'guardian' | 'chat' | 'ops' | 'push'
+// 'all' — 4개 화면을 세로로 쭉 이어 붙여 스크롤 한 번으로 전부 비교해서
+// 본다(팀장 피드백 — 탭으로 하나씩 넘기면 직관적으로 비교하기 힘들다).
+// 'single' — 기존 탭 전환 방식. 발표 중 한 화면씩 짚어가며 설명할 때 쓴다.
+type ViewMode = 'all' | 'single'
 
-const SCREENS: Array<{ key: MockupScreen; label: string }> = [
-  { key: 'push', label: '잠금화면 알림' },
-  { key: 'guardian', label: '보호자 현황' },
-  { key: 'chat', label: 'AI 챗봇' },
-  { key: 'ops', label: '관리자 요약' },
+const SCREENS: Array<{ key: MockupScreen; label: string; render: () => ReactNode }> = [
+  { key: 'push', label: '잠금화면 알림', render: () => <LockScreenPushScreen /> },
+  { key: 'guardian', label: '보호자 현황', render: () => <GuardianConceptScreen /> },
+  { key: 'chat', label: 'AI 챗봇', render: () => <ChatMockupScreen /> },
+  { key: 'ops', label: '관리자 요약', render: () => <OpsSummaryMockupScreen /> },
 ]
 
 export function Mockup() {
+  // 기본값을 'all'로 둔다 — "직관적으로 보기 너무 힘들다"는 피드백이 탭
+  // 전환 방식(하나씩만 보임) 때문이었으므로, 처음 열었을 때부터 전체가
+  // 한 번에 보이는 쪽을 기본으로 한다.
+  const [viewMode, setViewMode] = useState<ViewMode>('all')
   const [screen, setScreen] = useState<MockupScreen>('guardian')
   return (
     <main
@@ -67,39 +75,105 @@ export function Mockup() {
         발표용 목업 · 코드/기능 연동 없음 · 실제 동작 아님
       </div>
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '14px 16px 0' }}>
-        {SCREENS.map((s) => {
-          const active = s.key === screen
-          return (
-            <button
-              key={s.key}
-              type="button"
-              onClick={() => setScreen(s.key)}
-              style={{
-                flex: '1 1 42%',
-                minHeight: `${touchTarget.minimum}px`,
-                padding: '8px',
-                fontFamily: 'inherit',
-                fontSize: '12.5px',
-                fontWeight: 800,
-                borderRadius: '10px',
-                border: `2px solid ${active ? C.navy : C.border}`,
-                background: active ? C.navy : C.white,
-                color: active ? C.white : C.body,
-                cursor: 'pointer',
-              }}
-            >
-              {s.label}
-            </button>
-          )
-        })}
+      <div style={{ display: 'flex', gap: '8px', padding: '14px 16px 0' }}>
+        <ModeButton label="전체 보기" active={viewMode === 'all'} onClick={() => setViewMode('all')} />
+        <ModeButton label="한 화면씩 보기" active={viewMode === 'single'} onClick={() => setViewMode('single')} />
       </div>
 
-      {screen === 'push' && <LockScreenPushScreen />}
-      {screen === 'guardian' && <GuardianConceptScreen />}
-      {screen === 'chat' && <ChatMockupScreen />}
-      {screen === 'ops' && <OpsSummaryMockupScreen />}
+      {viewMode === 'single' && (
+        <>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '10px 16px 0' }}>
+            {SCREENS.map((s) => {
+              const active = s.key === screen
+              return (
+                <button
+                  key={s.key}
+                  type="button"
+                  onClick={() => setScreen(s.key)}
+                  style={{
+                    flex: '1 1 42%',
+                    minHeight: `${touchTarget.minimum}px`,
+                    padding: '8px',
+                    fontFamily: 'inherit',
+                    fontSize: '12.5px',
+                    fontWeight: 800,
+                    borderRadius: '10px',
+                    border: `2px solid ${active ? C.navy : C.border}`,
+                    background: active ? C.navy : C.white,
+                    color: active ? C.white : C.body,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {s.label}
+                </button>
+              )
+            })}
+          </div>
+          {SCREENS.find((s) => s.key === screen)?.render()}
+        </>
+      )}
+
+      {viewMode === 'all' && (
+        <div>
+          {SCREENS.map((s, i) => (
+            <section key={s.key}>
+              <div
+                style={{
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 5,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '10px 16px',
+                  marginTop: i === 0 ? '10px' : '20px',
+                  background: C.tealDeep,
+                  color: C.white,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 800,
+                    background: 'rgba(255,255,255,.2)',
+                    borderRadius: '10px',
+                    padding: '2px 8px',
+                  }}
+                >
+                  {i + 1}/{SCREENS.length}
+                </span>
+                <span style={{ fontSize: '14px', fontWeight: 800 }}>{s.label}</span>
+              </div>
+              {s.render()}
+            </section>
+          ))}
+        </div>
+      )}
     </main>
+  )
+}
+
+function ModeButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        flex: 1,
+        minHeight: `${touchTarget.minimum}px`,
+        padding: '8px',
+        fontFamily: 'inherit',
+        fontSize: '13px',
+        fontWeight: 800,
+        borderRadius: '10px',
+        border: `2px solid ${active ? C.tealText : C.border}`,
+        background: active ? C.tealText : C.white,
+        color: active ? C.white : C.body,
+        cursor: 'pointer',
+      }}
+    >
+      {label}
+    </button>
   )
 }
 
