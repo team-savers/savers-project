@@ -140,22 +140,38 @@ const INPUT_STYLE: CSSProperties = {
   outline: 'none',
 }
 
-// 빠른 질문 칩. 흰 카드 + 틸 테두리. 연파랑 배경 위 검은 글씨는 "이미
-// 눌린 것"처럼 보인다.
+// 빠른 질문 칩. 알약형(pill) — 줄바꿈되는 가로 배치로, 여러 개를 한 화면에서
+// 한눈에 훑을 수 있다(LG ThinQ 챗봇의 카테고리 칩 참고). 세로로 쌓인 전체 폭
+// 버튼보다 "짧은 선택지들"이라는 인상을 준다. 최소 터치 높이는 유지한다.
 const QUICK_STYLE: CSSProperties = {
-  width: '100%',
-  minHeight: '52px',
-  padding: '14px 16px',
+  minHeight: '48px',
+  padding: '12px 18px',
   fontFamily: 'inherit',
-  fontSize: '16.5px',
+  fontSize: '15.5px',
   fontWeight: 700,
-  letterSpacing: '-.015em',
-  textAlign: 'left',
-  color: C.navy,
-  background: C.white,
-  border: `1.5px solid #9DC9C4`,
-  borderRadius: '13px',
+  letterSpacing: '-.012em',
+  textAlign: 'center',
+  color: C.tealText,
+  background: C.tealBg,
+  border: `1.5px solid transparent`,
+  borderRadius: '24px',
   cursor: 'pointer',
+  whiteSpace: 'nowrap',
+}
+
+// 말풍선 — 사용자가 실제로 보낸 질문을 우측 정렬 짙은 버블로 에코한다.
+// 이전에는 질문이 화면에 안 남고 답변만 나와서, 자기가 뭘 물었는지
+// 스크롤해 올라가 확인해야 했다.
+const USER_BUBBLE: CSSProperties = {
+  alignSelf: 'flex-end',
+  maxWidth: '82%',
+  padding: '12px 16px',
+  background: C.navy,
+  color: C.white,
+  borderRadius: '16px 16px 4px 16px',
+  fontSize: '16px',
+  lineHeight: 1.5,
+  letterSpacing: '-.012em',
 }
 
 export function ChatDock({ token, profile, lang }: Props) {
@@ -342,7 +358,7 @@ export function ChatDock({ token, profile, lang }: Props) {
             </p>
           )}
 
-          {/* Quick reply buttons — vertical column, ≥52px tap target. Only
+          {/* Quick reply chips — wrapped row, ≥48px tap target. Only
               rendered when showQuick is true (the first send hides them;
               [다른 것도 물어볼래요] re-shows them, filtered by `asked`).
               When every sentence has been asked, the list is replaced by a
@@ -353,7 +369,7 @@ export function ChatDock({ token, profile, lang }: Props) {
               aria-label={t('chat.quickListLabel', lang)}
               style={{
                 display: 'flex',
-                flexDirection: 'column',
+                flexWrap: 'wrap',
                 gap: '8px',
                 marginBottom: '13px',
               }}
@@ -505,6 +521,15 @@ export function ChatDock({ token, profile, lang }: Props) {
             </div>
           )}
 
+          {/* 질문 말풍선 — 방금 보낸 문장을 우측 정렬로 에코한다. lastSent가
+              reply와 짝을 이루는 순간(로딩 끝난 뒤)에만 보여, 아직 안 온
+              답변 위에 다음 질문이 먼저 뜨는 순서 착시를 막는다. */}
+          {reply !== null && lastSent !== null && (
+            <div style={{ display: 'flex', marginBottom: '8px' }}>
+              <p style={{ ...USER_BUBBLE, margin: 0 }}>{lastSent}</p>
+            </div>
+          )}
+
           {reply !== null && (
             <ReplyView
               reply={reply}
@@ -636,6 +661,8 @@ function ReplyView({
     )
   }
   // Answer branch. Render the answer + sources, then the follow-up affordance.
+  // Left-aligned bubble with a "tail" corner (bottom-left) — the mirror of
+  // the user bubble's bottom-right tail, so the two read as one conversation.
   return (
     <div
       role="status"
@@ -643,7 +670,8 @@ function ReplyView({
         marginTop: '13px',
         padding: '20px',
         background: C.tealBg,
-        borderRadius: '18px',
+        borderRadius: '4px 18px 18px 18px',
+        maxWidth: '92%',
       }}
     >
       <p

@@ -1,0 +1,123 @@
+// Floating 비상 도구 — 손전등 / 경보음 / 위치 공유. 항상 같은 자리(화면
+// 우측)에 라벨과 함께 떠 있어서, 메뉴를 뒤지거나 이런 기능이 있다는 걸
+// 미리 기억하고 있지 않아도 눌러서 바로 쓸 수 있게 한다. 아이콘만으로는
+// 당황한 상태에서 못 알아볼 수 있어 글자 라벨을 항상 함께 보여준다.
+import { useEffect, useRef, useState } from 'react'
+import type { Shelter } from '../api/types'
+import { Siren, shareShelterInfo } from '../lib/emergencyTools'
+import { C, SHADOW_CARD } from '../lib/tokens'
+
+export function EmergencyToolbar({ nearest }: { nearest: Shelter | null }) {
+  const [flashlightOn, setFlashlightOn] = useState(false)
+  const [sirenOn, setSirenOn] = useState(false)
+  const [shareStatus, setShareStatus] = useState<'shared' | 'copied' | 'unavailable' | null>(null)
+  const sirenRef = useRef<Siren>(new Siren())
+
+  useEffect(() => {
+    const siren = sirenRef.current
+    return () => siren.stop()
+  }, [])
+
+  function toggleSiren() {
+    if (sirenOn) {
+      sirenRef.current.stop()
+      setSirenOn(false)
+      return
+    }
+    setSirenOn(sirenRef.current.start())
+  }
+
+  async function handleShare() {
+    const result = await shareShelterInfo(nearest)
+    if (result === 'cancelled') return
+    setShareStatus(result)
+    window.setTimeout(() => setShareStatus(null), 2500)
+  }
+
+  return (
+    <>
+      {flashlightOn && (
+        <button
+          type="button"
+          onClick={() => setFlashlightOn(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            zIndex: 60,
+            background: '#FFFFFF',
+            border: 'none',
+            display: 'flex',
+            alignItems: 'flex-end',
+            justifyContent: 'center',
+            paddingBottom: '48px',
+            cursor: 'pointer',
+          }}
+        >
+          <span style={{ fontSize: '15px', fontWeight: 700, color: C.tertiary }}>화면을 탭하면 꺼집니다</span>
+        </button>
+      )}
+
+      <div
+        style={{
+          position: 'fixed',
+          right: '12px',
+          // 헤더/배너 높이가 화면마다 달라서(56~110px) 가장 큰 경우 기준으로
+          // 여유 있게 고정 — 화면 중앙에 두면 세로 중앙 정렬된 버튼들과
+          // 겹치므로 상단에 붙인다.
+          top: '128px',
+          zIndex: 40,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+        }}
+      >
+        <ToolButton icon="🔦" label="손전등" active={flashlightOn} onClick={() => setFlashlightOn(true)} />
+        <ToolButton icon="🔊" label={sirenOn ? '소리끄기' : '경보음'} active={sirenOn} onClick={toggleSiren} />
+        <ToolButton
+          icon="📍"
+          label={shareStatus === 'shared' ? '공유됨' : shareStatus === 'copied' ? '복사됨' : shareStatus === 'unavailable' ? '실패' : '위치공유'}
+          onClick={() => void handleShare()}
+        />
+      </div>
+    </>
+  )
+}
+
+function ToolButton({
+  icon,
+  label,
+  active,
+  onClick,
+}: {
+  icon: string
+  label: string
+  active?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        width: '60px',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: '2px',
+        padding: '8px 4px',
+        fontFamily: 'inherit',
+        background: active === true ? C.hazardInk : 'rgba(255,255,255,.94)',
+        color: active === true ? C.hazard : C.navy,
+        border: `1px solid ${C.border}`,
+        borderRadius: '14px',
+        boxShadow: SHADOW_CARD,
+        cursor: 'pointer',
+      }}
+    >
+      <span style={{ fontSize: '19px', lineHeight: 1 }}>{icon}</span>
+      <span style={{ fontSize: '10.5px', fontWeight: 700, whiteSpace: 'nowrap' }}>{label}</span>
+    </button>
+  )
+}

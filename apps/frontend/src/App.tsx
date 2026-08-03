@@ -9,6 +9,11 @@
 //   /ops                    → operator surrogate-registration (pages/Ops.tsx)
 //   /join?u=<userId>        → ward phone onboarding (pages/Join.tsx) — the
 //                             QR on /ops opens this URL on the ward's phone
+//   /preview?t=<token>      → EXPERIMENTAL staged flow (pages/Preview.tsx),
+//                             not adopted into /a — see that file's header
+//   /mockup                 → PRESENTATION-ONLY static mockups
+//                             (pages/Mockup.tsx). Not wired to ../api/* at
+//                             all — hardcoded example data only.
 //
 // The guardian route (/g/{token}), its page, and the ?s= stage parameter are
 // intentionally not part of the route set. Landing takes only the session
@@ -26,6 +31,8 @@ import { Ops } from './pages/Ops'
 import { Join } from './pages/Join'
 import { Home } from './pages/Home'
 import { Register } from './pages/Register'
+import { Preview } from './pages/Preview'
+import { Mockup } from './pages/Mockup'
 import { initSwUpdates } from './lib/swUpdate'
 import { PROFILES } from './mocks/profiles'
 import type { Profile } from './api/types'
@@ -303,6 +310,48 @@ function DemoView() {
         ))}
       </ul>
 
+      <hr style={{ margin: '1.5rem 0' }} />
+
+      <h2>실험적 화면</h2>
+      <p>
+        단계별 대피 흐름(경고 → 갈림길 → 행동권고 → 경로 확인) 미리보기입니다.{' '}
+        <code>/a</code>에 아직 반영되지 않았습니다 — 검토용입니다.
+      </p>
+      <a
+        href="/preview?t=p001"
+        style={{
+          display: 'block',
+          padding: '0.75rem',
+          background: '#fde3e3',
+          textDecoration: 'none',
+          color: '#b3182b',
+          borderRadius: '8px',
+          fontWeight: 700,
+        }}
+      >
+        /preview 열기 (김순자)
+      </a>
+
+      <h2>발표용 목업</h2>
+      <p>
+        코드/기능 연동 없는 정적 화면 모음입니다(보호자 현황 개념안 · AI 챗봇 · 관리자 요약).
+        발표 자료용이며 실제 동작하지 않습니다.
+      </p>
+      <a
+        href="/mockup"
+        style={{
+          display: 'block',
+          padding: '0.75rem',
+          background: '#e6f4f1',
+          textDecoration: 'none',
+          color: '#0b6e69',
+          borderRadius: '8px',
+          fontWeight: 700,
+        }}
+      >
+        /mockup 열기
+      </a>
+
       {/* Non-secret build stamp so an operator can verify at a glance which
           build is currently live on a device. Rendered only on the internal
           /demo route (never on the vulnerable-user landing). */}
@@ -336,6 +385,14 @@ function LandingView() {
   const params = new URLSearchParams(window.location.search)
   const t = params.get('t') ?? ''
   return <Landing token={t} />
+}
+
+// Experimental staged flow — not part of the role-defined route set. See
+// pages/Preview.tsx header for what this is and is not.
+function PreviewView() {
+  const params = new URLSearchParams(window.location.search)
+  const t = params.get('t') ?? 'p001'
+  return <Preview token={t} />
 }
 
 function JoinView() {
@@ -555,6 +612,12 @@ function AppRoutes({ pathname }: { pathname: string }): React.ReactElement {
   }
   if (pathname === '/a' || pathname.startsWith('/a/')) {
     return <LandingView />
+  }
+  if (pathname === '/preview') {
+    return <PreviewView />
+  }
+  if (pathname === '/mockup') {
+    return <Mockup />
   }
   return <HomeView />
 }
