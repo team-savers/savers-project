@@ -38,6 +38,7 @@ import type { Profile, SessionResponse, Shelter, ShelterList, Stage as DisasterS
 import { EmergencyToolbar } from '../components/EmergencyToolbar'
 import { ShelterMap } from '../components/ShelterMap'
 import { DoorIcon, PowerIcon, StairsIcon } from '../components/illustrations/ChecklistIcons'
+import { LocationRiskRadar } from '../components/illustrations/LocationRiskRadar'
 import { Mascot } from '../components/illustrations/Mascot'
 import { RainAlertIllustration } from '../components/illustrations/RainAlertIllustration'
 import { SafeArrivalIllustration } from '../components/illustrations/SafeArrivalIllustration'
@@ -163,7 +164,12 @@ export function Preview({ token }: Props) {
     <Frame>
       {showToolbar && <EmergencyToolbar nearest={nearest} />}
       {stage === 'intro' && (
-        <IntroScreen title={displayTitle} disasterStage={disasterStage} onNext={() => setStage('choice')} />
+        <IntroScreen
+          title={displayTitle}
+          dongName={profile?.dongName ?? ''}
+          disasterStage={disasterStage}
+          onNext={() => setStage('choice')}
+        />
       )}
       {stage === 'choice' && (
         <ChoiceScreen
@@ -334,17 +340,19 @@ function SecondaryButton({ children, onClick }: { children: React.ReactNode; onC
 
 function IntroScreen({
   title,
+  dongName,
   disasterStage,
   onNext,
 }: {
   title: string
+  dongName: string
   disasterStage: DisasterStage
   onNext: () => void
 }) {
   if (disasterStage === 1) {
     return <IntroScreenAware title={title} onNext={onNext} />
   }
-  return <IntroScreenTakeAction title={title} onNext={onNext} />
+  return <IntroScreenTakeAction title={title} dongName={dongName} onNext={onNext} />
 }
 
 // stage 1 — 예비특보. 아직 지켜보는 단계라는 걸 색으로도 드러낸다: 배경은
@@ -406,11 +414,19 @@ function IntroScreenAware({ title, onNext }: { title: string; onNext: () => void
   )
 }
 
-// stage 2/3 — 경보·위험 실현. 기존 전체화면 하자드 옐로 인트로(변경 없음).
-function IntroScreenTakeAction({ title, onNext }: { title: string; onNext: () => void }) {
+// stage 2/3 — 경보·위험 실현.
+function IntroScreenTakeAction({
+  title,
+  dongName,
+  onNext,
+}: {
+  title: string
+  dongName: string
+  onNext: () => void
+}) {
   // 배경은 하자드 옐로(과속방지턱 톤) — 완전 단색이면 납작해 보인다는
   // 피드백(2026-08-04)이 있어 아주 은은한 세로 그라데이션으로 깊이를
-  // 준다. 빨강은 여전히 일러스트 안 점 하나로만 남긴다 — "꼭 확인해야
+  // 준다. 빨강은 레이더 링 스트로크 하나로만 남긴다 — "꼭 확인해야
   // 하는 신호"라는 의미는 유지하되, 화면 전체가 사이렌처럼 보이지 않게
   // 한다.
   return (
@@ -425,13 +441,13 @@ function IntroScreenTakeAction({ title, onNext }: { title: string; onNext: () =>
     >
       <BackHeader onBack={() => window.history.back()} />
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '0 24px' }}>
-        {/* 호우·도시침수 히어로 일러스트 — MVP 재난 유형이 이 하나뿐이라
-            분기 없이 고정 장면 하나를 쓴다. 유일한 레드 포인트는
-            일러스트 안 우산 꼭지 점 하나(RainAlertIllustration 참고).
-            첫 버전(188px)이 "휑하다"는 피드백을 받아 화면을 훨씬 더
-            채우도록 키웠다. */}
-        <div style={{ width: '272px', margin: '0 auto 22px' }}>
-          <RainAlertIllustration />
+        {/* 위치 기반 위험 반경 레이더 — "당신이 있는 곳이 위험하고, 어디
+            있는지 알고 있으며, 대피 경로를 안내한다"는 인상을 직관적으로
+            준다(2026-08-04, Apple 날씨 지도 화면 참고). 실제 GPS가 아니라
+            등록 동 기준이라는 걸 레이더 안 라벨로 계속 밝힌다
+            (LocationRiskRadar.tsx 헤더 참고). */}
+        <div style={{ width: '250px', margin: '0 auto 18px' }}>
+          <LocationRiskRadar dongName={dongName !== '' ? dongName : '등록 지역'} />
         </div>
         <span
           style={{
@@ -455,12 +471,25 @@ function IntroScreenTakeAction({ title, onNext }: { title: string; onNext: () =>
             fontWeight: 800,
             lineHeight: 1.3,
             letterSpacing: '-.025em',
-            margin: 0,
+            margin: '0 0 10px',
             textAlign: 'center',
             textWrap: 'pretty',
           }}
         >
           {title}
+        </p>
+        <p
+          style={{
+            fontSize: '15px',
+            fontWeight: 600,
+            lineHeight: 1.55,
+            margin: 0,
+            textAlign: 'center',
+            opacity: 0.8,
+            textWrap: 'pretty',
+          }}
+        >
+          지금 계신 곳을 알고 있어요. 대피 경로를 그대로 안내해 드릴게요.
         </p>
       </div>
       <div style={{ padding: '20px' }}>

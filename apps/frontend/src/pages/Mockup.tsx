@@ -21,6 +21,12 @@
 //      정지 이미지로 보여준다. 제목/본문은 sw.ts의 onBackgroundMessage가
 //      그대로 표시하는 형식(data.title/data.body)을 따른다 — 지어낸
 //      문구가 아니라 실제 발송 코드가 만드는 결과물의 미리보기다.
+//   5. 우리 동네 위험도 — 개념안(2026-08-04, uibowl.io "AMOU" 지역별
+//      수치 버블 + 운세 앱 스타일 오늘의 점수/추이 참고). 실제 기상청
+//      강수량 API는 연동돼 있지 않다 — Home.tsx 푸터의 "기상청 특보 API"
+//      는 데이터 출처 표기일 뿐, 지역별 실시간 강수량을 끌어오는
+//      코드는 이 저장소 어디에도 없다. 그래서 지역명·mm·위험도 점수 전부
+//      예시 숫자이며, 배지로 계속 밝힌다.
 //
 // 화면 구성 형식(문장 순서 등)은 PR #50 테크리드 리뷰가 정한 원칙 —
 // "행동/결론을 먼저, 부연은 뒤에", "다 펼쳐도 레이아웃이 튀지 않게" —
@@ -31,7 +37,7 @@ import { useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { C, MOBILE_WIDTH, SHADOW_CARD, touchTarget } from '../lib/tokens'
 
-type MockupScreen = 'guardian' | 'chat' | 'ops' | 'push'
+type MockupScreen = 'guardian' | 'chat' | 'ops' | 'push' | 'rainfall'
 // 'all' — 4개 화면을 세로로 쭉 이어 붙여 스크롤 한 번으로 전부 비교해서
 // 본다(팀장 피드백 — 탭으로 하나씩 넘기면 직관적으로 비교하기 힘들다).
 // 'single' — 기존 탭 전환 방식. 발표 중 한 화면씩 짚어가며 설명할 때 쓴다.
@@ -39,6 +45,7 @@ type ViewMode = 'all' | 'single'
 
 const SCREENS: Array<{ key: MockupScreen; label: string; render: () => ReactNode }> = [
   { key: 'push', label: '잠금화면 알림', render: () => <LockScreenPushScreen /> },
+  { key: 'rainfall', label: '동네 위험도', render: () => <RainfallRiskMockupScreen /> },
   { key: 'guardian', label: '보호자 현황', render: () => <GuardianConceptScreen /> },
   { key: 'chat', label: 'AI 챗봇', render: () => <ChatMockupScreen /> },
   { key: 'ops', label: '관리자 요약', render: () => <OpsSummaryMockupScreen /> },
@@ -609,6 +616,158 @@ function LockScreenPushScreen() {
         <p style={{ color: 'rgba(255,255,255,.4)', fontSize: '12px', marginTop: 'auto', paddingTop: '36px', textAlign: 'center' }}>
           탭하면 잠금 해제 후 대피 안내 화면으로 이동합니다
         </p>
+      </div>
+    </div>
+  )
+}
+
+// ---- 5. 우리 동네 위험도 (개념안) -------------------------------------------
+//
+// uibowl.io의 지역별 수치 버블 지도(부동산 매물 수 표시 패턴)와 운세 앱의
+// "오늘의 점수 + 요일 탭 + 추이" 포맷을 참고했다(2026-08-04). 실제
+// 좌표 기반 지도가 아니라 버블을 흩뿌린 개념 레이아웃이다 — 실제 기상청
+// 강수량 API 연동이 없으므로 가짜 지도를 진짜처럼 보이게 만들지 않는다.
+
+type RainfallSeverity = 'high' | 'mid' | 'low'
+
+const MOCK_RAINFALL_AREAS: Array<{ name: string; mm: number; severity: RainfallSeverity; x: number; y: number }> = [
+  { name: '서원동', mm: 92, severity: 'mid', x: 46, y: 40 },
+  { name: '신림동', mm: 195, severity: 'high', x: 20, y: 22 },
+  { name: '봉천동', mm: 43, severity: 'low', x: 72, y: 18 },
+  { name: '조원동', mm: 149, severity: 'high', x: 62, y: 58 },
+  { name: '난곡동', mm: 12, severity: 'low', x: 30, y: 66 },
+  { name: '신대방동', mm: 57, severity: 'mid', x: 82, y: 44 },
+]
+
+function severityStyle(s: RainfallSeverity): { bg: string; border: string; text: string } {
+  if (s === 'high') return { bg: C.alertBg, border: C.alertBorder, text: C.alertText }
+  if (s === 'mid') return { bg: C.warnBg, border: C.warn, text: C.warnText }
+  return { bg: C.tealBg, border: C.tealText, text: C.tealDeep }
+}
+
+function RainfallBubble({ name, mm, severity }: { name: string; mm: number; severity: RainfallSeverity }) {
+  const tone = severityStyle(severity)
+  // 버블 지름을 mm값에 비례해 살짝만 키운다 — 과장하면 오독 위험이 있어
+  // 40~68px 범위로만 눌러둔다.
+  const size = 40 + Math.min(28, Math.round(mm / 8))
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+      <div
+        style={{
+          width: `${size}px`,
+          height: `${size}px`,
+          borderRadius: '50%',
+          background: tone.bg,
+          border: `2px solid ${tone.border}`,
+          color: tone.text,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '14px',
+          fontWeight: 800,
+        }}
+      >
+        {mm}
+      </div>
+      <span style={{ fontSize: '11.5px', color: C.tertiary }}>{name}</span>
+    </div>
+  )
+}
+
+const MOCK_RISK_TREND: Array<{ day: string; score: number }> = [
+  { day: '그제', score: 34 },
+  { day: '어제', score: 52 },
+  { day: '오늘', score: 78 },
+  { day: '내일', score: 61 },
+  { day: '모레', score: 40 },
+]
+
+function riskInsight(score: number): string {
+  if (score >= 70) return '위험도가 높아요. 대피 경로를 미리 확인해두세요.'
+  if (score >= 40) return '지켜봐야 하는 수준이에요.'
+  return '오늘은 비교적 낮은 편이에요.'
+}
+
+function RiskTrendChart({ points }: { points: Array<{ day: string; score: number }> }) {
+  const w = 280
+  const h = 64
+  const max = 100
+  const step = w / (points.length - 1)
+  const coords = points.map((p, i) => [i * step, h - (p.score / max) * h] as const)
+  const linePath = coords.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x} ${y}`).join(' ')
+  const areaPath = `${linePath} L${w} ${h} L0 ${h} Z`
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} width="100%" height={h} preserveAspectRatio="none">
+      <path d={areaPath} fill={C.tealBg} />
+      <path d={linePath} stroke={C.tealText} strokeWidth="2" fill="none" />
+      {coords.map(([x, y], i) => (
+        <circle key={points[i].day} cx={x} cy={y} r={points[i].day === '오늘' ? 4 : 2.5} fill={C.tealText} />
+      ))}
+    </svg>
+  )
+}
+
+function RainfallRiskMockupScreen() {
+  const [selectedDay, setSelectedDay] = useState('오늘')
+  const selected = MOCK_RISK_TREND.find((p) => p.day === selectedDay) ?? MOCK_RISK_TREND[2]
+
+  return (
+    <div style={{ padding: '16px' }}>
+      <ConceptBadge>개념안 · 기상청 API 미연동 · 예시 지역·수치</ConceptBadge>
+
+      <p style={{ fontSize: '13px', color: C.tertiary, margin: '14px 0 10px' }}>주변 동네 예상 강수량(mm)</p>
+      <div
+        style={{
+          position: 'relative',
+          background: C.greyBg,
+          borderRadius: '18px',
+          height: '220px',
+          overflow: 'hidden',
+        }}
+      >
+        {MOCK_RAINFALL_AREAS.map((a) => (
+          <div key={a.name} style={{ position: 'absolute', left: `${a.x}%`, top: `${a.y}%`, transform: 'translate(-50%, -50%)' }}>
+            <RainfallBubble name={a.name} mm={a.mm} severity={a.severity} />
+          </div>
+        ))}
+      </div>
+
+      <div style={{ ...card, marginTop: '14px' }}>
+        <p style={{ fontSize: '13px', color: C.tertiary, margin: '0 0 4px' }}>오늘의 침수 위험도</p>
+        <p style={{ fontSize: '17px', fontWeight: 800, color: C.navy, margin: '0 0 14px' }}>서원동 요약</p>
+
+        <div style={{ display: 'flex', gap: '6px', marginBottom: '18px' }}>
+          {MOCK_RISK_TREND.map((p) => {
+            const active = p.day === selectedDay
+            return (
+              <button
+                key={p.day}
+                type="button"
+                onClick={() => setSelectedDay(p.day)}
+                style={{
+                  flex: 1,
+                  padding: '8px 4px',
+                  fontSize: '12.5px',
+                  fontWeight: active ? 800 : 600,
+                  color: active ? C.white : C.tertiary,
+                  background: active ? C.tealText : 'transparent',
+                  border: 'none',
+                  borderRadius: '10px',
+                  cursor: 'pointer',
+                }}
+              >
+                {p.day}
+              </button>
+            )
+          })}
+        </div>
+
+        <RiskTrendChart points={MOCK_RISK_TREND} />
+
+        <p style={{ fontSize: '44px', fontWeight: 800, color: C.navy, margin: '14px 0 4px', letterSpacing: '-.02em' }}>
+          {selected.score}
+        </p>
+        <p style={{ fontSize: '14px', color: C.body, margin: 0, lineHeight: 1.6 }}>{riskInsight(selected.score)}</p>
       </div>
     </div>
   )
