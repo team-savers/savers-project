@@ -78,6 +78,16 @@ export const C = {
   /** Ink on `hazard` — near-black, the hazard-sign contrast convention. */
   hazardInk: '#1A1A1A',
 
+  /**
+   * ISO 7010 mandatory-action blue — the standard reserves blue circles for
+   * "you must do this" instructions, distinct from the yellow triangle
+   * (warning) and green square (safe condition/egress) categories. Used only
+   * for small icons that represent a required action (안전수칙 체크리스트) —
+   * never as a background fill, so it stays a legible signal against the
+   * hazard-yellow surface it sits on.
+   */
+  mandatory: '#0065BD',
+
   /** Body secondary text. */
   body: '#4E5968',
   /** Tertiary text — MINIMUM lightness. No grey lighter than this anywhere. */

@@ -34,7 +34,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api/client'
-import type { Profile, SessionResponse, Shelter, ShelterList } from '../api/types'
+import type { Profile, SessionResponse, Shelter, ShelterList, Stage as DisasterStage } from '../api/types'
 import { EmergencyToolbar } from '../components/EmergencyToolbar'
 import { ShelterMap } from '../components/ShelterMap'
 import { DoorIcon, PowerIcon, StairsIcon } from '../components/illustrations/ChecklistIcons'
@@ -46,7 +46,20 @@ import { vibrateSafe } from '../lib/emergencyTools'
 import { bearingLabel, formatDistance } from '../lib/i18n'
 import { C, MOBILE_WIDTH, SHADOW_CARD, SHADOW_CTA_TEAL, touchTarget } from '../lib/tokens'
 
+// UI 화면 단계(intro/choice/...). 계약의 재난 심각도 `DisasterStage`(1|2|3,
+// api/types.ts `Stage`)와 이름이 겹치므로 import 시 별칭을 준다 — 서로
+// 다른 개념이다.
 type Stage = 'intro' | 'choice' | 'help' | 'summary' | 'route' | 'arrived'
+
+// ?stage= 로 재난 심각도를 override 한다 — 데모/발표용으로 stage 1과
+// 2/3의 화면 침습성 차이를 둘 다 보여주기 위함이다. 실제 세션은 전부
+// stage 2로 나온다(api/mock.ts — 지금 mock에 stage 1/3 픽스처가 없다).
+// 잘못된 값이 오면 조용히 무시하고 세션의 실제 stage를 쓴다.
+function readStageOverride(): DisasterStage | null {
+  const raw = new URLSearchParams(window.location.search).get('stage')
+  if (raw === '1' || raw === '2' || raw === '3') return Number(raw) as DisasterStage
+  return null
+}
 
 // Straight-line-to-walking-time estimate. Deliberately conservative (67 m/min
 // ≈ 4km/h general adult pace) and always labeled as an estimate — this is
@@ -104,12 +117,18 @@ export function Preview({ token }: Props) {
   const nearest: Shelter | null = shelterList?.items[0] ?? null
   const locationConfirmed = shelterList?.basis === 'coordinate'
 
+  // 재난 심각도. Google 지진조기경보의 "Be Aware(약함) / Take Action(강함)"
+  // 2단계 침습성 구분을 참고했다 — stage 1(예비특보)은 화면 전체를
+  // 하자드 옐로로 덮지 않는 가벼운 배너로, stage 2/3(경보 이상)은 기존
+  // 전체화면 인트로를 그대로 쓴다.
+  const disasterStage: DisasterStage = readStageOverride() ?? session?.stage ?? 2
+
   useWakeLock(session !== null && stage !== 'arrived')
 
   useEffect(() => {
-    if (stage === 'intro') vibrateSafe([200, 100, 200])
+    if (stage === 'intro') vibrateSafe(disasterStage === 1 ? 120 : [200, 100, 200])
     if (stage === 'arrived') vibrateSafe(400)
-  }, [stage])
+  }, [stage, disasterStage])
 
   const displayTitle = useMemo(() => {
     const t = session?.message.title
@@ -144,7 +163,7 @@ export function Preview({ token }: Props) {
     <Frame>
       {showToolbar && <EmergencyToolbar nearest={nearest} />}
       {stage === 'intro' && (
-        <IntroScreen title={displayTitle} onNext={() => setStage('choice')} />
+        <IntroScreen title={displayTitle} disasterStage={disasterStage} onNext={() => setStage('choice')} />
       )}
       {stage === 'choice' && (
         <ChoiceScreen
@@ -305,8 +324,90 @@ function SecondaryButton({ children, onClick }: { children: React.ReactNode; onC
 }
 
 // ---- ① 경고 인트로 -------------------------------------------------------
+//
+// 심각도에 따라 두 화면으로 나눈다(Google 지진조기경보의 "Be Aware /
+// Take Action" 2단계 침습성 구분 참고, 2026-08-04 리서치):
+//   stage 1(예비특보) — IntroScreenAware. 화면을 하자드 옐로로 덮지 않는
+//     가벼운 배너 카드. 아직 "지금 당장 움직이라"는 신호가 아니다.
+//   stage 2/3(경보·위험 실현) — IntroScreenTakeAction(기존 화면 그대로).
+//     전체화면 하자드 옐로 + 강한 진동으로 "지금 봐야 한다"를 전달.
 
-function IntroScreen({ title, onNext }: { title: string; onNext: () => void }) {
+function IntroScreen({
+  title,
+  disasterStage,
+  onNext,
+}: {
+  title: string
+  disasterStage: DisasterStage
+  onNext: () => void
+}) {
+  if (disasterStage === 1) {
+    return <IntroScreenAware title={title} onNext={onNext} />
+  }
+  return <IntroScreenTakeAction title={title} onNext={onNext} />
+}
+
+// stage 1 — 예비특보. 아직 지켜보는 단계라는 걸 색으로도 드러낸다: 배경은
+// 평상시 톤(C.bg)을 유지하고, 하자드 옐로는 작은 배너 카드 안에서만 쓴다.
+function IntroScreenAware({ title, onNext }: { title: string; onNext: () => void }) {
+  return (
+    <div style={{ minHeight: '100vh', background: C.bg, display: 'flex', flexDirection: 'column' }}>
+      <BackHeader onBack={() => window.history.back()} />
+      <div style={{ padding: '0 20px' }}>
+        <div
+          style={{
+            background: C.warnBg,
+            border: `1px solid ${C.warn}`,
+            borderRadius: '16px',
+            padding: '16px',
+            display: 'flex',
+            gap: '12px',
+            alignItems: 'flex-start',
+          }}
+        >
+          <span
+            aria-hidden="true"
+            style={{
+              width: '28px',
+              height: '28px',
+              borderRadius: '50%',
+              background: C.hazard,
+              color: C.hazardInk,
+              flex: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: 800,
+              fontSize: '15px',
+            }}
+          >
+            !
+          </span>
+          <div>
+            <p style={{ fontSize: '12px', fontWeight: 800, color: C.warnText, letterSpacing: '.04em', margin: '0 0 4px' }}>
+              예비특보 · 아직 지켜볼 단계
+            </p>
+            <p style={{ fontSize: '17px', fontWeight: 800, color: C.navy, margin: 0, lineHeight: 1.4 }}>{title}</p>
+          </div>
+        </div>
+      </div>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '0 28px' }}>
+        <div style={{ width: '150px', margin: '0 auto 18px', opacity: 0.85 }}>
+          <RainAlertIllustration />
+        </div>
+        <p style={{ fontSize: '15px', color: C.body, textAlign: 'center', lineHeight: 1.6 }}>
+          아직 대피할 단계는 아니에요. 상황이 바뀌면 다시 알려드릴게요.
+        </p>
+      </div>
+      <div style={{ padding: '20px' }}>
+        <SecondaryButton onClick={onNext}>자세히 보기</SecondaryButton>
+      </div>
+    </div>
+  )
+}
+
+// stage 2/3 — 경보·위험 실현. 기존 전체화면 하자드 옐로 인트로(변경 없음).
+function IntroScreenTakeAction({ title, onNext }: { title: string; onNext: () => void }) {
   // 배경은 하자드 옐로(과속방지턱 톤). 빨강은 아이콘 안의 작은 점 하나로만
   // 남긴다 — "꼭 확인해야 하는 신호"라는 의미는 유지하되, 화면 전체가
   // 사이렌처럼 보이지 않게 한다.
