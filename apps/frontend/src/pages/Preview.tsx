@@ -408,31 +408,58 @@ function IntroScreenAware({ title, onNext }: { title: string; onNext: () => void
 
 // stage 2/3 — 경보·위험 실현. 기존 전체화면 하자드 옐로 인트로(변경 없음).
 function IntroScreenTakeAction({ title, onNext }: { title: string; onNext: () => void }) {
-  // 배경은 하자드 옐로(과속방지턱 톤). 빨강은 아이콘 안의 작은 점 하나로만
-  // 남긴다 — "꼭 확인해야 하는 신호"라는 의미는 유지하되, 화면 전체가
-  // 사이렌처럼 보이지 않게 한다.
+  // 배경은 하자드 옐로(과속방지턱 톤) — 완전 단색이면 납작해 보인다는
+  // 피드백(2026-08-04)이 있어 아주 은은한 세로 그라데이션으로 깊이를
+  // 준다. 빨강은 여전히 일러스트 안 점 하나로만 남긴다 — "꼭 확인해야
+  // 하는 신호"라는 의미는 유지하되, 화면 전체가 사이렌처럼 보이지 않게
+  // 한다.
   return (
     <div
       style={{
         minHeight: '100vh',
-        background: C.hazard,
+        background: `linear-gradient(180deg, ${C.hazard} 0%, ${C.hazard} 55%, #E6A800 100%)`,
         color: C.hazardInk,
         display: 'flex',
         flexDirection: 'column',
       }}
     >
       <BackHeader onBack={() => window.history.back()} />
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '0 28px' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '0 24px' }}>
         {/* 호우·도시침수 히어로 일러스트 — MVP 재난 유형이 이 하나뿐이라
             분기 없이 고정 장면 하나를 쓴다. 유일한 레드 포인트는
-            일러스트 안 우산 꼭지 점 하나(RainAlertIllustration 참고). */}
-        <div style={{ width: '188px', margin: '0 auto 20px' }}>
+            일러스트 안 우산 꼭지 점 하나(RainAlertIllustration 참고).
+            첫 버전(188px)이 "휑하다"는 피드백을 받아 화면을 훨씬 더
+            채우도록 키웠다. */}
+        <div style={{ width: '272px', margin: '0 auto 22px' }}>
           <RainAlertIllustration />
         </div>
-        <p style={{ fontSize: '13px', fontWeight: 800, letterSpacing: '.06em', opacity: 0.7, margin: '0 0 8px' }}>
+        <span
+          style={{
+            display: 'inline-flex',
+            alignSelf: 'center',
+            fontSize: '12.5px',
+            fontWeight: 800,
+            letterSpacing: '.08em',
+            color: C.hazard,
+            background: C.hazardInk,
+            borderRadius: '20px',
+            padding: '6px 14px',
+            marginBottom: '12px',
+          }}
+        >
           긴급 재난 경보
-        </p>
-        <p style={{ fontSize: '28px', fontWeight: 800, lineHeight: 1.32, letterSpacing: '-.02em', margin: 0, textWrap: 'pretty' }}>
+        </span>
+        <p
+          style={{
+            fontSize: '30px',
+            fontWeight: 800,
+            lineHeight: 1.3,
+            letterSpacing: '-.025em',
+            margin: 0,
+            textAlign: 'center',
+            textWrap: 'pretty',
+          }}
+        >
           {title}
         </p>
       </div>
