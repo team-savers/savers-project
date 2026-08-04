@@ -53,7 +53,8 @@ services:
       SAVERS_AI_ENGINE_URL: http://ai-engine:8100
       SAVERS_AI_ENGINE_TIMEOUT_S: ${SAVERS_AI_ENGINE_TIMEOUT_S:-8.0}
       SAVERS_SESSION_TTL_S: ${SAVERS_SESSION_TTL_S:-21600}
-      SAVERS_PUBLIC_BASE_URL: ${SAVERS_PUBLIC_BASE_URL:-http://localhost:5173}
+      # 프론트 개발 서버는 3000 고정입니다(카카오맵 SDK 허용 도메인 · vite strictPort).
+      SAVERS_PUBLIC_BASE_URL: ${SAVERS_PUBLIC_BASE_URL:-http://localhost:3000}
       # 프론트가 정적 호스팅에서 이 API를 부를 수 있게 하는 허용 출처 목록입니다(ADR-0008).
       # 쉼표로 구분하고, 비워 두면 동일 출처만 허용합니다 — 로컬 개발은 vite 프록시를
       # 쓰므로 비어 있는 것이 정상이고, 배포에서만 채웁니다.
