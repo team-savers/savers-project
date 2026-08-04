@@ -42,6 +42,7 @@
   상류가 무엇을 주장했는지 남아야 오류 응답도 재생할 수 있다.
 - 수집 스크립트: `apps/backend/scripts/collect_fixture.py`
 - 파일 끝에는 개행을 둔다(`end-of-file-fixer` 훅 규약). 수집 스크립트가 저장 시점에 붙인다.
+- sha256은 LF 개행 기준이다. Windows에서 `core.autocrlf=true`로 체크아웃하면 작업 트리가 CRLF가 되어 값이 달라진다.
 
 ## 수집 이력
 
