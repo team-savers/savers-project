@@ -55,7 +55,7 @@ def save_fixture(source: str, event_type: str, payload: dict[str, Any]) -> None:
     path = FIXTURES / name
     if path.exists():
         raise SystemExit(f"이미 존재: {name}. 픽스처는 수정하지 않는다. 새 이름으로 수집할 것.")
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     digest = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
     print(f"동결 완료: {name}  sha256[:12]={digest}")
     print("fixtures/README.md 수집 이력 표에 위 해시와 함께 기록할 것.")

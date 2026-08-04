@@ -41,14 +41,15 @@
 - 응답은 body만이 아니라 봉투째(`header.resultCode`, `totalCount` 포함) 저장한다.
   상류가 무엇을 주장했는지 남아야 오류 응답도 재생할 수 있다.
 - 수집 스크립트: `apps/backend/scripts/collect_fixture.py`
+- 파일 끝에는 개행을 둔다(`end-of-file-fixer` 훅 규약). 수집 스크립트가 저장 시점에 붙인다.
 
 ## 수집 이력
 
 | 파일 | 출처 | 수집일 | sha256[:12] | 비고 |
 |---|---|---|---|---|
-| safetydata_shelter_baseline_20260730.json | 통합대피소 DSSP-IF-10941 | 2026-07-30 | a6558b1c6d44 | 상류 74726건 중 10건 |
+| safetydata_shelter_baseline_20260730.json | 통합대피소 DSSP-IF-10941 | 2026-07-30 | 82a1b2c243e2 | 상류 74726건 중 10건 |
 | safetydata_emergency_sms_baseline_20260730.json | 긴급재난문자 DSSP-IF-00247 | 2026-07-30 | — | **제외** — 실종자 실명·신체정보 포함. 호우 특보 시점 재수집 예정 |
-| safetydata_flood_trace_baseline_20260730.json | 침수흔적도 DSSP-IF-00117 | 2026-07-30 | 3ab79382156d | 상류 38003건 중 10건 |
-| safetydata_hazard_zone_baseline_20260730.json | 지역재해위험지구 DSSP-IF-00058 | 2026-07-30 | f727bdc18f64 | 상류 2930건 중 10건 |
-| safetydata_flood_trace_line_baseline_20260730.json | 침수흔적도 심선 DSSP-IF-20678 | 2026-07-30 | ad029519f033 | 상류 38381건 중 10건 |
-| kma_vilage_fcst_baseline_20260730.json | 기상청 단기예보 | 2026-07-30 | 061083861e57 | 발표 1700, nx60 ny127, 300건 14종 |
+| safetydata_flood_trace_baseline_20260730.json | 침수흔적도 DSSP-IF-00117 | 2026-07-30 | a4316a94b4c2 | 상류 38003건 중 10건 |
+| safetydata_hazard_zone_baseline_20260730.json | 지역재해위험지구 DSSP-IF-00058 | 2026-07-30 | dfcf2d1fa7e9 | 상류 2930건 중 10건 |
+| safetydata_flood_trace_line_baseline_20260730.json | 침수흔적도 심선 DSSP-IF-20678 | 2026-07-30 | 58fd359aa571 | 상류 38381건 중 10건 |
+| kma_vilage_fcst_baseline_20260730.json | 기상청 단기예보 | 2026-07-30 | 63f1e92db847 | 발표 1700, nx60 ny127, 300건 14종 |
