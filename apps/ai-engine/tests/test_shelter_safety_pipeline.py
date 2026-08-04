@@ -13,6 +13,7 @@ import pytest
 pd = pytest.importorskip("pandas")
 import numpy as np  # noqa: E402
 
+from ai_engine.shelter_safety import schema  # noqa: E402
 from ai_engine.shelter_safety.pipeline import PuPipelineResult, run_pu_pipeline  # noqa: E402
 from ai_engine.shelter_safety.spy import SpyPipelineConfig  # noqa: E402
 
@@ -68,9 +69,13 @@ def test_pipeline_never_leaks_positive_addresses_into_negative_sets() -> None:
     P(스파이 포함) 주소가 신뢰negative/보류 어디에도 섞이지 않는다."""
     result = _run()
 
-    positive_addresses = set(result.positive["도로명주소코드"])
-    reliable_addresses = set(result.reliable_negative["도로명주소코드"])
-    held_out_addresses = set(result.held_out["도로명주소코드"])
+    # result.positive는 join_shelters_with_registry()를 거쳐 SHELTER_ROAD_ADDRESS_CODE_COL
+    # 쪽 키만 남고, reliable_negative/held_out은 조인을 거치지 않은 registry 쪽 원본이라
+    # REGISTRY_ROAD_ADDRESS_CODE_COL을 쓴다 (loading.py 참고 — 현재는 두 상수가 같은
+    # 문자열이지만, 실제 데이터로 교체되며 갈라질 수 있으므로 출처에 맞는 상수를 쓴다).
+    positive_addresses = set(result.positive[schema.SHELTER_ROAD_ADDRESS_CODE_COL])
+    reliable_addresses = set(result.reliable_negative[schema.REGISTRY_ROAD_ADDRESS_CODE_COL])
+    held_out_addresses = set(result.held_out[schema.REGISTRY_ROAD_ADDRESS_CODE_COL])
 
     assert positive_addresses.isdisjoint(reliable_addresses)
     assert positive_addresses.isdisjoint(held_out_addresses)
@@ -80,7 +85,7 @@ def test_pipeline_is_deterministic_given_same_seed() -> None:
     result_a = _run(SpyPipelineConfig(seed=99))
     result_b = _run(SpyPipelineConfig(seed=99))
 
-    assert set(result_a.reliable_negative["도로명주소코드"]) == set(
-        result_b.reliable_negative["도로명주소코드"]
+    assert set(result_a.reliable_negative[schema.REGISTRY_ROAD_ADDRESS_CODE_COL]) == set(
+        result_b.reliable_negative[schema.REGISTRY_ROAD_ADDRESS_CODE_COL]
     )
     assert result_a.threshold == pytest.approx(result_b.threshold)
