@@ -79,7 +79,11 @@ module = ["langchain.*", "chromadb.*", "sentence_transformers.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["pandas.*", "sklearn.*", "lightgbm.*"]
+# numpy도 여기 포함: pandas의 전이 의존성이라 별도 extra 없이 따라오지만, mypy는
+# 설치 여부와 무관하게 import별로 스텁을 찾으므로 명시하지 않으면 "무거운 extra
+# 미설치" CI 환경(rag와 동일하게 ml도 설치 안 함)에서 shelter_safety/spy.py의
+# `import numpy`가 import-not-found로 잡힌다.
+module = ["pandas.*", "numpy.*", "sklearn.*", "lightgbm.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
