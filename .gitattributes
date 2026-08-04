@@ -1,3 +1,14 @@
 *.ipynb filter=nbstripout
 *.zpln filter=nbstripout
 *.ipynb diff=ipynb
+
+# Shell scripts must check out LF even on Windows. With core.autocrlf=true a CRLF
+# checkout makes bash read `set -o pipefail\r` as an unknown option and abort, so
+# scripts/run-tests.sh dies before running the quality gate. Pinning it here fixes
+# **new clones** — telling each person to set autocrlf does not.
+#
+# ⚠️ Existing clones are NOT fixed by this line. The stored blobs are already LF, so
+# git sees no difference and never rewrites the working-tree files. Recovering an
+# existing clone means deleting the .sh files and getting them back, or running
+# scripts/setup-dev.ps1 once — see docs/공통_가이드/환경_세팅_가이드.md E12.
+*.sh text eol=lf
