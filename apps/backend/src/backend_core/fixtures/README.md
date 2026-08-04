@@ -47,7 +47,7 @@
 | 파일 | 출처 | 수집일 | sha256[:12] | 비고 |
 |---|---|---|---|---|
 | safetydata_shelter_baseline_20260730.json | 통합대피소 DSSP-IF-10941 | 2026-07-30 | a6558b1c6d44 | 상류 74726건 중 10건 |
-| safetydata_emergency_sms_baseline_20260730.json | 긴급재난문자 DSSP-IF-00247 | 2026-07-30 | a0fb852f1d1e | 상류 57097건 중 10건 |
+| safetydata_emergency_sms_baseline_20260730.json | 긴급재난문자 DSSP-IF-00247 | 2026-07-30 | — | **제외** — 실종자 실명·신체정보 포함. 호우 특보 시점 재수집 예정 |
 | safetydata_flood_trace_baseline_20260730.json | 침수흔적도 DSSP-IF-00117 | 2026-07-30 | 3ab79382156d | 상류 38003건 중 10건 |
 | safetydata_hazard_zone_baseline_20260730.json | 지역재해위험지구 DSSP-IF-00058 | 2026-07-30 | f727bdc18f64 | 상류 2930건 중 10건 |
 | safetydata_flood_trace_line_baseline_20260730.json | 침수흔적도 심선 DSSP-IF-20678 | 2026-07-30 | ad029519f033 | 상류 38381건 중 10건 |
