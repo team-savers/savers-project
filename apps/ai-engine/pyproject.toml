@@ -44,6 +44,14 @@ rag = [
     "chromadb>=0.5.0",
     "sentence-transformers>=2.7.0",
 ]
+# ── 대피소 안전등급 PU-learning 파이프라인(shelter_safety/)용. 같은 이유로 core가
+#    아닌 extra: pandas/scikit-learn/lightgbm은 이 서브패키지 밖에서 쓰이지 않고,
+#    코어 CI는 이 extra 없이 돌아갑니다. 실제 개발 시: pip install -e "./apps/ai-engine[ml]"
+ml = [
+    "pandas>=2.0.0",
+    "scikit-learn>=1.4.0",
+    "lightgbm>=4.0.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -68,6 +76,10 @@ no_implicit_optional = true
 
 [[tool.mypy.overrides]]
 module = ["langchain.*", "chromadb.*", "sentence_transformers.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["pandas.*", "sklearn.*", "lightgbm.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
