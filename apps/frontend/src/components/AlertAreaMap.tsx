@@ -51,6 +51,12 @@ export function AlertAreaMap({ center }: { center: { lat: number; lng: number } 
       style={{
         position: 'absolute',
         inset: 0,
+        // 명시적으로 0 — 호출부(IntroScreenTakeAction)의 오버레이(펄스 핀,
+        // 헤더, 배지, 하단 시트)가 전부 zIndex 1 이상이라 이 지도 위에
+        // 그려진다. 카카오맵 SDK가 내부에 자체 페인팅 레이어를 만들어서
+        // z-index를 비워두면(auto) 형제 요소보다 위에 그려지는 문제가
+        // 있었다 — 명시적 스택 순서로 고정했다.
+        zIndex: 0,
         background:
           status === 'error' ? `linear-gradient(180deg, ${C.hazard} 0%, ${C.hazard} 55%, #E6A800 100%)` : '#E4EAEF',
       }}

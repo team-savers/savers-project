@@ -457,11 +457,17 @@ function IntroScreenTakeAction({
           style={{
             position: 'absolute',
             inset: 0,
+            zIndex: 0,
             background: `linear-gradient(180deg, ${C.hazard} 0%, ${C.hazard} 55%, #E6A800 100%)`,
           }}
         />
       )}
 
+      {/* 지도(또는 위 대체 배경)는 zIndex 0, 나머지 오버레이는 전부 1 이상 —
+          카카오맵 SDK가 내부적으로 자체 페인팅 레이어를 만들어서 z-index
+          가 명시되지 않으면(auto) 형제 요소보다 위에 그려지는 문제가
+          있었다(2026-08-04 실기기 키 적용 후 확인). 명시적으로 쌓기
+          순서를 고정해 해결했다. */}
       {mapCenter !== null && <RadiusPulsePin />}
 
       {/* 상단 스크림 — 지도 배경이 밝든 어둡든 뒤로가기가 항상 읽히게 */}
@@ -471,6 +477,7 @@ function IntroScreenTakeAction({
           top: 0,
           left: 0,
           right: 0,
+          zIndex: 2,
           background: 'linear-gradient(180deg, rgba(0,0,0,.42) 0%, rgba(0,0,0,0) 100%)',
           paddingBottom: '24px',
         }}
@@ -481,7 +488,9 @@ function IntroScreenTakeAction({
       {/* 대략적 위치 배지 — 정밀 GPS가 아니라 대피소 좌표 기준이라는 걸
           계속 밝힌다. */}
       {mapCenter !== null && (
-        <div style={{ position: 'absolute', top: '64px', left: 0, right: 0, display: 'flex', justifyContent: 'center' }}>
+        <div
+          style={{ position: 'absolute', top: '64px', left: 0, right: 0, zIndex: 2, display: 'flex', justifyContent: 'center' }}
+        >
           <span
             style={{
               display: 'inline-flex',
@@ -509,6 +518,7 @@ function IntroScreenTakeAction({
           left: 0,
           right: 0,
           bottom: 0,
+          zIndex: 2,
           background: C.hazardInk,
           borderRadius: '24px 24px 0 0',
           padding: '22px 24px 20px',

@@ -20,6 +20,7 @@ export function RadiusPulsePin() {
         top: '38%',
         left: '50%',
         transform: 'translate(-50%, -50%)',
+        zIndex: 1,
         width: '170px',
         height: '170px',
         pointerEvents: 'none',
