@@ -47,7 +47,7 @@ repos:
   #    ruff는 0.x라 마이너 업그레이드에서 기본 규칙셋 자체가 넓어집니다 — 버전 상향은
   #    "린트 설정 변경"으로 취급해 세 파일을 같은 PR에서 함께 올리세요.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.22
+    rev: v0.16.1
     hooks:
       # id는 `ruff-check`. 예전 이름 `ruff`는 legacy alias로 아직 동작하지만 실행할 때마다
       # "(legacy alias)" 경고를 찍으므로, 버전 상향과 함께 정식 id로 정리합니다.

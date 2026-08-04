@@ -24,8 +24,11 @@ class Settings(BaseSettings):
     # re-entry; short enough that a leaked link stops working the same day.
     session_ttl_s: int = 6 * 60 * 60
 
-    # Deep-link origin baked into the push payload (PWA landing).
-    public_base_url: str = "http://localhost:5173"
+    # Deep-link origin baked into the push payload (PWA landing). Port 3000, not Vite's
+    # default 5173: the frontend dev server pins 3000 with strictPort because the Kakao Maps
+    # JS SDK only allows http://localhost:3000. A different value here produces a push link
+    # that lands on nothing.
+    public_base_url: str = "http://localhost:3000"
 
 
 def get_settings() -> Settings:
