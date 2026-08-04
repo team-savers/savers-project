@@ -35,11 +35,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api/client'
 import type { Profile, SessionResponse, Shelter, ShelterList, Stage as DisasterStage } from '../api/types'
+import { AlertAreaMap } from '../components/AlertAreaMap'
 import { EmergencyToolbar } from '../components/EmergencyToolbar'
 import { ShelterMap } from '../components/ShelterMap'
 import { DoorIcon, PowerIcon, StairsIcon } from '../components/illustrations/ChecklistIcons'
-import { LocationRiskRadar } from '../components/illustrations/LocationRiskRadar'
 import { Mascot } from '../components/illustrations/Mascot'
+import { RadiusPulsePin } from '../components/illustrations/RadiusPulsePin'
 import { RainAlertIllustration } from '../components/illustrations/RainAlertIllustration'
 import { SafeArrivalIllustration } from '../components/illustrations/SafeArrivalIllustration'
 import { useWakeLock } from '../hooks/useWakeLock'
@@ -167,6 +168,7 @@ export function Preview({ token }: Props) {
         <IntroScreen
           title={displayTitle}
           dongName={profile?.dongName ?? ''}
+          nearest={nearest}
           disasterStage={disasterStage}
           onNext={() => setStage('choice')}
         />
@@ -341,18 +343,20 @@ function SecondaryButton({ children, onClick }: { children: React.ReactNode; onC
 function IntroScreen({
   title,
   dongName,
+  nearest,
   disasterStage,
   onNext,
 }: {
   title: string
   dongName: string
+  nearest: Shelter | null
   disasterStage: DisasterStage
   onNext: () => void
 }) {
   if (disasterStage === 1) {
     return <IntroScreenAware title={title} onNext={onNext} />
   }
-  return <IntroScreenTakeAction title={title} dongName={dongName} onNext={onNext} />
+  return <IntroScreenTakeAction title={title} dongName={dongName} nearest={nearest} onNext={onNext} />
 }
 
 // stage 1 — 예비특보. 아직 지켜보는 단계라는 걸 색으로도 드러낸다: 배경은
@@ -415,64 +419,123 @@ function IntroScreenAware({ title, onNext }: { title: string; onNext: () => void
 }
 
 // stage 2/3 — 경보·위험 실현.
+//
+// 2026-08-04 재작업: "노란 배경 지긋지긋하다, 실제 지도로 바꾸자. 서원동
+// 호우경보·대피하기는 하단바 형태로" 피드백 반영. 배경을 하자드 옐로
+// 단색에서 실제 카카오맵(대략적 위치, AlertAreaMap)으로 바꾸고, 제목·
+// CTA를 지도 위에 뜨는 하단 시트로 옮겼다 — 지도 앱의 "장소 카드" 패턴과
+// 같은 구조다. 반경 펄스 링(RadiusPulsePin)은 이전 버전(어두운 원판
+// 배경 위의 레이더)에서 그대로 가져왔다 — 사용자가 "그 펄스 애니메이션은
+// 마음에 든다"고 확인했다. 지도 중심은 가장 가까운 대피소 좌표(nearest)
+// 뿐이라 정밀 GPS가 아니라는 걸 배지로 계속 밝힌다.
 function IntroScreenTakeAction({
   title,
   dongName,
+  nearest,
   onNext,
 }: {
   title: string
   dongName: string
+  nearest: Shelter | null
   onNext: () => void
 }) {
-  // 배경은 하자드 옐로(과속방지턱 톤) — 완전 단색이면 납작해 보인다는
-  // 피드백(2026-08-04)이 있어 아주 은은한 세로 그라데이션으로 깊이를
-  // 준다. 빨강은 레이더 링 스트로크 하나로만 남긴다 — "꼭 확인해야
-  // 하는 신호"라는 의미는 유지하되, 화면 전체가 사이렌처럼 보이지 않게
-  // 한다.
+  const mapCenter =
+    nearest !== null && nearest.lat !== undefined && nearest.lng !== undefined
+      ? { lat: nearest.lat, lng: nearest.lng }
+      : null
+  const areaLabel = dongName !== '' ? dongName : '등록 지역'
+
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: `linear-gradient(180deg, ${C.hazard} 0%, ${C.hazard} 55%, #E6A800 100%)`,
-        color: C.hazardInk,
-        display: 'flex',
-        flexDirection: 'column',
-      }}
-    >
-      <BackHeader onBack={() => window.history.back()} />
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '0 24px' }}>
-        {/* 위치 기반 위험 반경 레이더 — "당신이 있는 곳이 위험하고, 어디
-            있는지 알고 있으며, 대피 경로를 안내한다"는 인상을 직관적으로
-            준다(2026-08-04, Apple 날씨 지도 화면 참고). 실제 GPS가 아니라
-            등록 동 기준이라는 걸 레이더 안 라벨로 계속 밝힌다
-            (LocationRiskRadar.tsx 헤더 참고). */}
-        <div style={{ width: '250px', margin: '0 auto 18px' }}>
-          <LocationRiskRadar dongName={dongName !== '' ? dongName : '등록 지역'} />
+    <div style={{ position: 'relative', minHeight: '100vh', overflow: 'hidden' }}>
+      {mapCenter !== null ? (
+        <AlertAreaMap center={mapCenter} />
+      ) : (
+        // 좌표를 하나도 못 구한 경우(대피소 검색 실패 등)의 정직한 대체 —
+        // 지도를 지어내지 않고 기존 하자드 그라데이션으로 되돌아간다.
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: `linear-gradient(180deg, ${C.hazard} 0%, ${C.hazard} 55%, #E6A800 100%)`,
+          }}
+        />
+      )}
+
+      {mapCenter !== null && <RadiusPulsePin />}
+
+      {/* 상단 스크림 — 지도 배경이 밝든 어둡든 뒤로가기가 항상 읽히게 */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          background: 'linear-gradient(180deg, rgba(0,0,0,.42) 0%, rgba(0,0,0,0) 100%)',
+          paddingBottom: '24px',
+        }}
+      >
+        <BackHeader onBack={() => window.history.back()} dark />
+      </div>
+
+      {/* 대략적 위치 배지 — 정밀 GPS가 아니라 대피소 좌표 기준이라는 걸
+          계속 밝힌다. */}
+      {mapCenter !== null && (
+        <div style={{ position: 'absolute', top: '64px', left: 0, right: 0, display: 'flex', justifyContent: 'center' }}>
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '12.5px',
+              fontWeight: 700,
+              color: C.navy,
+              background: 'rgba(255,255,255,.94)',
+              borderRadius: '20px',
+              padding: '7px 14px',
+              boxShadow: SHADOW_CARD,
+            }}
+          >
+            {areaLabel} 근처 · 대략적 위치
+          </span>
         </div>
+      )}
+
+      {/* 하단 시트 — 배지·제목·CTA를 지도 위 고정 바로 옮긴다(장소 카드
+          패턴). */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: C.hazardInk,
+          borderRadius: '24px 24px 0 0',
+          padding: '22px 24px 20px',
+          boxShadow: '0 -14px 32px -12px rgba(0,0,0,.45)',
+        }}
+      >
         <span
           style={{
-            display: 'inline-flex',
-            alignSelf: 'center',
-            fontSize: '12.5px',
+            display: 'inline-block',
+            fontSize: '12px',
             fontWeight: 800,
             letterSpacing: '.08em',
             color: C.hazard,
-            background: C.hazardInk,
-            borderRadius: '20px',
-            padding: '6px 14px',
-            marginBottom: '12px',
+            opacity: 0.85,
+            marginBottom: '6px',
           }}
         >
           긴급 재난 경보
         </span>
         <p
           style={{
-            fontSize: '30px',
+            fontSize: '23px',
             fontWeight: 800,
-            lineHeight: 1.3,
-            letterSpacing: '-.025em',
-            margin: '0 0 10px',
-            textAlign: 'center',
+            lineHeight: 1.32,
+            letterSpacing: '-.02em',
+            color: C.white,
+            margin: '0 0 8px',
             textWrap: 'pretty',
           }}
         >
@@ -480,19 +543,17 @@ function IntroScreenTakeAction({
         </p>
         <p
           style={{
-            fontSize: '15px',
-            fontWeight: 600,
+            fontSize: '14px',
+            fontWeight: 500,
             lineHeight: 1.55,
-            margin: 0,
-            textAlign: 'center',
-            opacity: 0.8,
+            color: 'rgba(255,255,255,.68)',
+            margin: '0 0 18px',
             textWrap: 'pretty',
           }}
         >
           지금 계신 곳을 알고 있어요. 대피 경로를 그대로 안내해 드릴게요.
         </p>
-      </div>
-      <div style={{ padding: '20px' }}>
+
         {/* 미세한 펄스 — 게임 QTE 디자인 리서치의 "지금 눌러야 할 것을
             시각적으로 놓치지 않게" 원칙. 사이렌·흔들림 같은 자극적인
             연출은 피하고(같은 리서치의 반면교사), 크기 1.5%만 오가는
@@ -514,8 +575,8 @@ function IntroScreenTakeAction({
             fontFamily: 'inherit',
             fontSize: '18px',
             fontWeight: 800,
-            color: C.hazard,
-            background: C.hazardInk,
+            color: C.hazardInk,
+            background: C.hazard,
             border: 'none',
             borderRadius: '14px',
             cursor: 'pointer',
@@ -523,7 +584,7 @@ function IntroScreenTakeAction({
         >
           대피하기
         </button>
-        <p style={{ margin: '14px 0 0', fontSize: '13px', textAlign: 'center', opacity: 0.65 }}>
+        <p style={{ margin: '12px 0 0', fontSize: '12.5px', textAlign: 'center', color: 'rgba(255,255,255,.5)' }}>
           상황은 변할 수 있습니다. 재난문자와 공식 채널을 함께 확인하세요
         </p>
       </div>
