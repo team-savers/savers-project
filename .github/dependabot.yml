@@ -48,6 +48,27 @@ updates:
       ai-engine-minor-patch:
         update-types: ["minor", "patch"]
 
+  # ── pre-commit 훅 rev (.pre-commit-config.yaml)
+  # 존재 이유: ruff는 위 두 앱의 dev extra와 .pre-commit-config.yaml의 rev가 **한 쌍**인데,
+  # rev는 pip 생태계 밖이라 위 블록들이 앱만 올리고 훅은 그대로 두고 갑니다. 실제로 #43에서
+  # 앱이 0.16.0으로 올라간 뒤 훅만 v0.15.22에 남아, CI lint 잡과 pre-commit 잡이 서로 다른
+  # ruff를 쓰는 상태가 #52까지 이어졌습니다(수동 정렬로 해소). 이 블록은 그 드리프트를
+  # 탐지하는 게 아니라 애초에 생기지 않게 합니다.
+  # ⚠️ 훅 rev가 올라가는 PR은 "린트 설정 변경"입니다 — 앱 pyproject의 `ruff==`도 같은 PR에서
+  #    함께 맞춰야 합니다(apps/backend/pyproject.toml의 주석 규약과 동일).
+  # 확실한 사실: 이 생태계는 version updates만 지원하고 security updates는 지원하지 않습니다.
+  - package-ecosystem: "pre-commit"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(lint)"
+    groups:
+      pre-commit-minor-patch:
+        update-types: ["minor", "patch"]
+
   # ── 프론트엔드: 등록을 막던 조건(package.json 부재)은 #32로 해소됐습니다. 활성화 여부는
   #    스프린트 중 PR 소음과의 트레이드오프라 프론트엔드 오너(최혜리) 판단으로 남깁니다
   #    (후속_과제.md 12번). 켤 때는 아래 블록의 주석만 해제하면 됩니다.
