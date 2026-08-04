@@ -90,6 +90,19 @@ def parse_case(raw: dict[str, Any]) -> GoldenCase:
         # while still loading fine.
         raise GoldenCaseError(f"{case_id}: unknown key(s) {sorted(unknown)}")
 
+    unknown_expect = set(expect_raw) - {
+        "refuse",
+        "factsVerbatim",
+        "forbiddenPhrases",
+        "framePhrases",
+    }
+    if unknown_expect:
+        # Same failure one level down, and the worse half of it: `forbiddenPhrasess`
+        # degrades to an empty tuple, so the safety assertion disappears while the case
+        # still loads and scores. Checked here rather than left to review because the
+        # golden set is about to grow from 6 cases to 30~50.
+        raise GoldenCaseError(f"{case_id}: unknown expect key(s) {sorted(unknown_expect)}")
+
     return GoldenCase(
         id=case_id,
         note=note,

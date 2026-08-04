@@ -62,6 +62,15 @@ def test_unknown_key_is_rejected() -> None:
         parse_case({"id": "x", "note": "n", "context": {}, "expectt": {}})
 
 
+def test_unknown_expect_key_is_rejected() -> None:
+    # `forbiddenPhrasess` would load fine and drop the safety assertion, leaving a case
+    # that scores normally while checking nothing.
+    with pytest.raises(GoldenCaseError, match="unknown expect key"):
+        parse_case(
+            {"id": "x", "note": "n", "context": {}, "expect": {"forbiddenPhrasess": ["안전합니다"]}}
+        )
+
+
 def test_duplicate_ids_are_rejected(tmp_path: Path) -> None:
     line = '{"id": "dup", "note": "n", "context": {}}\n'
     (tmp_path / "a.jsonl").write_text(line + line, encoding="utf-8")
