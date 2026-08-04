@@ -30,7 +30,7 @@ dev = [
     "httpx>=0.27.0",
     # ⚠️ 버전 고정 이유와 함께 올려야 할 파일 목록은 apps/backend/pyproject.toml 참고.
     #    세 곳(여기·backend·.pre-commit-config.yaml)이 항상 같은 버전이어야 합니다.
-    "ruff==0.16.0",
+    "ruff==0.16.1",
     "mypy>=1.10.0",
 ]
 # ── RAG 스택은 무거우므로 core가 아닌 extra로 분리합니다 (CI를 가볍게 유지).
@@ -43,6 +43,14 @@ rag = [
     "langchain>=0.2.0",
     "chromadb>=0.5.0",
     "sentence-transformers>=2.7.0",
+]
+# ── 대피소 안전등급 PU-learning 파이프라인(shelter_safety/)용. 같은 이유로 core가
+#    아닌 extra: pandas/scikit-learn/lightgbm은 이 서브패키지 밖에서 쓰이지 않고,
+#    코어 CI는 이 extra 없이 돌아갑니다. 실제 개발 시: pip install -e "./apps/ai-engine[ml]"
+ml = [
+    "pandas>=2.0.0",
+    "scikit-learn>=1.4.0",
+    "lightgbm>=4.0.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -71,6 +79,14 @@ no_implicit_optional = true
 
 [[tool.mypy.overrides]]
 module = ["langchain.*", "chromadb.*", "sentence_transformers.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# numpy도 여기 포함: pandas의 전이 의존성이라 별도 extra 없이 따라오지만, mypy는
+# 설치 여부와 무관하게 import별로 스텁을 찾으므로 명시하지 않으면 "무거운 extra
+# 미설치" CI 환경(rag와 동일하게 ml도 설치 안 함)에서 shelter_safety/spy.py의
+# `import numpy`가 import-not-found로 잡힌다.
+module = ["pandas.*", "numpy.*", "sklearn.*", "lightgbm.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
