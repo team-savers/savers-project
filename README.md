@@ -107,5 +107,5 @@ bash scripts/run-tests.sh        # 전체 앱 lint + mypy + pytest
 
 MIT — [LICENSE](LICENSE)
 
-레포 스캐폴딩은 [Yopkigom/ai-project-template](https://github.com/Yopkigom/ai-project-template)을
+레포 스캐폴딩은 [Yopkigom/ai-team-project-template](https://github.com/Yopkigom/ai-team-project-template)을
 모노레포 구조로 이식한 것입니다.

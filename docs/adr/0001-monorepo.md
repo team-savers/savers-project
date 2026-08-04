@@ -73,7 +73,7 @@ savers/
 
 ## 구현 반영 (2026-07-26)
 
-`team-savers/savers-project`를 `Yopkigom/ai-project-template`에서 생성하고 위 구조로 이식했다.
+`team-savers/savers-project`를 `Yopkigom/ai-team-project-template`에서 생성하고 위 구조로 이식했다.
 결정 자체는 그대로 성립하며, 위 트리에는 없던 항목이 스캐폴딩 과정에서 추가되었다.
 
 | 항목 | 실제 위치 | 왜 트리에 없었나 |
