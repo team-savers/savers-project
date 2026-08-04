@@ -15,6 +15,7 @@ import numpy as np  # noqa: E402
 
 from ai_engine.shelter_safety.spy import (  # noqa: E402
     _IS_SPY_COL,
+    NoSpiesError,
     SpyPipelineConfig,
     assign_spies,
     build_unlabeled_pool,
@@ -105,6 +106,17 @@ def test_compute_spy_threshold_matches_percentile_of_spy_scores_only() -> None:
 
     expected = np.percentile([0.9, 0.95, 0.99], 10.0)
     assert threshold == pytest.approx(expected)
+
+
+def test_compute_spy_threshold_raises_when_no_spies_present() -> None:
+    """spy_ratio가 너무 낮거나 P가 너무 작아 스파이가 0개면, np.percentile의
+    불친절한 IndexError 대신 명확한 NoSpiesError를 낸다."""
+    pool_df = pd.DataFrame({"id": [f"x{i}" for i in range(5)], _IS_SPY_COL: [False] * 5})
+    scores = pd.Series([0.1, 0.2, 0.3, 0.4, 0.5])
+    config = SpyPipelineConfig(threshold_percentile=10.0)
+
+    with pytest.raises(NoSpiesError):
+        compute_spy_threshold(pool_df, scores, config)
 
 
 # ── confirm_reliable_negatives (leakage) ─────────────────────────────────

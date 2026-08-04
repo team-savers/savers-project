@@ -83,3 +83,73 @@ def test_join_shelters_with_registry_carries_feature_columns() -> None:
 
     for col in schema.FEATURE_COLUMNS:
         assert col in joined_df.columns
+
+
+# ── select_primary_building: 연면적 콤마/단위 접미사 (PR #55 리뷰 재현 케이스) ──
+
+
+def test_select_primary_building_strips_thousands_comma_before_comparing() -> None:
+    """PR #55 리뷰에서 나온 재현 케이스: 천단위 콤마가 있는 진짜 최대 연면적
+    건물이, 콤마 없는 작은 부속건물에 밀려 탈락하면 안 된다."""
+    registry_df = pd.DataFrame(
+        {
+            schema.REGISTRY_ROAD_ADDRESS_CODE_COL: ["ADDR_X", "ADDR_X"],
+            schema.REGISTRY_TOTAL_FLOOR_AREA_COL: ["1,200.5", "80.0"],
+            schema.REGISTRY_BUILDING_NAME_COL: ["본관(실제 최대)", "부속동(작은 건물)"],
+        }
+    )
+
+    primary_df = loading.select_primary_building(registry_df)
+
+    assert len(primary_df) == 1
+    assert primary_df.iloc[0][schema.REGISTRY_BUILDING_NAME_COL] == "본관(실제 최대)"
+    assert primary_df.iloc[0][schema.REGISTRY_TOTAL_FLOOR_AREA_COL] == pytest.approx(1200.5)
+
+
+def test_select_primary_building_strips_common_unit_suffixes() -> None:
+    registry_df = pd.DataFrame(
+        {
+            schema.REGISTRY_ROAD_ADDRESS_CODE_COL: ["ADDR_Y", "ADDR_Y", "ADDR_Y"],
+            schema.REGISTRY_TOTAL_FLOOR_AREA_COL: ["1200.5㎡", "900.0 m2", "300.0m²"],
+            schema.REGISTRY_BUILDING_NAME_COL: ["A", "B", "C"],
+        }
+    )
+
+    primary_df = loading.select_primary_building(registry_df)
+
+    assert len(primary_df) == 1
+    assert primary_df.iloc[0][schema.REGISTRY_BUILDING_NAME_COL] == "A"
+    assert primary_df.iloc[0][schema.REGISTRY_TOTAL_FLOOR_AREA_COL] == pytest.approx(1200.5)
+
+
+def test_select_primary_building_raises_on_unparseable_area() -> None:
+    """콤마/단위를 정리해도 숫자가 안 되는 값(스키마 가정이 실제와 다르다는 신호)은
+    조용히 NaN 처리하지 않고 에러를 낸다."""
+    registry_df = pd.DataFrame(
+        {
+            schema.REGISTRY_ROAD_ADDRESS_CODE_COL: ["ADDR_Z"],
+            schema.REGISTRY_TOTAL_FLOOR_AREA_COL: ["모름"],
+            schema.REGISTRY_BUILDING_NAME_COL: ["A"],
+        }
+    )
+
+    with pytest.raises(loading.UnparseableAreaError):
+        loading.select_primary_building(registry_df)
+
+
+def test_select_primary_building_does_not_raise_on_preexisting_missing_area() -> None:
+    """원래부터 결측(NaN)이던 연면적은 "새로 생긴 파싱 실패"가 아니므로 에러
+    대상이 아니다 — 결측이 아닌 행(다른 주소) 중 최대값이 정상적으로 선택된다."""
+    registry_df = pd.DataFrame(
+        {
+            schema.REGISTRY_ROAD_ADDRESS_CODE_COL: ["ADDR_W", "ADDR_V"],
+            schema.REGISTRY_TOTAL_FLOOR_AREA_COL: [None, "500.0"],
+            schema.REGISTRY_BUILDING_NAME_COL: ["결측", "정상"],
+        }
+    )
+
+    primary_df = loading.select_primary_building(registry_df)
+
+    assert len(primary_df) == 2
+    normal_row = primary_df[primary_df[schema.REGISTRY_BUILDING_NAME_COL] == "정상"].iloc[0]
+    assert normal_row[schema.REGISTRY_TOTAL_FLOOR_AREA_COL] == pytest.approx(500.0)

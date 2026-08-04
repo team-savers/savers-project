@@ -20,6 +20,33 @@ from ai_engine.shelter_safety import schema
 if TYPE_CHECKING:
     import pandas as pd
 
+# 정리 후에도 남는 비숫자 문자를 걸러내기 위한 흔한 연면적 단위 접미사.
+# 대소문자 무관, 값 끝에 오는 경우만 제거한다(중간에 나타나면 다른 문제라 원래대로
+# 파싱 실패 처리되어야 함).
+_AREA_UNIT_SUFFIX_RE = r"(?i)\s*(㎡|m²|m2)\s*$"
+
+
+class UnparseableAreaError(ValueError):
+    """연면적 값이 콤마/단위 접미사를 정리한 뒤에도 숫자로 파싱되지 않음 —
+    schema.py의 포맷 가정이 실제 데이터와 다르다는 신호."""
+
+
+def _clean_area_values(area_series: pd.Series) -> pd.Series:
+    """연면적 문자열에서 천단위 콤마와 흔한 단위 접미사(㎡/m²/m2)를 제거한다.
+
+    `.astype(str)`이 아니라 `.astype("string")`(pandas nullable string)을 쓴다 —
+    `.astype(str)`은 진짜 결측치(NaN)를 리터럴 문자열 `"nan"`으로 바꿔버리는데,
+    이후 `pd.to_numeric`이 그 `"nan"`을 다시 NaN으로 되돌리긴 하지만 원본이 이미
+    결측이었는지와 콤마 정리로 새로 NaN이 됐는지를 구분해야 하는 이 함수의 목적상
+    혼동의 여지를 아예 만들지 않는 게 안전하다.
+    """
+    return (
+        area_series.astype("string")
+        .str.replace(",", "", regex=False)
+        .str.replace(_AREA_UNIT_SUFFIX_RE, "", regex=True)
+        .str.strip()
+    )
+
 
 def load_flood_shelters(path: str | Path) -> pd.DataFrame:
     """TL_FLOOD_P CSV를 로드한다.
@@ -47,6 +74,14 @@ def select_primary_building(registry_df: pd.DataFrame) -> pd.DataFrame:
     `idxmax`가 아니라 정렬 + `drop_duplicates`를 쓰는 이유: 연면적이 결측(NaN)인
     표제부가 섞여 있어도 (`na_position="last"`) 죽지 않고, 동점일 때도 항상 같은
     행(정렬상 첫 행)을 결정론적으로 고른다.
+
+    ⚠️ 연면적이 `"1,200.5"`(천단위 콤마)나 `"1200.5㎡"`(단위 접미사) 형태면
+    `_clean_area_values()`로 먼저 정리한다 — 정리 없이 바로 `pd.to_numeric`에
+    넘기면 이런 값이 조용히 NaN이 되고 `na_position="last"`에 의해 정렬 맨 뒤로
+    밀려서, 실제로는 가장 큰 건물인데 탈락하고 콤마 없는 작은 부속건물이
+    "주건축물"로 잘못 뽑히는 사고가 실제로 있었다. 정리 후에도 파싱되지 않는
+    값이 남으면(=정리 전에는 없던 결측이 새로 생기면) 조용히 넘어가지 않고
+    `UnparseableAreaError`를 낸다.
     """
     import pandas as pd
 
@@ -54,7 +89,20 @@ def select_primary_building(registry_df: pd.DataFrame) -> pd.DataFrame:
     address_col = schema.REGISTRY_ROAD_ADDRESS_CODE_COL
 
     working = registry_df.copy()
-    working[area_col] = pd.to_numeric(working[area_col], errors="coerce")
+    original_na_count = working[area_col].isna().sum()
+
+    cleaned_area = _clean_area_values(working[area_col])
+    working[area_col] = pd.to_numeric(cleaned_area, errors="coerce")
+
+    new_na_count = working[area_col].isna().sum()
+    if new_na_count > original_na_count:
+        newly_failed = working[area_col].isna() & registry_df[area_col].notna()
+        offenders = registry_df.loc[newly_failed, [address_col, area_col]]
+        raise UnparseableAreaError(
+            f"{area_col} 값을 콤마/단위 접미사 정리 후에도 숫자로 파싱하지 못한 행이 "
+            f"{len(offenders)}건 있음 — 예: {offenders.head(5).to_dict('records')!r}"
+        )
+
     sorted_df = working.sort_values(area_col, ascending=False, na_position="last")
     return sorted_df.drop_duplicates(subset=[address_col], keep="first").reset_index(drop=True)
 

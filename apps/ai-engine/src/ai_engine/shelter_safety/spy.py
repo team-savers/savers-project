@@ -31,6 +31,11 @@ _IS_SPY_COL = "_is_spy"
 Scorer = Callable[["pd.DataFrame", "pd.Series", "pd.DataFrame", int], Sequence[float]]
 
 
+class NoSpiesError(ValueError):
+    """스파이가 0개라 임계값을 계산할 스파이 점수 분포 자체가 없음 — P 크기가
+    너무 작거나 spy_ratio가 너무 낮아 `round(len(P) * spy_ratio)`가 0이 됐다는 신호."""
+
+
 @dataclass(frozen=True)
 class SpyPipelineConfig:
     """전날 팀 논의로 확정된 기본값. 재검토 대상이 아니지만 전부 조정 가능하다."""
@@ -145,10 +150,22 @@ def score_pool(
 def compute_spy_threshold(
     pool_df: pd.DataFrame, scores: pd.Series, config: SpyPipelineConfig
 ) -> float:
-    """스파이 점수 분포의 하위 `threshold_percentile`을 임계선으로 잡는다."""
+    """스파이 점수 분포의 하위 `threshold_percentile`을 임계선으로 잡는다.
+
+    스파이가 0개면 `np.percentile`이 빈 배열에 `IndexError`를 던져 원인을 알기
+    어렵다 — P가 아주 작을 때(`round(len(P) * spy_ratio) == 0`) 실제로 발생할 수
+    있으므로, 여기서 먼저 `NoSpiesError`로 명확히 알린다.
+    """
     import numpy as np
 
-    spy_scores = scores[pool_df[_IS_SPY_COL]]
+    spy_mask = pool_df[_IS_SPY_COL]
+    if not spy_mask.any():
+        raise NoSpiesError(
+            f"스파이가 0개라 임계값을 계산할 수 없음 (spy_ratio={config.spy_ratio}) — "
+            "P 크기가 너무 작거나 spy_ratio가 너무 낮음"
+        )
+
+    spy_scores = scores[spy_mask]
     return float(np.percentile(spy_scores, config.threshold_percentile))
 
 
