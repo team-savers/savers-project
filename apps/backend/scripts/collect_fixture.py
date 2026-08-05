@@ -35,9 +35,14 @@ import httpx
 # main, so the helper lives here rather than being imported.
 KST = timezone(timedelta(hours=9))
 
-# Fixtures live inside the package (src/) on purpose: 오프라인 예비모드가 런타임에 이들로
-# 폴백하므로, wheel/이미지 밖에 있는 픽스처는 정확히 필요한 순간에 없다.
+# Fixtures live inside the package (src/) on purpose: 코드와 같은 버전으로 움직여야 하고,
+# wheel/이미지에 함께 실려야 컨테이너 안에서도 재생할 수 있다. 지금 얼려둔 것은 스키마
+# 재현용 replay 픽스처이고, 실제 오프라인 폴백용 대피소 캐시는 별도 과제다.
 FIXTURES = Path(__file__).resolve().parents[1] / "src" / "backend_core" / "fixtures"
+
+
+class CollectError(RuntimeError):
+    """Request failed, or the upstream returned a non-normal result code."""
 
 
 def today_kst() -> date:
@@ -45,29 +50,45 @@ def today_kst() -> date:
     return datetime.now(KST).date()
 
 
+def fixture_path(source: str, event_type: str) -> Path:
+    """Where this collection would be frozen — computable without calling the upstream."""
+    if not event_type or not event_type.replace("-", "").replace("_", "").isalnum():
+        raise CollectError(
+            f"event_type이 파일명에 그대로 들어갑니다. 영숫자와 -_만 허용: {event_type!r}"
+        )
+    return FIXTURES / f"{source}_{event_type}_{today_kst():%Y%m%d}.json"
+
+
+def refuse_if_frozen(path: Path) -> None:
+    """Fail before spending a request: the daily quota is the reason fixtures exist."""
+    if path.exists():
+        raise CollectError(
+            f"이미 존재: {path.name}. 픽스처는 수정하지 않는다. 새 이름으로 수집할 것."
+        )
+
+
 def save_fixture(source: str, event_type: str, payload: dict[str, Any]) -> None:
     """Freeze one response as `{source}_{event_type}_{YYYYMMDD}.json`.
 
-    Refuses to overwrite an existing file, and prints the sha256 prefix so the collection
-    can be recorded against a specific observation.
+    `newline="\\n"`은 미관이 아니다. 없으면 윈도우가 CRLF로 쓰고, 아래 digest가 그 CRLF를
+    해시하고, git은 커밋 시 blob을 LF로 정규화한다 — 출력된 해시가 커밋된 파일과 영영
+    맞지 않는다. 실제로 그 상태로 한 번 올라갔다.
     """
-    name = f"{source}_{event_type}_{today_kst():%Y%m%d}.json"
-    path = FIXTURES / name
-    if path.exists():
-        raise SystemExit(f"이미 존재: {name}. 픽스처는 수정하지 않는다. 새 이름으로 수집할 것.")
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    path = fixture_path(source, event_type)
+    refuse_if_frozen(path)
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     digest = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
-    print(f"동결 완료: {name}  sha256[:12]={digest}")
+    print(f"동결 완료: {path.name}  sha256[:12]={digest}")
     print("fixtures/README.md 수집 이력 표에 위 해시와 함께 기록할 것.")
 
 
 # ── 인증 ────────────────────────────────────────────────────────────────────────────────
 
 ENV_DEFAULT = Path(__file__).resolve().parents[3] / "infra" / ".env"
-
-
-class CollectError(RuntimeError):
-    """Request failed, or the upstream returned a non-normal result code."""
 
 
 def load_key_from_env_file(env_path: Path, key_name: str) -> str:
@@ -205,9 +226,8 @@ def fetch_kma(
 ) -> tuple[dict[str, Any], str, str]:
     """Fetch one 단기예보 page and return it **exactly as received**.
 
-    Only the authentication and request shape are shared with
-    scripts/fetch_kma_forecast.py; its 3시간 합산과 범주 문자열 해석은 의도적으로 가져오지
-    않는다. 그 계산은 소비자 쪽 로직이라, 픽스처에 넣으면 관측이 아니라 해석을 얼리게 된다.
+    3시간 합산과 범주 문자열 해석은 의도적으로 하지 않는다. 그 계산은 소비자 쪽 로직이라,
+    픽스처에 넣으면 관측이 아니라 해석을 얼리게 된다.
     """
     base_date, base_time = latest_kma_base(datetime.now(KST))
     params = {
@@ -241,6 +261,18 @@ def fetch_kma(
     code = str(header.get("resultCode", "")).strip()
     if code and code != "00":
         raise CollectError(f"기상청 resultCode={code} ({header.get('resultMsg')})")
+
+    # 미승인·한도 초과면 apihub가 봉투 없이 {"result": {"status": 403}}만 돌려준다. JSON
+    # 파싱은 되고 header가 없어 위 검사를 그냥 통과하므로, 자료가 실제로 왔는지로 한 번 더
+    # 막는다. 이걸 저장하면 이름 중복 거부 때문에 같은 이름으로 재수집도 못 한다.
+    response_obj = payload.get("response") or {}
+    items = ((response_obj.get("body") or {}).get("items") or {}).get("item")
+    if not isinstance(items, list) or not items:
+        status = (payload.get("result") or {}).get("status")
+        raise CollectError(
+            f"기상청 응답에 예보 항목이 없습니다 (result.status={status}). "
+            "인증키 미승인, 한도 초과, 또는 격자·발표시각이 잘못된 경우입니다."
+        )
 
     return payload, base_date, base_time
 
@@ -282,6 +314,7 @@ def main(argv: list[str] | None = None) -> int:
     rows = args.rows or (KMA_DEFAULT_ROWS if is_kma else SAFETYDATA_DEFAULT_ROWS)
 
     try:
+        refuse_if_frozen(fixture_path(source, args.event_type))
         key = load_key_from_env_file(args.env, env_key)
         if is_kma:
             payload, base_date, base_time = fetch_kma(
@@ -295,12 +328,11 @@ def main(argv: list[str] | None = None) -> int:
                 rows=rows,
                 timeout_s=args.timeout,
             )
+        print(describe(payload))
+        save_fixture(source, args.event_type, payload)
     except CollectError as exc:
         print(f"실패: {exc}", file=sys.stderr)
         return 1
-
-    print(describe(payload))
-    save_fixture(source, args.event_type, payload)
     return 0
 
 

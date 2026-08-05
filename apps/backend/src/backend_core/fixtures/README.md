@@ -32,6 +32,11 @@
 위 `shelters.jsonl`·`dev_sample_flood_event.json`은 스켈레톤 오프라인 스텁이고,
 아래는 실 API를 1회 호출해 동결한 replay 픽스처다. 성격이 다르므로 섞지 않는다.
 
+replay 픽스처도 `src/` 안에 두지만 근거가 다르다. 오프라인 폴백용이 아니라 **코드와 같은
+버전으로 움직이고 컨테이너 안에서도 재생할 수 있어야 하기 때문**이다. 실제 내용은 스키마
+재현용 표본 10건이라 폴백 캐시로 쓸 수 없다 — 대피소 픽스처는 강릉 한파쉼터 10곳이고,
+MVP 1차 대상인 호우·침수와 지역이 맞지 않는다. **폴백용 대피소 캐시는 별도 과제다.**
+
 ## 규칙
 
 - 파일명: `{api_source}_{event_type}_{수집일자}.json`
@@ -42,7 +47,8 @@
   상류가 무엇을 주장했는지 남아야 오류 응답도 재생할 수 있다.
 - 수집 스크립트: `apps/backend/scripts/collect_fixture.py`
 - 파일 끝에는 개행을 둔다(`end-of-file-fixer` 훅 규약). 수집 스크립트가 저장 시점에 붙인다.
-- sha256은 LF 개행 기준이다. Windows에서 `core.autocrlf=true`로 체크아웃하면 작업 트리가 CRLF가 되어 값이 달라진다.
+- sha256은 저장소 blob(LF) 기준이다. 수집 스크립트가 `newline="\n"`으로 저장하므로 어느 OS에서 돌려도 출력값이 이 기준과 같다. 손으로 검산할 때는 주의 — `core.autocrlf=true`인 Windows 작업 트리는 CRLF로 체크아웃되므로 CR을 빼고 계산해야 한다.
+- 표의 sha256은 `tests/test_collect_fixture.py`가 커밋된 파일에서 다시 계산해 대조한다. 값이 어긋나면 CI가 잡는다.
 
 ## 커밋 전 확인 — 사람에 관한 정보
 
@@ -64,9 +70,9 @@
 
 | 파일 | 출처 | 수집일 | sha256[:12] | 비고 |
 |---|---|---|---|---|
-| safetydata_shelter_baseline_20260730.json | 통합대피소 DSSP-IF-10941 | 2026-07-30 | 82a1b2c243e2 | 상류 74726건 중 10건 |
+| safetydata_shelter_baseline_20260730.json | 통합대피소 DSSP-IF-10941 | 2026-07-30 | 69012c0f2276 | 상류 74726건 중 10건 |
 | safetydata_emergency_sms_baseline_20260730.json | 긴급재난문자 DSSP-IF-00247 | 2026-07-30 | — | **제외** — 실종자 실명·신체정보 포함. 호우 특보 시점 재수집 예정 |
-| safetydata_flood_trace_baseline_20260730.json | 침수흔적도 DSSP-IF-00117 | 2026-07-30 | a4316a94b4c2 | 상류 38003건 중 10건 |
-| safetydata_hazard_zone_baseline_20260730.json | 지역재해위험지구 DSSP-IF-00058 | 2026-07-30 | dfcf2d1fa7e9 | 상류 2930건 중 10건 |
-| safetydata_flood_trace_line_baseline_20260730.json | 침수흔적도 심선 DSSP-IF-20678 | 2026-07-30 | 58fd359aa571 | 상류 38381건 중 10건 |
-| kma_vilage_fcst_baseline_20260730.json | 기상청 단기예보 | 2026-07-30 | 63f1e92db847 | 발표 1700, nx60 ny127, 300건 14종 |
+| safetydata_flood_trace_baseline_20260730.json | 침수흔적도 DSSP-IF-00117 | 2026-07-30 | 3e674af60e19 | 상류 38003건 중 10건 |
+| safetydata_hazard_zone_baseline_20260730.json | 지역재해위험지구 DSSP-IF-00058 | 2026-07-30 | 747a6acd4dbd | 상류 2930건 중 10건 |
+| safetydata_flood_trace_line_baseline_20260730.json | 침수흔적도 심선 DSSP-IF-20678 | 2026-07-30 | 6e4c7c3bfe2a | 상류 38381건 중 10건 |
+| kma_vilage_fcst_baseline_20260730.json | 기상청 단기예보 | 2026-07-30 | 7b2cc9480405 | 발표 1700, nx60 ny127, 300건 14종 |
