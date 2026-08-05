@@ -18,7 +18,7 @@ Usage (목업, 레거시 경로):
 
 Usage (실제 파일, 통합 경로):
     python scripts/build_shelter_safety_dataset.py \\
-        --registry-csv data/raw/building_registry_3districts_20260804.csv
+        --registry-csv data/raw/building_registry_3districts_20260805.csv
 """
 
 from __future__ import annotations

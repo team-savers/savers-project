@@ -68,16 +68,26 @@ def load_building_registry(path: str | Path) -> pd.DataFrame:
 
 
 def load_unified_registry(path: str | Path) -> pd.DataFrame:
-    """건축물대장 전체(실제 파일) CSV를 로드한다 — 라벨과 건물 피처가 이미 한 행에
-    있는 완성된 피처테이블이라, `load_flood_shelters()`와의 조인이 필요 없다
-    (schema.py 상단 docstring 참고).
+    """건축물대장 전체(실제 파일) CSV를 로드한다 — 라벨·건물 피처·(2026-08-05부터)
+    브이월드 PNU 조인으로 붙은 공간 피처까지 이미 한 행에 있는 완전판이라,
+    `load_flood_shelters()`와의 조인은 필요 없다. ⚠️ 이건 "조인이 아예 없다"는
+    뜻이 아니다 — 브이월드 GIS건물통합정보와의 PNU 조인은 실제로 있었고, 우리
+    파이프라인이 하는 게 아니라 이미 끝난 결과를 통째로 로드할 뿐이다
+    (schema.py 상단 docstring의 정정 내용 참고).
 
     실제 파일 인코딩은 UTF-8 BOM으로 확인됨(2026-08-05) — `load_flood_shelters()`/
     `load_building_registry()`(mock 대상, 인코딩 미확정)와 달리 여기서는 고정한다.
+    `PNU`도 `pk`와 같은 이유로 문자열 강제 — 19자리 정수라 int64로 읽어도 이번
+    3개구 데이터에서 선행 0 손실은 없지만(시군구코드가 전부 1로 시작), 식별자는
+    항상 문자열로 강제하는 이 모듈의 관례를 일관되게 적용한다.
     """
     import pandas as pd
 
-    return pd.read_csv(path, encoding="utf-8-sig", dtype={schema.UNIFIED_REGISTRY_PK_COL: str})
+    return pd.read_csv(
+        path,
+        encoding="utf-8-sig",
+        dtype={schema.UNIFIED_REGISTRY_PK_COL: str, schema.UNIFIED_REGISTRY_PNU_COL: str},
+    )
 
 
 def select_primary_building(

@@ -56,9 +56,12 @@ def split_unified_registry(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """통합 건축물대장을 (대피소 표기 행, 비-대피소 행)으로 나눈다.
 
-    실제 파일은 라벨(`is_shelter`)과 건물 피처가 이미 한 행에 있어 별도 파일과의
-    조인이 필요 없다 — 첫 번째 반환값(`is_shelter == 1`)을 `filter_safe_shelters()`
-    에 넘기면 "안전"만 남은 P가 되고, 두 번째 반환값(`is_shelter == 0`)이 U 후보다.
+    실제 파일은 라벨(`is_shelter`)과 건물 피처가 이미 한 행에 있어, 이 함수
+    자체는 별도 파일과 조인하지 않는다 — 첫 번째 반환값(`is_shelter == 1`)을
+    `filter_safe_shelters()`에 넘기면 "안전"만 남은 P가 되고, 두 번째 반환값
+    (`is_shelter == 0`)이 U 후보다. (⚠️ 파일 자체에는 브이월드 PNU 조인이 이미
+    반영돼 있다 — schema.py 상단 docstring의 정정 내용 참고. "조인이 필요 없다"는
+    이 함수가 조인을 안 한다는 뜻이지, 파일이 조인 없이 만들어졌다는 뜻이 아니다.)
 
     `is_shelter`에 0/1 외의 값이 섞여 있으면(결측 포함) `== 1` 비교가 조용히
     `False`로 평가돼 그 행이 검증 없이 U 쪽으로 흡수된다 — `filter_safe_shelters()`

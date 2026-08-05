@@ -89,15 +89,16 @@ def run_pu_pipeline_from_unified_registry(
     scorer: spy.Scorer = spy.default_lightgbm_scorer,
     feature_columns: tuple[str, ...] = schema.UNIFIED_REGISTRY_FEATURE_COLUMNS,
 ) -> PuPipelineResult:
-    """실제 통합 건축물대장(강남·서초·강동, 2026-08-04) 전용 경로.
+    """실제 통합 건축물대장(강남·서초·강동) 전용 경로.
 
-    `run_pu_pipeline()`과 달리 별도 대피소 파일과의 조인이 없다 — 건축물대장 한
-    장이 이미 라벨(`is_shelter`/`대피소구분`)과 건물 피처를 한 행에 갖고 있는
-    완성된 피처테이블이기 때문(schema.py 상단 docstring, `labels.split_unified_registry`
-    참고). 1차 후보군 파일(공간 피처: 침수구역내/침수심등급/최근접펌프장거리_m)은
-    건축물대장 쪽에 좌표 자체가 없어 조인 대상이 없으므로 이번 스코프에서 쓰지
-    않는다(2026-08-05 팀 논의로 결정, ADR 미등록 — 검토 중) — 도혁님이 지오코딩
-    컬럼을 얹어주면 그때 `feature_columns`에 추가한다.
+    `run_pu_pipeline()`과 달리 이 함수 자체는 별도 대피소 파일과 조인하지 않는다
+    — 건축물대장 한 장이 이미 라벨(`is_shelter`/`대피소구분`)과 건물 피처를 한
+    행에 갖고 있기 때문(`labels.split_unified_registry` 참고). ⚠️ 이게 "조인이
+    아예 없다"는 뜻은 아니다 — 1차 후보군(shelter_candidates_spatial_*.csv)과의
+    조인만 불필요했고, 브이월드 GIS건물통합정보와는 PNU 기준 조인이 실제로
+    있었다. 그 조인은 도혁님이 파일 단계에서 이미 끝냈고, 결과(침수구역내/
+    침수심등급/최근접펌프장거리_m 등)가 반영된 완전판 파일을 이 함수가 로드만
+    한다(schema.py 상단 docstring의 정정 내용 참고).
 
     로딩 -> 주건축물 선정(멱등) -> P/U 분리 -> spy 파이프라인까지는 `run_pu_pipeline()`
     과 동일한 `loading`/`labels`/`spy` 함수를 그대로 조합한다.

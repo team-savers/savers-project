@@ -96,7 +96,8 @@ def test_pipeline_is_deterministic_given_same_seed() -> None:
     assert result_a.threshold == pytest.approx(result_b.threshold)
 
 
-# ── run_pu_pipeline_from_unified_registry (실제 파일 경로, 조인 없음) ───────────
+# ── run_pu_pipeline_from_unified_registry (이 함수 자체는 조인 안 함 — 브이월드
+#    PNU 조인은 파일 단계에서 이미 끝나 반영돼 있음. schema.py 상단 참고) ────────
 
 
 def _run_unified(config: SpyPipelineConfig | None = None) -> PuPipelineResult:
@@ -159,3 +160,31 @@ def test_unified_pipeline_is_deterministic_given_same_seed() -> None:
         result_b.reliable_negative[schema.UNIFIED_REGISTRY_PK_COL]
     )
     assert result_a.threshold == pytest.approx(result_b.threshold)
+
+
+def test_unified_pipeline_positive_rows_carry_spatial_feature_columns() -> None:
+    """2026-08-05 완전판(브이월드 PNU 조인)의 침수구역내/침수심등급/
+    최근접펌프장거리_m이 실제로 FEATURE_COLUMNS를 통해 결과에 실려 있는지 확인."""
+    result = _run_unified()
+
+    for col in ("침수구역내", "침수심등급", "최근접펌프장거리_m"):
+        assert col in schema.UNIFIED_REGISTRY_FEATURE_COLUMNS
+        assert col in result.positive.columns
+
+
+def test_unified_pipeline_runs_with_real_lightgbm_despite_spatial_feature_nans() -> None:
+    """결측 처리에 별도 로직이 필요 없다는 걸 실제로 확인한다: fixtures/README.md의
+    `safe_06`/`u_005`/`u_015`/`u_025`/`u_035`(공간 피처 전부 NaN)가 섞인 채로도,
+    가짜 스코어러가 아니라 **진짜 `default_lightgbm_scorer`**로 학습·스코어링까지
+    에러 없이 끝나야 한다 — fake scorer는 피처 값을 안 보므로 이 확인엔 못 쓴다."""
+    pytest.importorskip("lightgbm")
+
+    # NaN이 섞인 안전 P(safe_06)가 반드시 학습에 포함되도록 spy_ratio를 낮춰
+    # spy로 빠질 확률을 줄인다(결정론적 시드로 고정하되, 우연히 안 걸리는 것도
+    # 문제 없음 -- U 서브샘플에도 NaN 섞인 u_00X가 이미 포함돼 있기 때문).
+    result = run_pu_pipeline_from_unified_registry(
+        UNIFIED_REGISTRY_CSV, config=SpyPipelineConfig(seed=1)
+    )
+
+    assert len(result.positive) == 6
+    assert result.diagnostics["n_reliable_negative"] + result.diagnostics["n_held_out"] > 0

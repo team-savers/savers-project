@@ -138,13 +138,25 @@ def test_select_primary_building_raises_on_unparseable_area() -> None:
         loading.select_primary_building(registry_df)
 
 
-# ── 실제 통합 건축물대장(조인 없음) 경로 ──────────────────────────────────
+# ── 실제 통합 건축물대장 경로 (이 로더 자체는 조인 안 함 — 브이월드 PNU 조인은
+#    파일 단계에서 이미 끝나 반영돼 있음. schema.py 상단 docstring 참고) ──────
 
 
 def test_load_unified_registry_keeps_pk_as_string() -> None:
     df = loading.load_unified_registry(UNIFIED_REGISTRY_CSV)
     value = df.iloc[0][schema.UNIFIED_REGISTRY_PK_COL]
     assert isinstance(value, str)
+
+
+def test_load_unified_registry_keeps_pnu_as_string() -> None:
+    """PNU도 pk와 같은 이유로 문자열 강제 — fixtures/README.md 참고: 목업 PNU는
+    전부 앞자리가 0이라, 문자열로 강제하지 않으면(int64로 읽히면) 선행 0이
+    사라지는 회귀를 이 테스트가 잡는다."""
+    df = loading.load_unified_registry(UNIFIED_REGISTRY_CSV)
+    value = df.iloc[0][schema.UNIFIED_REGISTRY_PNU_COL]
+    assert isinstance(value, str)
+    assert value.startswith("0")
+    assert len(value) == 19
 
 
 def test_load_unified_registry_reads_all_rows() -> None:
