@@ -15,6 +15,7 @@
 SAVERS는 경보 발령 시 등록 주민을 매칭하고, **알림 링크 진입 시점에 현재 위치를 단 한 번만**
 확인한 뒤, 행정안전부 국민행동요령에 근거한 개인 맞춤 행동지침을 **PWA 웹푸시(FCM)** 로 전달합니다
 ([ADR-0005](docs/adr/0005-webpush-primary-channel.md) — 카카오 알림톡은 채택하지 않습니다).
+생성된 문안은 **변형 없이 그대로** 전달됩니다 — 템플릿 슬롯 치환 계층은 두지 않습니다.
 
 MVP 1차 대상 재난: **호우·도시침수**.
 
@@ -34,9 +35,11 @@ MVP 1차 대상 재난: **호우·도시침수**.
 ├── apps/
 │   ├── backend/        # FastAPI — 재난 Open API 수집, 행정동/위치 매칭, 발송 오케스트레이션
 │   ├── ai-engine/      # 독립 배포 단위 — RAG + 가드레일 생성, eval/ 품질 측정 하네스 포함
-│   └── frontend/       # PWA · 웹푸시 딥링크 랜딩 · Interactive Care 챗봇 (스캐폴딩 예정)
+│   └── frontend/       # PWA · 웹푸시 딥링크 랜딩 · Interactive Care 챗봇
 ├── packages/contracts/ # 모듈 간 계약(OpenAPI·공유 스키마) 단일 원천
 ├── infra/              # docker-compose, .env 템플릿, AWS 프로비저닝
+├── e2e/                # 앱을 가로지르는 관통 테스트(QA 소유) — HTTP 전용·non-required CI
+├── scripts/            # 환경 점검·로컬 CI·레포 설정 스크립트
 ├── notebooks/          # 실험 기록 (검증되면 apps/<app>/src 로 함수화 이전)
 └── docs/               # 설계 문서 · ADR · 역할별 가이드/일정
 ```
