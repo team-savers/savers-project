@@ -14,12 +14,17 @@ pd = pytest.importorskip("pandas")
 import numpy as np  # noqa: E402
 
 from ai_engine.shelter_safety import schema  # noqa: E402
-from ai_engine.shelter_safety.pipeline import PuPipelineResult, run_pu_pipeline  # noqa: E402
+from ai_engine.shelter_safety.pipeline import (  # noqa: E402
+    PuPipelineResult,
+    run_pu_pipeline,
+    run_pu_pipeline_from_unified_registry,
+)
 from ai_engine.shelter_safety.spy import SpyPipelineConfig  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SHELTERS_CSV = FIXTURES / "shelter_safety_shelters_mock.csv"
 REGISTRY_CSV = FIXTURES / "shelter_safety_registry_mock.csv"
+UNIFIED_REGISTRY_CSV = FIXTURES / "shelter_safety_unified_registry_mock.csv"
 
 
 def _fake_scorer(
@@ -87,5 +92,70 @@ def test_pipeline_is_deterministic_given_same_seed() -> None:
 
     assert set(result_a.reliable_negative[schema.REGISTRY_ROAD_ADDRESS_CODE_COL]) == set(
         result_b.reliable_negative[schema.REGISTRY_ROAD_ADDRESS_CODE_COL]
+    )
+    assert result_a.threshold == pytest.approx(result_b.threshold)
+
+
+# ── run_pu_pipeline_from_unified_registry (실제 파일 경로, 조인 없음) ───────────
+
+
+def _run_unified(config: SpyPipelineConfig | None = None) -> PuPipelineResult:
+    return run_pu_pipeline_from_unified_registry(
+        UNIFIED_REGISTRY_CSV, config=config or SpyPipelineConfig(), scorer=_fake_scorer
+    )
+
+
+def test_unified_pipeline_diagnostics_match_mock_fixture_design() -> None:
+    """fixtures/README.md에 문서화된 통합 목업 설계값과 일치하는지 확인."""
+    result = _run_unified()
+
+    assert result.diagnostics["n_registry_total"] == 51
+    assert result.diagnostics["n_registry_primary"] == 50  # dup_01 표제부 2행 -> 1행.
+    assert result.diagnostics["n_shelter_rows"] == 9  # 안전 6 + 긴급 3.
+    assert result.diagnostics["n_positive_safe"] == 6  # 긴급 3은 P에서 제외.
+    assert len(result.positive) == 6
+
+
+def test_unified_pipeline_u_candidates_exclude_shelter_rows_including_urgent() -> None:
+    """U = is_shelter==0 전부. 긴급 대피소(is_shelter==1)는 P가 아니어도 U 후보에
+    들어가면 안 된다 — 레거시 경로와 달리 U는 "도로명주소코드 미매칭"이 아니라
+    "is_shelter==0" 그 자체로 정의되기 때문."""
+    result = _run_unified()
+
+    # U 후보 = 40개(U) + dup_01 dedup 후 1개 = 41. 긴급 3개는 포함되지 않는다.
+    assert result.diagnostics["n_u_candidates"] == 41
+
+
+def test_unified_pipeline_baseline_positive_rate_matches_p_over_registry_primary() -> None:
+    result = _run_unified()
+
+    expected = result.diagnostics["n_positive_safe"] / result.diagnostics["n_registry_primary"]
+    assert result.diagnostics["baseline_positive_rate"] == pytest.approx(expected)
+
+
+def test_unified_pipeline_never_leaks_positive_rows_into_negative_sets() -> None:
+    """레거시 경로의 동일 회귀 테스트를 조인 없는 경로에서도 재확인: P(스파이 포함)가
+    신뢰negative/보류 어디에도 섞이지 않는다."""
+    result = _run_unified()
+
+    positive_pks = set(result.positive[schema.UNIFIED_REGISTRY_PK_COL])
+    reliable_pks = set(result.reliable_negative[schema.UNIFIED_REGISTRY_PK_COL])
+    held_out_pks = set(result.held_out[schema.UNIFIED_REGISTRY_PK_COL])
+
+    assert positive_pks.isdisjoint(reliable_pks)
+    assert positive_pks.isdisjoint(held_out_pks)
+    # 긴급 대피소(P 아님, U도 아님)도 어느 출력에도 새어나가면 안 된다.
+    urgent_pks = {f"urgent_{i:02d}" for i in range(1, 4)}
+    assert urgent_pks.isdisjoint(reliable_pks)
+    assert urgent_pks.isdisjoint(held_out_pks)
+    assert urgent_pks.isdisjoint(positive_pks)
+
+
+def test_unified_pipeline_is_deterministic_given_same_seed() -> None:
+    result_a = _run_unified(SpyPipelineConfig(seed=99))
+    result_b = _run_unified(SpyPipelineConfig(seed=99))
+
+    assert set(result_a.reliable_negative[schema.UNIFIED_REGISTRY_PK_COL]) == set(
+        result_b.reliable_negative[schema.UNIFIED_REGISTRY_PK_COL]
     )
     assert result_a.threshold == pytest.approx(result_b.threshold)
