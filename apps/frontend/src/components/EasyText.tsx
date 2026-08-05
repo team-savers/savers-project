@@ -18,15 +18,23 @@
 //        보여주는 버튼이 아니다.
 //   5. 문장이 둘 이상이면(단계적 노출) "다음" 버튼으로 한 번에 하나씩만
 //      펼친다. 문장이 하나뿐이면 이 버튼 자체가 렌더되지 않는다(기존과
-//      동일한 한 문단 렌더). 다 펼쳐도 버튼을 없애지 않고 비활성화 + 라벨
-//      교체("모두 보여드렸습니다")로 남긴다 — 언마운트하면 포커스가 body로
-//      떨어지고 아래 읽어주기 버튼이 그 자리로 튀어 오탭을 유발한다(PR #50
-//      리뷰, 접근성 블로킹 코멘트).
+//      동일한 한 문단 렌더). 다 펼쳐도 버튼을 없애지 않고 자리와 포커스를
+//      유지한 채 라벨만 바꾼다("모두 보여드렸습니다") — 언마운트하면 포커스가
+//      body로 떨어지고 아래 읽어주기 버튼이 그 자리로 튀어 오탭을 유발한다
+//      (PR #50 리뷰, 접근성 블로킹 코멘트). 비활성 표시는 aria-disabled로만
+//      하고 실제 차단은 핸들러에서 한다 — 이유는 버튼 위 주석 참조.
 //
 // 단계적 노출 순서: 문장 분리(splitIntoSteps)와 행동 지침 우선 노출
 // (orderStepsDirectiveFirst)은 lib/readability.ts로 옮겼다 — 순수 함수라
 // 프론트엔드에 테스트 러너가 들어오면 바로 테스트할 수 있게 하기 위해서다
-// (PR #50 리뷰).
+// (PR #50 리뷰). 지침 판별은 화면 언어에 따라 갈리므로 lang을 함께 넘긴다.
+//
+// i18n 범위 주의: "다음" 버튼 라벨만 lib/i18n.ts를 거친다. 이 버튼은 행동
+// 지침에 도달하는 **유일한 통로**라서 읽을 수 없는 글자로 두면 지침 자체가
+// 닫히지만, 같은 카드의 크게 보기·원문 보기·고지 줄은 여전히 한국어
+// 하드코딩이다(이 컴포넌트의 기존 상태이며 PR #50이 만든 것이 아니다).
+// 그 셋은 없어도 본문과 행동에 도달할 수 있는 보조 기능이라 우선순위가
+// 다르다 — 카드 전체 i18n은 별도 후속 과제로 남긴다.
 //
 // 본 컴포넌트는 평가 지표 수집을 하지 않는다 — 측정은 상위에서
 // measureReadability(original) 로 1회만 수행한다(한 화면 렌더당 1회).
@@ -47,6 +55,7 @@ import { useMemo, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { orderStepsDirectiveFirst, splitIntoSteps, substituteAdminTerms } from '../lib/readability'
 import type { Language, Source } from '../api/types'
+import { t } from '../lib/i18n'
 import { SpeakButton } from './SpeakButton'
 import { C, SHADOW_CARD } from '../lib/tokens'
 
@@ -160,7 +169,9 @@ export function EasyText({
   // 한 문단 렌더로 폴백한다(hasSteps === false 분기). orderStepsDirectiveFirst
   // 가 행동 지침 문장을 맨 앞으로 옮긴다 — 원문이 "상황 설명 → 행동 지침"
   // 순서라도 첫 화면에 행동 지침이 없는 일이 없게 한다(PR #50 리뷰).
-  const steps = useMemo(() => orderStepsDirectiveFirst(splitIntoSteps(plain)), [plain])
+  // lang 을 넘기는 이유: 지침 어미가 언어마다 달라, 한국어 어미만 보면
+  // 베트남어 본문에서 지침을 못 찾고 행동 문장이 탭 뒤로 숨는다(같은 리뷰).
+  const steps = useMemo(() => orderStepsDirectiveFirst(splitIntoSteps(plain), lang), [plain, lang])
   const hasSteps = steps.length > 1
   const [revealedCount, setRevealedCount] = useState<number>(1)
   // 본문이 바뀌면(새 알림 도착 등) 처음부터 다시 보여준다. 이전 알림을 다
@@ -223,16 +234,26 @@ export function EasyText({
 
       {/* "다음" 버튼. 문장이 둘 이상일 때만 렌더한다. 한 번 누를 때마다
           문장 하나씩만 늘린다 — 여러 개를 한꺼번에 펼치면 애초에 쪼갠
-          의미가 없다. 다 펼쳐도 언마운트하지 않고 비활성화 + 라벨 교체로
-          남긴다(PR #50 리뷰 접근성 코멘트 — 언마운트하면 포커스가 body로
-          떨어지고 아래 읽어주기 버튼이 그 자리로 튀어 오탭을 유발한다).
+          의미가 없다. 다 펼쳐도 언마운트하지 않고 자리와 포커스를 유지한
+          채 라벨만 바꾼다(PR #50 리뷰 접근성 코멘트 — 언마운트하면 포커스가
+          body로 떨어지고 아래 읽어주기 버튼이 그 자리로 튀어 오탭을
+          유발한다).
+          ⚠️ `disabled` 를 쓰지 않고 `aria-disabled` 만 쓴다. `disabled` 는
+          누른 그 순간 브라우저가 포커스를 body 로 되돌리는 명세 동작이 있어
+          (키보드·화면낭독기 사용자는 읽던 위치를 잃고 다음 Tab 이 문서 맨
+          위에서 다시 시작한다), 레이아웃만 잡아둬도 포커스 유실은 그대로
+          남는다. 게다가 `disabled` 요소는 탭 순서에서 빠져 바뀐 라벨을
+          화면낭독기가 읽어줄 방법이 없어진다. 그래서 비활성은 표시만 하고
+          실제 차단은 핸들러에서 한다(PR #50 리뷰 2라운드, 머지 전 필수).
           스타일은 크게 보기와 같은 toggleStyle('secondary', …)를 재사용해
           "다음"이 읽어주기(주 동작)처럼 보이지 않게 한다. */}
       {hasSteps && (
         <button
           type="button"
-          onClick={() => setRevealedCount((n) => Math.min(n + 1, steps.length))}
-          disabled={allRevealed}
+          onClick={() => {
+            if (allRevealed) return
+            setRevealedCount((n) => Math.min(n + 1, steps.length))
+          }}
           aria-disabled={allRevealed}
           style={{
             ...toggleStyle('secondary', false),
@@ -242,7 +263,9 @@ export function EasyText({
             cursor: allRevealed ? 'default' : 'pointer',
           }}
         >
-          {allRevealed ? '모두 보여드렸습니다' : `다음 (${revealedCount}/${steps.length})`}
+          {allRevealed
+            ? t('easyText.allRevealed', lang)
+            : t('easyText.next', lang, { current: revealedCount, total: steps.length })}
         </button>
       )}
 
