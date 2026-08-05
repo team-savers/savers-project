@@ -3,5 +3,5 @@
 # required CI가 Playwright/브라우저를 끌고 오지 않게 하기 위함입니다.
 pytest>=8.0.0
 httpx>=0.27.0          # 기동된 서비스에 HTTP로만 접근 (앱 파이썬 import 금지 규약)
-playwright>=1.45.0     # 브라우저 시나리오: 알림톡 딥링크 진입 → 위치 1회 확인 → 렌더 검증
+playwright>=1.45.0     # 브라우저 시나리오: 웹푸시 딥링크 진입 → 위치 1회 확인 → 렌더 검증
 pytest-playwright>=0.5.0
