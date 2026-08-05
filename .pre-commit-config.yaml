@@ -13,7 +13,7 @@ repos:
 
   # 기본 위생 검사 (대용량 파일 커밋 방지, 충돌 마커, 비밀키 평문 등)
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v6.0.0
     hooks:
       - id: check-added-large-files
         args: ["--maxkb=5120"]
