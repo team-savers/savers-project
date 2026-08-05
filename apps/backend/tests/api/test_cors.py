@@ -12,7 +12,8 @@ the VM), so this path is production behaviour, not a dev convenience.
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from api.main import configure_cors
+from api.main import ALLOW_METHODS, app, configure_cors
+from api.routes import devices
 from backend_core.config import Settings
 
 DEPLOYED_ORIGIN = "https://savers.example.app"
@@ -55,6 +56,19 @@ class TestMiddlewareRegistration:
         assert configure_cors(FastAPI(), [DEPLOYED_ORIGIN]) is True
 
 
+class TestMethodCoverage:
+    def test_allow_methods_covers_every_route_method(self) -> None:
+        """The allow-list must never be narrower than what the routers actually serve.
+
+        Listing methods explicitly is the policy; this keeps that policy from silently
+        turning into a bug when a router gains a PUT/PATCH. HEAD is excluded because
+        Starlette adds it alongside GET and browsers never preflight it.
+        """
+        used = {m for route in app.routes for m in getattr(route, "methods", set())}
+        missing = used - {"HEAD"} - set(ALLOW_METHODS)
+        assert not missing, f"라우터가 쓰는 메서드가 CORS 허용 목록에 없습니다: {sorted(missing)}"
+
+
 class TestBrowserBehaviour:
     def test_allowed_origin_gets_the_header_back(self) -> None:
         client = TestClient(_app([DEPLOYED_ORIGIN]))
@@ -82,6 +96,26 @@ class TestBrowserBehaviour:
         )
         assert response.status_code == 200
         assert response.headers["access-control-allow-origin"] == DEPLOYED_ORIGIN
+
+    def test_delete_preflight_is_allowed(self) -> None:
+        # DELETE /v1/devices unregisters a lost/shared handset, so the PWA calls it from a
+        # cross-origin page. DELETE is never a CORS "simple method", so it is always
+        # preflighted: if the allow-list omits it the browser drops the request before the
+        # server ever sees it, and unregistering fails silently only once deployed.
+        application = FastAPI()
+        configure_cors(application, [DEPLOYED_ORIGIN])
+        application.include_router(devices.router)
+        response = TestClient(application).options(
+            "/v1/devices",
+            headers={
+                "Origin": DEPLOYED_ORIGIN,
+                "Access-Control-Request-Method": "DELETE",
+                "Access-Control-Request-Headers": "Content-Type",
+            },
+        )
+        assert response.status_code == 200
+        assert response.headers["access-control-allow-origin"] == DEPLOYED_ORIGIN
+        assert "DELETE" in response.headers["access-control-allow-methods"]
 
     def test_credentials_are_not_allowed(self) -> None:
         # Tokens travel in the URL path, never in cookies. If this header ever appears,
