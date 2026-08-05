@@ -143,6 +143,13 @@ const INPUT_STYLE: CSSProperties = {
 // 빠른 질문 칩. 알약형(pill) — 줄바꿈되는 가로 배치로, 여러 개를 한 화면에서
 // 한눈에 훑을 수 있다(LG ThinQ 챗봇의 카테고리 칩 참고). 세로로 쌓인 전체 폭
 // 버튼보다 "짧은 선택지들"이라는 인상을 준다. 최소 터치 높이는 유지한다.
+//
+// 배경색: 이전 판단은 "연파랑 배경 위 글씨는 이미 눌린 것처럼 보인다"는
+// 이유로 흰 카드 + 틸 테두리였다. 알약형으로 바꾸면서 연틸 채움으로 되돌린
+// 근거는 형태가 달라졌다는 것이다 — 전체 폭 버튼일 때는 채워진 배경이
+// 토글의 "켜짐"으로 읽혔지만, 알약은 그 자체로 "고를 수 있는 항목"이라는
+// 형태 신호를 가져서 채움이 상태로 읽히지 않는다. 이전 판단이 왜 더는
+// 유효하지 않은지 남겨두라는 리뷰 지적을 반영한 기록이다(PR #54 리뷰).
 const QUICK_STYLE: CSSProperties = {
   minHeight: '48px',
   padding: '12px 18px',
@@ -156,7 +163,11 @@ const QUICK_STYLE: CSSProperties = {
   border: `1.5px solid transparent`,
   borderRadius: '24px',
   cursor: 'pointer',
-  whiteSpace: 'nowrap',
+  // ⚠️ nowrap 을 쓰지 않는다. 베트남어 문안은 같은 뜻이 훨씬 길어져
+  // ("Có người nhà không tự di chuyển được") 좁은 기기(320px)에서 칩 하나가
+  // 컨테이너를 넘긴다 — 세로 전체 폭 배치였을 때는 없던 문제다(PR #54 리뷰).
+  // 줄바꿈을 허용하고 minHeight 로 터치 높이만 보장한다.
+  overflowWrap: 'break-word',
 }
 
 // 말풍선 — 사용자가 실제로 보낸 질문을 우측 정렬 짙은 버블로 에코한다.

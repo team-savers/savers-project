@@ -47,6 +47,16 @@ export async function shareShelterInfo(shelter: Shelter | null): Promise<ShareRe
   return 'unavailable'
 }
 
+// AudioContext 생성자 조회. 구형 Safari(iOS 14 이하 등)는 표준 이름 대신
+// webkitAudioContext만 노출한다 — 표준 이름만 참조하면 그 브라우저에서
+// ReferenceError가 나고, Siren.start()의 catch에 걸려 경보음 기능이 조용히
+// 죽는다(PR #54 리뷰). 둘 다 없으면 null을 돌려 호출부가 false로 응답한다.
+function getAudioContextCtor(): typeof AudioContext | null {
+  if (typeof AudioContext === 'function') return AudioContext
+  const legacy = (globalThis as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+  return typeof legacy === 'function' ? legacy : null
+}
+
 /** A single continuous tone via Web Audio — a loud, attention-getting alert sound, started/stopped by explicit user tap (autoplay policies forbid starting audio without a gesture anyway). */
 export class Siren {
   private handle: { ctx: AudioContext; osc: OscillatorNode } | null = null
@@ -58,7 +68,9 @@ export class Siren {
   start(): boolean {
     if (this.handle !== null) return true
     try {
-      const ctx = new AudioContext()
+      const Ctor = getAudioContextCtor()
+      if (Ctor === null) return false
+      const ctx = new Ctor()
       const osc = ctx.createOscillator()
       const gain = ctx.createGain()
       osc.type = 'square'

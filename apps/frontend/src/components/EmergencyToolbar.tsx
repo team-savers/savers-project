@@ -7,24 +7,46 @@ import type { Shelter } from '../api/types'
 import { Siren, shareShelterInfo } from '../lib/emergencyTools'
 import { C, SHADOW_CARD } from '../lib/tokens'
 
+// 위치 공유 버튼 라벨. 룩업으로 두는 이유는 상태가 4개(공유·복사·실패·평상)
+// 라 인라인 삼항으로 쓰면 4단 중첩이 되어 읽기 어렵기 때문이다(PR #54 리뷰).
+const SHARE_LABELS: Record<'shared' | 'copied' | 'unavailable', string> = {
+  shared: '공유됨',
+  copied: '복사됨',
+  unavailable: '실패',
+}
+const SHARE_LABEL_IDLE = '위치공유'
+
 export function EmergencyToolbar({ nearest }: { nearest: Shelter | null }) {
   const [flashlightOn, setFlashlightOn] = useState(false)
   const [sirenOn, setSirenOn] = useState(false)
   const [shareStatus, setShareStatus] = useState<'shared' | 'copied' | 'unavailable' | null>(null)
-  const sirenRef = useRef<Siren>(new Siren())
+  // 지연 생성. useRef(new Siren()) 형태는 ref가 첫 값만 보관하더라도 매 렌더
+  // 마다 new Siren() 표현식 자체가 평가되고 버려진다 — 지금 생성자에 부수효과가
+  // 없어 실질적 문제는 없지만, 생성자가 자원을 잡는 순간 조용한 누수가 된다
+  // (PR #54 리뷰). 첫 사용 시점에 한 번만 만든다.
+  const sirenRef = useRef<Siren | null>(null)
+
+  function getSiren(): Siren {
+    const existing = sirenRef.current
+    if (existing !== null) return existing
+    const created = new Siren()
+    sirenRef.current = created
+    return created
+  }
 
   useEffect(() => {
-    const siren = sirenRef.current
-    return () => siren.stop()
+    // 언마운트 시 정리. 한 번도 켜지 않았으면 인스턴스 자체가 없으므로
+    // 만들지 않는다(getSiren을 부르면 정리 목적으로 생성하는 셈이 된다).
+    return () => sirenRef.current?.stop()
   }, [])
 
   function toggleSiren() {
     if (sirenOn) {
-      sirenRef.current.stop()
+      sirenRef.current?.stop()
       setSirenOn(false)
       return
     }
-    setSirenOn(sirenRef.current.start())
+    setSirenOn(getSiren().start())
   }
 
   async function handleShare() {
@@ -77,7 +99,7 @@ export function EmergencyToolbar({ nearest }: { nearest: Shelter | null }) {
         <ToolButton icon="🔊" label={sirenOn ? '소리끄기' : '경보음'} active={sirenOn} onClick={toggleSiren} />
         <ToolButton
           icon="📍"
-          label={shareStatus === 'shared' ? '공유됨' : shareStatus === 'copied' ? '복사됨' : shareStatus === 'unavailable' ? '실패' : '위치공유'}
+          label={shareStatus === null ? SHARE_LABEL_IDLE : SHARE_LABELS[shareStatus]}
           onClick={() => void handleShare()}
         />
       </div>

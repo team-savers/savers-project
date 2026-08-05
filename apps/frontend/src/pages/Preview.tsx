@@ -31,10 +31,27 @@
 // 데이터가 필요 없는 순수 클라이언트 기능이라 여기 없다. 화면 밝기를
 // 최대로 강제하는 것은 웹에 그런 API가 없어(iOS/Android 모두 네이티브
 // 셸에서만 가능) 시도하지 않았다.
+//
+// ⚠️ 이 화면이 아직 갖추지 못한 것 — 채택 전에 반드시 채워야 하는 목록이다
+// (PR #54 리뷰). 공개 홈(Home.tsx)에서 이 화면으로 가는 링크를 뺀 이유가
+// 바로 이것이고, 다시 걸려면 최소한 1·2번이 채워져야 한다:
+//
+//   1. 생성 문안 본문과 근거가 없다. Landing.tsx 는 message.body 를 원문
+//      그대로 렌더하고 message.sources 로 근거를 함께 보여준다(ADR-0005 의
+//      verbatim 전달). 이 화면은 message.title 만 쓰고, 행동 지시 자리에는
+//      클라이언트가 적어둔 고정 문장이 들어간다("지금 출발하세요",
+//      SAFETY_CHECKLIST). 라벨을 "일반 안전수칙"으로 달아도 근거가 없다는
+//      사실은 달라지지 않는다.
+//   2. 다국어·쉬운 말 경로가 없다. 이 화면은 한국어 전용이다(PREVIEW_LANG
+//      참조). Landing.tsx 는 profile.language 로 언어를 정하고 <html lang>
+//      까지 맞추며, easyText 프로필에는 쉬운 말 치환을 적용한다.
+//
+// 두 항목 모두 이 PR 범위에서 의도적으로 미룬 것이며(예선 마감 우선순위),
+// 고친 것처럼 읽히지 않도록 여기 적어 둔다.
 
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api/client'
-import type { Profile, SessionResponse, Shelter, ShelterList, Stage as DisasterStage } from '../api/types'
+import type { Language, Profile, SessionResponse, Shelter, ShelterList, Stage as DisasterStage } from '../api/types'
 import { AlertAreaMap } from '../components/AlertAreaMap'
 import { EmergencyToolbar } from '../components/EmergencyToolbar'
 import { ShelterMap } from '../components/ShelterMap'
@@ -48,6 +65,14 @@ import { vibrateSafe } from '../lib/emergencyTools'
 import { bearingLabel, formatDistance } from '../lib/i18n'
 import { C, MOBILE_WIDTH, SHADOW_CARD, SHADOW_CTA_TEAL, touchTarget } from '../lib/tokens'
 
+// 이 화면의 표기 언어. **한국어 고정**이며, 그것이 현재 상태다 — 주변 문장이
+// 전부 한국어 하드코딩이라 숫자·방위만 프로필 언어로 바꾸면 한 화면에 두
+// 언어가 섞인다(베트남어 세션에서 "1.2 km 기준 추정치입니다"). 그래서
+// 프로필 언어를 여기서 읽지 않고, 대신 상수 하나로 모아 "미구현"임을
+// 드러낸다. 다국어 경로를 붙일 때는 이 상수를 profile.language 로 바꾸고
+// 같은 커밋에서 주변 문장도 lib/i18n.ts 사전으로 옮겨야 한다(헤더 주석 2번).
+const PREVIEW_LANG: Language = 'ko'
+
 // UI 화면 단계(intro/choice/...). 계약의 재난 심각도 `DisasterStage`(1|2|3,
 // api/types.ts `Stage`)와 이름이 겹치므로 import 시 별칭을 준다 — 서로
 // 다른 개념이다.
@@ -57,7 +82,15 @@ type Stage = 'intro' | 'choice' | 'help' | 'summary' | 'route' | 'arrived'
 // 2/3의 화면 침습성 차이를 둘 다 보여주기 위함이다. 실제 세션은 전부
 // stage 2로 나온다(api/mock.ts — 지금 mock에 stage 1/3 픽스처가 없다).
 // 잘못된 값이 오면 조용히 무시하고 세션의 실제 stage를 쓴다.
+//
+// ⚠️ 개발 빌드에서만 동작한다. packages/contracts/openapi.yaml 의 Stage
+// 설명은 "화면 분기의 단일 권위는 서버 값이며 URL 값은 초기 힌트일 뿐,
+// 불일치하면 URL 을 무시한다"를 명시하고, 그 이유로 정확히 이 상황(URL 이
+// 낮은 단계를 주장해 대피를 미루게 되는 것)을 든다. 배포 빌드에서
+// /preview?t=…&stage=1 이 경보 세션에 "아직 대피할 단계는 아니에요"를
+// 띄우면 계약이 금지한 그 동작이 된다(PR #54 리뷰, 머지 전 필수 4).
 function readStageOverride(): DisasterStage | null {
+  if (!import.meta.env.DEV) return null
   const raw = new URLSearchParams(window.location.search).get('stage')
   if (raw === '1' || raw === '2' || raw === '3') return Number(raw) as DisasterStage
   return null
@@ -159,7 +192,13 @@ export function Preview({ token }: Props) {
     )
   }
 
-  const showToolbar = stage === 'choice' || stage === 'help' || stage === 'summary' || stage === 'route'
+  // 비상 도구 바를 띄우는 단계. ⚠️ 'help' 는 제외한다 — EmergencyToolbar 는
+  // fixed(top 128px, right 12px)로 세로 약 200px 을 차지하고, HelpScreen 의
+  // 119 CTA 는 세로 중앙 정렬이라 짧은 화면(iPhone SE 급 568px)에서 버튼
+  // 오른쪽 상단이 툴바 아래로 들어간다. 그 자리를 누른 사람은 119 대신
+  // 손전등을 켜게 된다(PR #54 리뷰, 머지 전 필수 5). 도움 요청 화면에서는
+  // 119·보호자 연결이 유일한 주 동작이므로 보조 도구를 겹칠 이유가 없다.
+  const showToolbar = stage === 'choice' || stage === 'summary' || stage === 'route'
 
   return (
     <Frame>
@@ -170,6 +209,7 @@ export function Preview({ token }: Props) {
           dongName={profile?.dongName ?? ''}
           nearest={nearest}
           disasterStage={disasterStage}
+          locationConfirmed={locationConfirmed}
           onNext={() => setStage('choice')}
         />
       )}
@@ -345,18 +385,28 @@ function IntroScreen({
   dongName,
   nearest,
   disasterStage,
+  locationConfirmed,
   onNext,
 }: {
   title: string
   dongName: string
   nearest: Shelter | null
   disasterStage: DisasterStage
+  locationConfirmed: boolean | undefined
   onNext: () => void
 }) {
   if (disasterStage === 1) {
     return <IntroScreenAware title={title} onNext={onNext} />
   }
-  return <IntroScreenTakeAction title={title} dongName={dongName} nearest={nearest} onNext={onNext} />
+  return (
+    <IntroScreenTakeAction
+      title={title}
+      dongName={dongName}
+      nearest={nearest}
+      locationConfirmed={locationConfirmed}
+      onNext={onNext}
+    />
+  )
 }
 
 // stage 1 — 예비특보. 아직 지켜보는 단계라는 걸 색으로도 드러낸다: 배경은
@@ -432,11 +482,13 @@ function IntroScreenTakeAction({
   title,
   dongName,
   nearest,
+  locationConfirmed,
   onNext,
 }: {
   title: string
   dongName: string
   nearest: Shelter | null
+  locationConfirmed: boolean | undefined
   onNext: () => void
 }) {
   const mapCenter =
@@ -444,6 +496,21 @@ function IntroScreenTakeAction({
       ? { lat: nearest.lat, lng: nearest.lng }
       : null
   const areaLabel = dongName !== '' ? dongName : '등록 지역'
+
+  // 하단 시트 부제. **아는 사실만 말한다.** 이 화면은 Geolocation 을 한 번도
+  // 요청하지 않으므로 shelterList.basis 는 항상 'dong' 이고, 알고 있는 것은
+  // 등록 행정동뿐이다. 이전 문구("지금 계신 곳을 알고 있어요")는 같은 플로우
+  // 요약 화면의 "위치 미확인 · 등록 동 기준" 배지와 정면으로 모순이었고,
+  // 상시 위치 추적을 하지 않는다는 설계 원칙과도 반대 인상을 줬다(PR #54
+  // 리뷰, 머지 전 필수 3). 대외 설명도 "수집 범위를 행정동 단위까지로
+  // 한정"으로 확정돼 있어(docs/공통_가이드/개인정보_체크리스트.md P1~P4),
+  // 화면 카피가 그보다 넓게 말하면 안 된다.
+  // locationConfirmed 분기는 좌표 확인 경로가 이 플로우에 붙는 날을 위한
+  // 것이다 — 지금은 항상 false 쪽이 렌더된다.
+  const subtitle =
+    locationConfirmed === true
+      ? '지금 계신 곳을 확인했어요. 가까운 대피소로 안내해 드릴게요.'
+      : `${areaLabel} 기준으로 가까운 대피소를 안내해 드릴게요.`
 
   return (
     <div style={{ position: 'relative', minHeight: '100vh', overflow: 'hidden' }}>
@@ -561,7 +628,7 @@ function IntroScreenTakeAction({
             textWrap: 'pretty',
           }}
         >
-          지금 계신 곳을 알고 있어요. 대피 경로를 그대로 안내해 드릴게요.
+          {subtitle}
         </p>
 
         {/* 미세한 펄스 — 게임 QTE 디자인 리서치의 "지금 눌러야 할 것을
@@ -765,7 +832,7 @@ function SummaryScreen({
             <p style={{ fontSize: '13px', color: C.tertiary, margin: '0 0 4px' }}>대피소까지 이동(추정)</p>
             <p style={{ fontSize: '38px', fontWeight: 800, color: C.navy, margin: '0 0 2px' }}>{minutes}분</p>
             <p style={{ fontSize: '13px', color: C.tertiary, margin: 0 }}>
-              직선거리 {formatDistance(nearest.distanceM, 'ko')} 기준 추정치입니다
+              직선거리 {formatDistance(nearest.distanceM, PREVIEW_LANG)} 기준 추정치입니다
             </p>
           </div>
         )}
@@ -808,8 +875,8 @@ function SummaryScreen({
             <p style={{ fontSize: '12px', fontWeight: 700, color: C.tealText, margin: '0 0 6px' }}>가장 가까운 대피소</p>
             <p style={{ fontSize: '18px', fontWeight: 800, color: C.navy, margin: '0 0 2px' }}>{nearest.name}</p>
             <p style={{ fontSize: '14px', color: C.tertiary, margin: 0 }}>
-              {formatDistance(nearest.distanceM, 'ko')}
-              {nearest.bearing != null ? ` · ${bearingLabel(nearest.bearing, 'ko')}쪽` : ''}
+              {formatDistance(nearest.distanceM, PREVIEW_LANG)}
+              {nearest.bearing != null ? ` · ${bearingLabel(nearest.bearing, PREVIEW_LANG)}쪽` : ''}
               {nearest.hasStairs ? ' · 계단 있음' : ''}
             </p>
           </div>
@@ -880,10 +947,10 @@ function RouteScreen({
             <DirectionArrow degrees={degrees} />
             <div>
               <p style={{ fontSize: '26px', fontWeight: 800, margin: 0, letterSpacing: '-.02em' }}>
-                {formatDistance(nearest.distanceM, 'ko')}
+                {formatDistance(nearest.distanceM, PREVIEW_LANG)}
               </p>
               <p style={{ fontSize: '13px', opacity: 0.75, margin: '2px 0 0' }}>
-                {nearest.bearing != null ? `${bearingLabel(nearest.bearing, 'ko')}쪽 방향` : '방향 정보 없음'} · 직선거리 기준
+                {nearest.bearing != null ? `${bearingLabel(nearest.bearing, PREVIEW_LANG)}쪽 방향` : '방향 정보 없음'} · 직선거리 기준
               </p>
             </div>
             {/* 이동 중인 마스코트 — 인트로의 alert 포즈가 여기선 moving으로 이어진다. */}

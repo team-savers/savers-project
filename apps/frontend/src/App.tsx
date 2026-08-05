@@ -10,8 +10,10 @@
 //   /join?u=<userId>        → ward phone onboarding (pages/Join.tsx) — the
 //                             QR on /ops opens this URL on the ward's phone
 //   /preview?t=<token>      → EXPERIMENTAL staged flow (pages/Preview.tsx),
-//                             not adopted into /a — see that file's header
-//   /mockup                 → PRESENTATION-ONLY static mockups
+//                             not adopted into /a — see that file's header.
+//                             Reachable from /demo only: the public home
+//                             deliberately does not link it (PR #54 review).
+//   /mockup                 → PRESENTATION-ONLY static mockups, 5 screens
 //                             (pages/Mockup.tsx). Not wired to ../api/* at
 //                             all — hardcoded example data only.
 //

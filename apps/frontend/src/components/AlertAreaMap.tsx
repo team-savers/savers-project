@@ -15,6 +15,7 @@
 // 읽히면 안 된다). 이 화면은 하단 시트에 이미 모든 행동 지침이 있으므로
 // 지도 없이(하자드 옐로 대체 배경으로) 화면은 정상 작동한다.
 import { useEffect, useRef, useState } from 'react'
+import type { KakaoMap } from '../lib/kakaoMap'
 import { loadKakaoMaps } from '../lib/kakaoMap'
 import { C } from '../lib/tokens'
 
@@ -22,6 +23,12 @@ type MapStatus = 'loading' | 'ready' | 'error'
 
 export function AlertAreaMap({ center }: { center: { lat: number; lng: number } }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  // 생성한 지도 인스턴스를 잡아둔다. 좌표가 바뀔 때 같은 컨테이너에 지도를
+  // 새로 생성하면 이전 지도가 그대로 남아 겹쳐 그려진다 — 지금은 center가
+  // 사실상 고정(가장 가까운 대피소)이라 드러나지 않지만, 대피소 목록이
+  // 갱신되는 경로가 생기면 바로 재현된다(PR #54 리뷰). 이미 만들어져 있으면
+  // setCenter로 옮기기만 한다.
+  const mapRef = useRef<KakaoMap | null>(null)
   const [status, setStatus] = useState<MapStatus>('loading')
 
   useEffect(() => {
@@ -32,8 +39,12 @@ export function AlertAreaMap({ center }: { center: { lat: number; lng: number } 
         const container = containerRef.current
         if (container === null) return
         const latlng = new ns.LatLng(center.lat, center.lng)
-        // eslint-disable-next-line no-new -- 배경 지도일 뿐, 인스턴스를 따로 참조할 일이 없다.
-        new ns.Map(container, { center: latlng, level: 6 })
+        const existing = mapRef.current
+        if (existing !== null) {
+          existing.setCenter(latlng)
+        } else {
+          mapRef.current = new ns.Map(container, { center: latlng, level: 6 })
+        }
         setStatus('ready')
       })
       .catch((err: unknown) => {
