@@ -96,8 +96,8 @@ def run_pu_pipeline_from_unified_registry(
     완성된 피처테이블이기 때문(schema.py 상단 docstring, `labels.split_unified_registry`
     참고). 1차 후보군 파일(공간 피처: 침수구역내/침수심등급/최근접펌프장거리_m)은
     건축물대장 쪽에 좌표 자체가 없어 조인 대상이 없으므로 이번 스코프에서 쓰지
-    않는다(팀 확정, 재검토 대상 아님) — 도혁님이 지오코딩 컬럼을 얹어주면 그때
-    `feature_columns`에 추가한다.
+    않는다(2026-08-05 팀 논의로 결정, ADR 미등록 — 검토 중) — 도혁님이 지오코딩
+    컬럼을 얹어주면 그때 `feature_columns`에 추가한다.
 
     로딩 -> 주건축물 선정(멱등) -> P/U 분리 -> spy 파이프라인까지는 `run_pu_pipeline()`
     과 동일한 `loading`/`labels`/`spy` 함수를 그대로 조합한다.
