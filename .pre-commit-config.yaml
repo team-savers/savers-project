@@ -7,7 +7,7 @@ repos:
   # 노트북 출력 셀 제거 — .gitattributes의 nbstripout filter와 동일 목적의 안전망.
   # 신규 팀원이 `nbstripout --install`을 빠뜨려도 여기서 차단된다.
   - repo: https://github.com/kynan/nbstripout
-    rev: 0.7.1
+    rev: 0.9.1
     hooks:
       - id: nbstripout
 
