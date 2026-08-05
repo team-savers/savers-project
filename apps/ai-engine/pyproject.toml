@@ -67,8 +67,11 @@ extraPaths = ["src"]
 
 [tool.mypy]
 python_version = "3.12"
-files = ["src"]
-mypy_path = ["src"]
+# eval도 검사 대상입니다 — 지표 함수는 제출 수치의 근거라 타입 오류로 조용히 틀린 값을
+# 내면 안 됩니다. eval/은 패키지가 아니라 스크립트 묶음이라 mypy_path에 함께 넣습니다
+# (pytest도 같은 방식으로 이 디렉토리를 sys.path에 올립니다).
+files = ["src", "eval"]
+mypy_path = ["src", "eval"]
 ignore_missing_imports = false
 warn_unused_ignores = true
 warn_redundant_casts = true

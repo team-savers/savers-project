@@ -149,6 +149,12 @@ credentials/
 !e2e/**/fixtures/*.csv
 !e2e/**/fixtures/*.jsonl
 
+# 평가 하네스 실행 산출물 (run_*.py의 채점 보고서 — 실행할 때마다 새로 생성됨)
+# ⚠️ 골든셋(위 예외)과 달리 보고서는 커밋하지 마세요. 제출용 수치는 스크립트를 다시 돌려
+#    재현하는 것이 원칙이고, 커밋된 보고서는 코드가 바뀌어도 그대로 남아 거짓말을 합니다.
+#    제출물로 첨부할 때는 PR/릴리스 아티팩트로 올리세요.
+/apps/ai-engine/eval/reports/
+
 # E2E 실행 산출물 (Playwright 리포트·트레이스·스크린샷 — 재생성 가능, 용량이 큼)
 /e2e/test-results/
 /e2e/playwright-report/
