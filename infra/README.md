@@ -11,7 +11,9 @@
 | 프론트엔드 | `cd apps/frontend && npm run dev` | Vercel 빌드(`vercel.json`) |
 
 프론트가 백엔드를 실제로 호출하려면 `VITE_API_BASE_URL`(절대 URL)과,
-백엔드 쪽 TLS 종단·CORS 허용이 필요합니다. 둘 다 ADR-0008의 미해결 후속 작업입니다.
+백엔드 쪽 TLS 종단·CORS 허용이 필요합니다. **둘 다 들어왔습니다** —
+TLS는 `caddy` 서비스(`--profile tls`), CORS는 `SAVERS_CORS_ALLOW_ORIGINS`입니다.
+VM 생성부터 검증까지의 절차는 [배포_절차.md](../docs/공통_가이드/배포_절차.md)에 있습니다.
 
 ## 상태
 
@@ -26,6 +28,17 @@ curl -X POST localhost:8000/internal/alerts/dispatch    # 관통 1회
 
 키를 하나도 채우지 않아도 관통합니다 — 외부 의존이 전부 오프라인 스텁이기 때문입니다
 ([워킹_스켈레톤_설명.md](../docs/공통_가이드/워킹_스켈레톤_설명.md)).
+
+세 번째 서비스 `caddy`는 **`--profile tls`를 줘야만** 뜹니다(배포 전용).
+인증서 발급이 공인 도메인과 80/443 접근을 요구해서, 로컬에서 켜면 실패만 반복합니다.
+
+```bash
+docker compose -f infra/docker-compose.yml --profile tls up -d --build   # VM에서만
+```
+
+`backend`는 `127.0.0.1:8000`에만 바인딩됩니다. Caddy가 compose 네트워크로 직접 닿으므로
+외부 공개가 필요 없고, 열어 두면 HTTPS 앞단을 세운 채 평문 :8000이 같이 열려
+혼합 콘텐츠 대책이 그대로 우회됩니다.
 
 아직 없는 것:
 

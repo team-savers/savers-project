@@ -74,7 +74,6 @@ jobs:
         if: always()
         run: docker rm -f "smoke-${{ matrix.app }}" 2>/dev/null || true
 
-  # docker-compose는 infra/에 아직 없습니다(P1, 김도혁). 파일이 생기면 자동으로 활성화됩니다.
   # S1-1 DoD "docker-compose up으로 빈 서비스 기동"의 최소 회귀 검사입니다.
   compose:
     name: docker-compose config 검증
@@ -93,3 +92,6 @@ jobs:
         run: |
           cp infra/.env.example infra/.env 2>/dev/null || true
           docker compose -f infra/docker-compose.yml config -q
+          # tls 프로필은 기본 up에서 빠지므로 따로 해석해 둡니다 — 배포에서만 쓰는 경로가
+          # 검사되지 않으면, 깨진 걸 배포 당일에 알게 됩니다.
+          docker compose -f infra/docker-compose.yml --profile tls config -q

@@ -55,8 +55,15 @@ services:
       SAVERS_SESSION_TTL_S: ${SAVERS_SESSION_TTL_S:-21600}
       # 프론트 개발 서버는 3000 고정입니다(카카오맵 SDK 허용 도메인 · vite strictPort).
       SAVERS_PUBLIC_BASE_URL: ${SAVERS_PUBLIC_BASE_URL:-http://localhost:3000}
+      # 프론트가 정적 호스팅에서 이 API를 부를 수 있게 하는 허용 출처 목록입니다(ADR-0008).
+      # 쉼표로 구분하고, 비워 두면 동일 출처만 허용합니다 — 로컬 개발은 vite 프록시를
+      # 쓰므로 비어 있는 것이 정상이고, 배포에서만 채웁니다.
+      SAVERS_CORS_ALLOW_ORIGINS: ${SAVERS_CORS_ALLOW_ORIGINS:-}
     ports:
-      - "8000:8000"
+      # ⚠️ 127.0.0.1 바인딩입니다. caddy가 compose 네트워크로 `backend:8000`에 직접
+      #    닿으므로 외부 공개가 필요 없고, 0.0.0.0으로 열면 HTTPS 앞단을 세워 둔 채
+      #    평문 :8000이 같이 열려 혼합 콘텐츠 대책이 그대로 우회됩니다.
+      - "127.0.0.1:8000:8000"
     depends_on:
       # ⚠️ 일부러 `condition: service_healthy`를 쓰지 않습니다.
       #    backend는 ai-engine이 죽어 있어도 떠서 official_fallback으로 응답해야 합니다
@@ -71,9 +78,46 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  caddy:
+    # TLS 종단. 웹푸시가 localhost 외에서 HTTPS를 강제하므로(ADR-0005), 프론트가 HTTPS에
+    # 올라간 뒤에는 이 앞단이 없으면 백엔드 호출이 혼합 콘텐츠로 전부 막힙니다.
+    #
+    # ⚠️ profiles가 붙어 있어 기본 `up`에서는 뜨지 않습니다. 인증서 발급이 공인 도메인과
+    #    80/443 접근을 요구해서, 로컬에서 켜면 실패만 반복합니다.
+    #    배포에서만: docker compose --profile tls up -d
+    profiles: ["tls"]
+    image: caddy:2-alpine
+    environment:
+      # Caddyfile이 이 값을 사이트 주소로 씁니다. 도메인이 없으면 sslip.io로 공인 IP를
+      # 그대로 호스트명으로 쓸 수 있습니다(예 3-35-12-34.sslip.io) — 배포_절차.md 참고.
+      #
+      # ⚠️ 여기에 compose의 필수 변수 가드(`:?`)를 걸지 마세요. 그 가드는 프로필과 무관하게
+      #    해석되므로, TLS를 쓰지 않는 로컬 `docker compose up`까지 같이 막힙니다.
+      #    값이 비면 Caddy가 기동 시점에 실패하고(사이트 주소 없는 Caddyfile), 인증서를
+      #    요청하기 전에 멈추므로 Let's Encrypt 한도는 소모되지 않습니다.
+      SAVERS_PUBLIC_HOST: ${SAVERS_PUBLIC_HOST:-}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # ⚠️ caddy_data에 발급받은 인증서가 들어 있습니다. 이 볼륨을 지우면 재발급을 시도하는데
+      #    Let's Encrypt는 같은 도메인 조합에 주당 5회 제한이 있어, 시연 직전에 지우면
+      #    HTTPS 없이 발표하게 됩니다. `down -v`를 습관적으로 쓰지 마세요.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
+
 # ── 아직 없는 서비스 ────────────────────────────────────────────────────────────
 # chroma   — 지금 검색은 번들 픽스처 기반이라 붙일 대상이 없습니다. 아무도 말을 걸지 않는
 #            컨테이너를 띄우면 "돌아간다"는 착각만 만듭니다. Chroma 인덱스가 실제로 들어올 때
 #            (AI/RAG S1-1~S1-2) 여기에 서비스 + 영속 볼륨을 추가하고 CHROMA_PERSIST_DIR을
 #            그 볼륨으로 돌리세요.
-# frontend — apps/frontend가 아직 스캐폴딩 전입니다(Frontend/UX S1-1).
+# frontend — 없는 것이 아니라 의도적으로 뺀 것입니다. 정적 산출물이라 CPU VM에서 서빙할
+#            이유가 없어 정적 호스팅으로 분리했습니다(ADR-0008). 추가하지 마세요.
