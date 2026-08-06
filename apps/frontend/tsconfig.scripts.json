@@ -1,0 +1,27 @@
+{
+  // scripts/ 전용 typecheck 설정. tsconfig.node.json(nodenext)을 못 쓰는 이유:
+  // 스크립트가 src/lib/readability.ts를 끌어오는데 src는 번들러 해석
+  // (확장자 없는 import) 기준으로 작성돼 있어 nodenext 규칙과 충돌한다.
+  // 런타임은 Node의 타입 스트리핑(>= 22.18)이라 확장자 있는 .ts import가
+  // 필요하고, 그 조합은 bundler 해석 + allowImportingTsExtensions로 검사한다.
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.scripts.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "skipLibCheck": true,
+
+    "moduleResolution": "bundler",
+    "module": "esnext",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["scripts"]
+}
