@@ -86,7 +86,9 @@ def main() -> None:
     baseline_rate = result.diagnostics.get("baseline_positive_rate")
     if baseline_rate is not None:
         n_total = result.diagnostics["n_registry_primary"]
-        n_positive = result.diagnostics["n_positive_safe"]
+        # baseline_positive_rate는 통합 경로에서만 채워지므로, 여기 진입했다는 건
+        # diagnostics 키도 통합 경로 쪽("n_positive_final") 이라는 뜻이다.
+        n_positive = result.diagnostics["n_positive_final"]
         print(
             f"랜덤 baseline: {n_positive}/{n_total} = {baseline_rate:.4%} "
             "(전수에서 무작위로 뽑았을 때 기대되는 P 비율)"

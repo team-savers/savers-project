@@ -42,8 +42,12 @@ def filter_safe_shelters(
     known = {schema.GUBUN_SAFE, schema.GUBUN_URGENT}
     unknown = set(shelters_df[gubun_col].unique()) - known
     if unknown:
+        # unknown에 결측(NaN)과 문자열이 섞이면 sorted(unknown)이 그 자체로
+        # TypeError를 내서 원래 내려던 UnknownGubunError가 묻힌다 — repr로 먼저
+        # 문자열화한 뒤 정렬해 항상 비교 가능하게 한다(PR #60 리뷰).
         raise UnknownGubunError(
-            f"{gubun_col}에 알 수 없는 값: {sorted(unknown)!r} (알려진 값: {sorted(known)!r}) — "
+            f"{gubun_col}에 알 수 없는 값: {sorted(map(repr, unknown))} "
+            f"(알려진 값: {sorted(known)!r}) — "
             "schema.py의 GUBUN_SAFE/GUBUN_URGENT 추정이 실제 데이터와 다를 수 있음"
         )
 

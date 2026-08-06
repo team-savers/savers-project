@@ -25,6 +25,10 @@ FIXTURES = Path(__file__).parent / "fixtures"
 SHELTERS_CSV = FIXTURES / "shelter_safety_shelters_mock.csv"
 REGISTRY_CSV = FIXTURES / "shelter_safety_registry_mock.csv"
 UNIFIED_REGISTRY_CSV = FIXTURES / "shelter_safety_unified_registry_mock.csv"
+# 원본 fixture + dup_02(같은 pk, 대피소 행이 더 작은 연면적) 쌍만 추가된 별도 파일.
+# 원본에 바로 섞으면 이 가드가 모든 기존 unified 테스트에서 항상 발동해버리므로
+# 분리한다 (PR #60 리뷰).
+UNIFIED_REGISTRY_DEDUP_GUARD_CSV = FIXTURES / "shelter_safety_unified_registry_dedup_guard_mock.csv"
 
 
 def _fake_scorer(
@@ -106,6 +110,18 @@ def _run_unified(config: SpyPipelineConfig | None = None) -> PuPipelineResult:
     )
 
 
+def test_unified_pipeline_raises_when_dedup_drops_a_shelter_row() -> None:
+    """dup_02: 같은 pk에 대피소(is_shelter=1, 연면적 60) 행과 비-대피소
+    (is_shelter=0, 연면적 9998) 행이 섞여 있다 — 연면적 최대 기준 dedup이면
+    대피소 행이 버려지고 그 필지가 조용히 U로 넘어간다. select_primary_building()
+    이 split_unified_registry()보다 먼저 실행되는 순서 자체는 그대로 두되, dedup
+    전후로 대피소 행 수가 보존되는지 검증하는 가드가 여기서 막아야 한다(PR #60 리뷰)."""
+    with pytest.raises(ValueError, match="대피소 행"):
+        run_pu_pipeline_from_unified_registry(
+            UNIFIED_REGISTRY_DEDUP_GUARD_CSV, config=SpyPipelineConfig(), scorer=_fake_scorer
+        )
+
+
 def test_unified_pipeline_diagnostics_match_mock_fixture_design() -> None:
     """fixtures/README.md에 문서화된 통합 목업 설계값과 일치하는지 확인."""
     result = _run_unified()
@@ -113,7 +129,7 @@ def test_unified_pipeline_diagnostics_match_mock_fixture_design() -> None:
     assert result.diagnostics["n_registry_total"] == 51
     assert result.diagnostics["n_registry_primary"] == 50  # dup_01 표제부 2행 -> 1행.
     assert result.diagnostics["n_shelter_rows"] == 9  # 안전 6 + 긴급 3.
-    assert result.diagnostics["n_positive_safe"] == 6  # 긴급 3은 P에서 제외.
+    assert result.diagnostics["n_positive_final"] == 6  # 긴급 3은 P에서 제외.
     assert len(result.positive) == 6
 
 
@@ -130,7 +146,7 @@ def test_unified_pipeline_u_candidates_exclude_shelter_rows_including_urgent() -
 def test_unified_pipeline_baseline_positive_rate_matches_p_over_registry_primary() -> None:
     result = _run_unified()
 
-    expected = result.diagnostics["n_positive_safe"] / result.diagnostics["n_registry_primary"]
+    expected = result.diagnostics["n_positive_final"] / result.diagnostics["n_registry_primary"]
     assert result.diagnostics["baseline_positive_rate"] == pytest.approx(expected)
 
 
@@ -179,8 +195,8 @@ def test_unified_pipeline_runs_with_real_lightgbm_despite_spatial_feature_nans()
     에러 없이 끝나야 한다 — fake scorer는 피처 값을 안 보므로 이 확인엔 못 쓴다."""
     pytest.importorskip("lightgbm")
 
-    # NaN이 섞인 안전 P(safe_06)가 반드시 학습에 포함되도록 spy_ratio를 낮춰
-    # spy로 빠질 확률을 줄인다(결정론적 시드로 고정하되, 우연히 안 걸리는 것도
+    # NaN이 섞인 안전 P(safe_06)가 학습에 포함되는지는 spy_ratio 기본값(0.15)에
+    # 맡기고, 여기서는 시드만 고정한다(결정론적 재현 목적 -- 우연히 spy로 빠져도
     # 문제 없음 -- U 서브샘플에도 NaN 섞인 u_00X가 이미 포함돼 있기 때문).
     result = run_pu_pipeline_from_unified_registry(
         UNIFIED_REGISTRY_CSV, config=SpyPipelineConfig(seed=1)

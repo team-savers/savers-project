@@ -106,11 +106,27 @@ def run_pu_pipeline_from_unified_registry(
     config = config or spy.SpyPipelineConfig()
 
     registry_df = loading.load_unified_registry(registry_path)
+
+    # 같은 pk에 대피소/비-대피소 행이 섞여 있고 대피소 행의 연면적이 더 작으면,
+    # 연면적 최대 기준 dedup이 대피소 행을 버리고 그 필지 전체가 조용히 U로
+    # 넘어간다 — split_unified_registry()보다 먼저 dedup이 실행되는 순서 자체는
+    # 그대로 두되, dedup 전후로 대피소 행 수가 보존되는지만 검증한다(PR #60 리뷰).
+    is_shelter_col = schema.UNIFIED_REGISTRY_IS_SHELTER_COL
+    n_shelter_before = int((registry_df[is_shelter_col] == 1).sum())
+
     registry_primary_df = loading.select_primary_building(
         registry_df,
         area_col=schema.UNIFIED_REGISTRY_TOTAL_FLOOR_AREA_COL,
         address_col=schema.UNIFIED_REGISTRY_PK_COL,
     )
+
+    n_shelter_after = int((registry_primary_df[is_shelter_col] == 1).sum())
+    if n_shelter_after != n_shelter_before:
+        raise ValueError(
+            f"주건축물 선정에서 대피소 행 {n_shelter_before - n_shelter_after}건이 탈락 "
+            f"({n_shelter_before} -> {n_shelter_after}) - 같은 pk에 대피소/비-대피소 행이 "
+            "섞여 있음. 라벨이 조용히 U로 흡수되므로 여기서 멈춘다"
+        )
 
     shelter_rows_df, u_candidates_df = labels.split_unified_registry(registry_primary_df)
     positive_df = labels.filter_safe_shelters(
@@ -136,7 +152,10 @@ def run_pu_pipeline_from_unified_registry(
         "n_registry_total": len(registry_df),
         "n_registry_primary": n_registry_primary,
         "n_shelter_rows": len(shelter_rows_df),
-        "n_positive_safe": len(positive_df),
+        # 레거시 경로의 "n_positive_safe"(조인 전 안전 대피소 수)와 이름이 같아
+        # 보이지만 의미가 다르다 -- 이 경로는 별도 조인이 없어 최종 P와 동일하므로
+        # 혼동을 피하려고 별도 키로 분리한다(PR #60 리뷰).
+        "n_positive_final": len(positive_df),
         "n_u_candidates": len(u_candidates_df),
         "n_u_subsampled": len(u_subsample_df),
         "n_spies": len(spy_df),
