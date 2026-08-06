@@ -10,8 +10,8 @@ from conftest import GROUNDED_BODY, FakeAiEngine
 
 from backend_core.dispatch import RecordingDispatcher
 from backend_core.fallback import OFFICIAL_FALLBACK_BODY
-from backend_core.models import DisasterEvent
-from backend_core.pipeline import AlertRun, percentile, run_alert, severity_for
+from backend_core.models import Availability, DisasterEvent, ServiceMode, ShelterList
+from backend_core.pipeline import AlertRun, build_context, percentile, run_alert, severity_for
 from backend_core.registry import Resident, ResidentRegistry
 from backend_core.sessions import SessionStore
 from backend_core.shelters import ShelterRepository
@@ -314,3 +314,38 @@ def test_multiple_devices_all_receive(
     delivery = next(d for d in run.deliveries if d.user_id == "p001")
     assert delivery.devices_notified == 2
     assert len(dispatcher.sent) == 3
+
+
+def test_availability_maps_to_service_mode(
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+) -> None:
+    """대피소 가용성 -> 생성 계약 serviceMode 매핑표를 통째로 고정한다.
+
+    위 test_backend_decides_the_shelter_before_generating은 파이프라인을 끝까지
+    돌려 cache_only 한 경로만 지나간다. 여기서는 네 값을 직접 넣어 매핑 자체를 고정한다.
+
+    특히 all_excluded(후보는 있었으나 전부 침수 위험이라 제외)와
+    upstream_unavailable(데이터를 아예 못 받음)이 **같은 degraded로 합쳐진다**는
+    현재 계약을 명시해 둔다. 두 상황은 사용자에게 뜻이 다르므로 언젠가 나눠야 할
+    수 있는데, 그때 이 테스트가 먼저 깨져서 계약 변경이 의식적인 결정이 된다.
+    원인 자체는 ShelterList.availability에 그대로 남아 프론트로 나간다.
+    """
+    resident = registry.get("p001")
+    assert resident is not None
+
+    expected: dict[Availability, ServiceMode] = {
+        "ok": "normal",
+        "cache_only": "cache_only",
+        "all_excluded": "degraded",
+        "upstream_unavailable": "degraded",
+    }
+
+    for availability, mode in expected.items():
+        shelters = ShelterList(
+            hazard_match="inside",
+            availability=availability,
+            basis="dongCode",
+        )
+        context = build_context(event, resident.profile, shelters)
+        assert context.service_mode == mode, f"{availability} -> {mode} 여야 한다"
