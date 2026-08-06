@@ -49,7 +49,7 @@
 // 두 항목 모두 이 PR 범위에서 의도적으로 미룬 것이며(예선 마감 우선순위),
 // 고친 것처럼 읽히지 않도록 여기 적어 둔다.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api/client'
 import type { Language, Profile, SessionResponse, Shelter, ShelterList, Stage as DisasterStage } from '../api/types'
 import { AlertAreaMap } from '../components/AlertAreaMap'
@@ -61,7 +61,7 @@ import { RadiusPulsePin } from '../components/illustrations/RadiusPulsePin'
 import { RainAlertIllustration } from '../components/illustrations/RainAlertIllustration'
 import { SafeArrivalIllustration } from '../components/illustrations/SafeArrivalIllustration'
 import { useWakeLock } from '../hooks/useWakeLock'
-import { vibrateSafe } from '../lib/emergencyTools'
+import { Siren, vibrateSafe } from '../lib/emergencyTools'
 import { bearingLabel, formatDistance } from '../lib/i18n'
 import { C, MOBILE_WIDTH, SHADOW_CARD, SHADOW_CTA_TEAL, touchTarget } from '../lib/tokens'
 
@@ -160,6 +160,25 @@ export function Preview({ token }: Props) {
 
   useWakeLock(session !== null && stage !== 'arrived')
 
+  // 사이렌은 화면 단계가 아니라 플로우 전체에 묶인다 — 소유가 툴바에 있으면
+  // 툴바가 렌더되지 않는 도움 요청 화면으로 넘어가는 순간 언마운트 클린업이
+  // 소리를 조용히 꺼버린다(PR #54 리뷰 2라운드). 도움 요청 화면에는 끄는
+  // 수단이 없지만 뒤로가기 한 번이면 되므로, 소리가 끊기는 쪽보다 낫다.
+  // 지연 생성: 생성자가 자원을 잡게 바뀌어도 안 켠 사람은 비용이 없다.
+  const sirenRef = useRef<Siren | null>(null)
+  const [sirenOn, setSirenOn] = useState(false)
+  useEffect(() => () => sirenRef.current?.stop(), [])
+
+  function toggleSiren() {
+    if (sirenOn) {
+      sirenRef.current?.stop()
+      setSirenOn(false)
+      return
+    }
+    sirenRef.current ??= new Siren()
+    setSirenOn(sirenRef.current.start())
+  }
+
   useEffect(() => {
     if (stage === 'intro') vibrateSafe(disasterStage === 1 ? 120 : [200, 100, 200])
     if (stage === 'arrived') vibrateSafe(400)
@@ -202,7 +221,7 @@ export function Preview({ token }: Props) {
 
   return (
     <Frame>
-      {showToolbar && <EmergencyToolbar nearest={nearest} />}
+      {showToolbar && <EmergencyToolbar nearest={nearest} sirenOn={sirenOn} onToggleSiren={toggleSiren} />}
       {stage === 'intro' && (
         <IntroScreen
           title={displayTitle}
@@ -392,7 +411,7 @@ function IntroScreen({
   dongName: string
   nearest: Shelter | null
   disasterStage: DisasterStage
-  locationConfirmed: boolean | undefined
+  locationConfirmed: boolean
   onNext: () => void
 }) {
   if (disasterStage === 1) {
@@ -488,7 +507,7 @@ function IntroScreenTakeAction({
   title: string
   dongName: string
   nearest: Shelter | null
-  locationConfirmed: boolean | undefined
+  locationConfirmed: boolean
   onNext: () => void
 }) {
   const mapCenter =
@@ -572,7 +591,7 @@ function IntroScreenTakeAction({
               boxShadow: SHADOW_CARD,
             }}
           >
-            {areaLabel} 근처 · 대략적 위치
+            위치 미확인 · 등록하신 {areaLabel} 기준
           </span>
         </div>
       )}
@@ -781,7 +800,7 @@ function SummaryScreen({
   onRoute,
 }: {
   nearest: Shelter | null
-  locationConfirmed: boolean | undefined
+  locationConfirmed: boolean
   onBack: () => void
   onRoute: () => void
 }) {

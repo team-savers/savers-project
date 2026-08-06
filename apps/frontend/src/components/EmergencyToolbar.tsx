@@ -2,9 +2,17 @@
 // 우측)에 라벨과 함께 떠 있어서, 메뉴를 뒤지거나 이런 기능이 있다는 걸
 // 미리 기억하고 있지 않아도 눌러서 바로 쓸 수 있게 한다. 아이콘만으로는
 // 당황한 상태에서 못 알아볼 수 있어 글자 라벨을 항상 함께 보여준다.
-import { useEffect, useRef, useState } from 'react'
+//
+// ⚠️ 사이렌 상태는 이 컴포넌트가 소유하지 않는다 — 프롭(sirenOn·onToggleSiren)
+// 으로 받는다. 도움 요청 화면에서는 툴바가 렌더되지 않는데(119 버튼 겹침,
+// Preview.tsx showToolbar 주석), 사이렌을 여기서 소유하면 그 화면으로 넘어가는
+// 순간 언마운트 클린업이 소리를 조용히 꺼버린다 — 도움을 청하는 순간에
+// 경보음이 끊기는 것은 겹침만큼이나 나쁜 실패다(PR #54 리뷰 2라운드). 소리의
+// 수명은 화면 단계가 아니라 플로우 전체(Preview)에 묶인다. 손전등·위치공유는
+// 순간 동작이라 화면이 바뀌면 꺼져도 자연스러우므로 계속 여기서 소유한다.
+import { useState } from 'react'
 import type { Shelter } from '../api/types'
-import { Siren, shareShelterInfo } from '../lib/emergencyTools'
+import { shareShelterInfo } from '../lib/emergencyTools'
 import { C, SHADOW_CARD } from '../lib/tokens'
 
 // 위치 공유 버튼 라벨. 룩업으로 두는 이유는 상태가 4개(공유·복사·실패·평상)
@@ -16,38 +24,17 @@ const SHARE_LABELS: Record<'shared' | 'copied' | 'unavailable', string> = {
 }
 const SHARE_LABEL_IDLE = '위치공유'
 
-export function EmergencyToolbar({ nearest }: { nearest: Shelter | null }) {
+export function EmergencyToolbar({
+  nearest,
+  sirenOn,
+  onToggleSiren,
+}: {
+  nearest: Shelter | null
+  sirenOn: boolean
+  onToggleSiren: () => void
+}) {
   const [flashlightOn, setFlashlightOn] = useState(false)
-  const [sirenOn, setSirenOn] = useState(false)
   const [shareStatus, setShareStatus] = useState<'shared' | 'copied' | 'unavailable' | null>(null)
-  // 지연 생성. useRef(new Siren()) 형태는 ref가 첫 값만 보관하더라도 매 렌더
-  // 마다 new Siren() 표현식 자체가 평가되고 버려진다 — 지금 생성자에 부수효과가
-  // 없어 실질적 문제는 없지만, 생성자가 자원을 잡는 순간 조용한 누수가 된다
-  // (PR #54 리뷰). 첫 사용 시점에 한 번만 만든다.
-  const sirenRef = useRef<Siren | null>(null)
-
-  function getSiren(): Siren {
-    const existing = sirenRef.current
-    if (existing !== null) return existing
-    const created = new Siren()
-    sirenRef.current = created
-    return created
-  }
-
-  useEffect(() => {
-    // 언마운트 시 정리. 한 번도 켜지 않았으면 인스턴스 자체가 없으므로
-    // 만들지 않는다(getSiren을 부르면 정리 목적으로 생성하는 셈이 된다).
-    return () => sirenRef.current?.stop()
-  }, [])
-
-  function toggleSiren() {
-    if (sirenOn) {
-      sirenRef.current?.stop()
-      setSirenOn(false)
-      return
-    }
-    setSirenOn(getSiren().start())
-  }
 
   async function handleShare() {
     const result = await shareShelterInfo(nearest)
@@ -96,7 +83,7 @@ export function EmergencyToolbar({ nearest }: { nearest: Shelter | null }) {
         }}
       >
         <ToolButton icon="🔦" label="손전등" active={flashlightOn} onClick={() => setFlashlightOn(true)} />
-        <ToolButton icon="🔊" label={sirenOn ? '소리끄기' : '경보음'} active={sirenOn} onClick={toggleSiren} />
+        <ToolButton icon="🔊" label={sirenOn ? '소리끄기' : '경보음'} active={sirenOn} onClick={onToggleSiren} />
         <ToolButton
           icon="📍"
           label={shareStatus === null ? SHARE_LABEL_IDLE : SHARE_LABELS[shareStatus]}
