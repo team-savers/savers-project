@@ -939,17 +939,23 @@ function countSentences(text: string): number {
 // (PR #50). 순수 함수라 프론트엔드에 테스트 러너가 들어오면 바로 테스트할
 // 수 있도록 여기로 옮겼다(PR #50 리뷰 코멘트).
 
-// apps/ai-engine의 guardrail._SENTENCE_SPLIT과 반드시 같은 기준을 써야
-// 한다 — 두 곳이 서로 다른 문장 경계를 쓰면 "몇 문장인지"가 화면마다
-// 달라진다.
-const STEP_SENTENCE_SPLIT = /(?<=[.!?。])\s+|\n+/
+// 문장 경계. apps/ai-engine의 guardrail._SENTENCE_SPLIT과 반드시 같은
+// 기준(종결부호 뒤 공백, 줄바꿈)을 써야 한다 — 두 곳이 서로 다른 경계를
+// 쓰면 "몇 문장인지"가 화면마다 달라진다.
+//
+// lookbehind(`(?<=...)`)를 쓰지 않는다. Safari 16.4 미만에서는 정규식
+// 리터럴 **파싱 자체**가 실패해 이 모듈이 든 청크 전체가 평가에 실패하고,
+// 알림 화면이 빈 화면이 된다 — 기능만 꺼지는 실패가 아니라 부팅 실패다.
+// `npm run build` 경고 부재는 빌드 타깃이 지원한다는 뜻일 뿐 사용자 기기가
+// 지원한다는 뜻이 아니다(PR #50 리뷰 3라운드). 종결부호 뒤 공백을 줄바꿈으로
+// 표시한 뒤 줄바꿈으로만 자르면 같은 경계를 얻는다 — 줄바꿈은 원래도
+// 경계였다.
+const STEP_SENTENCE_MARK = /([.!?。])\s+/g
+const STEP_SENTENCE_SPLIT = /\n+/
 
-// lookbehind(`(?<=...)`)는 Safari 16.4 이상에서만 지원된다. esbuild는 이
-// 정규식 리터럴을 낮추지 못해(down-level 불가) 대상 브라우저가 이를
-// 지원하지 않으면 경고만 내고 그대로 둔다 — `npm run build` 확인 결과
-// (2026-08-04) 이 저장소의 기본 build target에서는 경고가 뜨지 않았다.
-// 다시 확인하려면 `npm run build` 출력에 lookbehind 관련 경고가 있는지만
-// 보면 된다(PR #50 리뷰).
+function splitSentences(text: string): string[] {
+  return text.replace(STEP_SENTENCE_MARK, '$1\n').split(STEP_SENTENCE_SPLIT)
+}
 
 // 숫자/구두점만 남은 조각("1.", "-", "②" 등 번호 매기기 목록의 마커)인지
 // 판별한다. 이런 조각은 단독 스텝으로 두면 안 된다 — 사용자가 "1."만 있는
@@ -991,8 +997,7 @@ const STEP_LIST_MARKER_PREFIX = /^\s*(?:\d+\s*[.)]|[-•·]|[①②③④⑤])/
 // 문장 단위로 쪼갠다. 번호 매기기 목록의 마커 조각("1." 등)은 독립 스텝으로
 // 두지 않고 인접 문장에 붙인다.
 export function splitIntoSteps(text: string): string[] {
-  const raw = text
-    .split(STEP_SENTENCE_SPLIT)
+  const raw = splitSentences(text)
     .map((s) => s.trim())
     .filter((s) => s.length > 0)
 
@@ -1034,11 +1039,16 @@ export function splitIntoSteps(text: string): string[] {
 // 순서를 그대로 둔다.
 //
 // lang 은 화면 언어다 — 지침 어미가 언어마다 다르므로 반드시 받아야 한다.
-// 표에 없는 언어(zh·en)는 재배열하지 않고 원문 순서를 그대로 둔다: 그 언어의
-// 어미를 판별할 근거가 없는 상태에서 순서를 바꾸면 아무 문장이나 첫 화면에
-// 올릴 수 있다.
+// 표에 없는 언어(zh·en)는 한국어 패턴으로 폴백한다. "그 언어의 어미를 모르면
+// 건드리지 않는다"가 아닌 이유: 생성 측 문안 프레임이 한국어 전용이라
+// (generation.py의 _OPENER·_DIRECTIVE_SHELTER — language는 프롬프트 힌트일 뿐)
+// zh/en 프로필이 실제로 받는 본문은 한국어일 공산이 크고, 그때 건너뛰면
+// 행동 지침이 다시 탭 뒤로 숨는다(PR #50 리뷰 3라운드). 같은 화면의 다른
+// 코드도 전부 "vi 아니면 ko" 이분법이다(substituteAdminTerms, t() 폴백).
+// 본문이 진짜 중국어·영어로 오는 날에는 한국어 어미가 하나도 안 걸려
+// 재배열이 일어나지 않으므로 이 폴백은 그 경우 무해하다.
 export function orderStepsDirectiveFirst(steps: string[], lang: Language): string[] {
-  const patterns = STEP_DIRECTIVE_PATTERNS[lang]
+  const patterns = STEP_DIRECTIVE_PATTERNS[lang] ?? STEP_DIRECTIVE_PATTERNS.ko
   if (patterns === undefined) return steps
 
   // 번호 목록이면 재배열을 건너뛴다(STEP_LIST_MARKER_PREFIX 주석 참조).

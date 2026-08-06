@@ -259,8 +259,13 @@ export function EasyText({
             ...toggleStyle('secondary', false),
             width: '100%',
             marginTop: '10px',
-            opacity: allRevealed ? 0.6 : 1,
-            cursor: allRevealed ? 'default' : 'pointer',
+            // 다 펼친 상태는 채움만 낮추고 글자 대비는 유지한다. opacity 를
+            // 버튼 전체에 걸면 라벨이 2.5:1 로 떨어지는데, 이 라벨은
+            // "끝났다"를 알리는 상태 메시지라 읽혀야 한다 — disabled 를
+            // 버리고 탭 순서에 남긴 이유가 정확히 그것이다(PR #50 3라운드).
+            ...(allRevealed
+              ? { background: C.white, border: `2px solid ${C.tealBg}`, cursor: 'default' }
+              : {}),
           }}
         >
           {allRevealed
