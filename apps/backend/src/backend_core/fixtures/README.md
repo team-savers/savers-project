@@ -29,7 +29,7 @@
 
 # 실 API 응답 replay 픽스처
 
-위 `shelters.jsonl`·`dev_sample_flood_event.json`은 스켈레톤 오프라인 스텁이고,
+위 `shelters.jsonl`은 스켈레톤 오프라인 스텁이고,
 아래는 실 API를 1회 호출해 동결한 replay 픽스처다. 성격이 다르므로 섞지 않는다.
 
 replay 픽스처도 `src/` 안에 두지만 근거가 다르다. 오프라인 폴백용이 아니라 **코드와 같은

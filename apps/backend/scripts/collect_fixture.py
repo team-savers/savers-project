@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
@@ -40,6 +41,9 @@ KST = timezone(timedelta(hours=9))
 # 재현용 replay 픽스처이고, 실제 오프라인 폴백용 대피소 캐시는 별도 과제다.
 FIXTURES = Path(__file__).resolve().parents[1] / "src" / "backend_core" / "fixtures"
 
+# fixture_path()에서 event_type을 좁히는 패턴. 파일명에 그대로 들어가므로 ASCII만 허용한다.
+_EVENT_TYPE = re.compile(r"[A-Za-z0-9_-]+")
+
 
 class CollectError(RuntimeError):
     """Request failed, or the upstream returned a non-normal result code."""
@@ -52,7 +56,8 @@ def today_kst() -> date:
 
 def fixture_path(source: str, event_type: str) -> Path:
     """Where this collection would be frozen — computable without calling the upstream."""
-    if not event_type or not event_type.replace("-", "").replace("_", "").isalnum():
+    # isalnum()은 유니코드 기준이라 한글도 통과시킨다. 파일명에 들어가는 값은 ASCII만.
+    if not _EVENT_TYPE.fullmatch(event_type):
         raise CollectError(
             f"event_type이 파일명에 그대로 들어갑니다. 영숫자와 -_만 허용: {event_type!r}"
         )
