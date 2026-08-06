@@ -35,7 +35,7 @@ GENERATED_PAYLOAD = {
         "title": "[세이버스] 서원동 호우경보",
         "body": GENERATED_BODY,
         "messageMode": "grounded",
-        "sources": [{"title": "[행안부] 국민행동요령", "quote": "물이 차오르기 전에 이동합니다."}],
+        "sources": [{"title": "[더미] 국민행동요령", "quote": "물이 차오르기 전에 이동합니다."}],
     }
 }
 
@@ -54,9 +54,24 @@ def _fails(exc: Exception) -> Callable[..., httpx.Response]:
     return _post
 
 
+def _records(
+    response: httpx.Response, calls: list[tuple[str, dict[str, Any]]]
+) -> Callable[..., httpx.Response]:
+    def _post(url: str, **kwargs: Any) -> httpx.Response:
+        calls.append((url, kwargs))
+        return response
+
+    return _post
+
+
 @pytest.fixture
 def context(event: DisasterEvent, registry: ResidentRegistry) -> GenerationContext:
-    """production 경로로 만든 컨텍스트 — 직렬화까지 실제와 같은 모양으로 태운다."""
+    """production 경로로 만든 컨텍스트.
+
+    대피소 후보가 없어 shelter는 null로 직렬화된다. 중첩 Shelter의
+    camelCase(distanceM, hasStairs) 직렬화는 이 fixture로는 태우지 않으며,
+    그 커버는 shelter가 있는 컨텍스트로 후속에서 붙인다.
+    """
     resident = registry.get("p001")
     assert resident is not None
     return build_context(
@@ -69,9 +84,17 @@ def context(event: DisasterEvent, registry: ResidentRegistry) -> GenerationConte
 def test_generated_message_is_mapped_onto_the_contract(
     monkeypatch: pytest.MonkeyPatch, context: GenerationContext
 ) -> None:
-    """정상 응답의 camelCase(messageMode)가 계약 필드로 옮겨진다."""
+    """정상 응답의 camelCase(messageMode)가 계약 필드로 옮겨진다.
+
+    응답 매핑과 함께 요청 쪽 계약도 고정한다. 경로, timeout, by_alias camelCase가
+    실제로 나가는지를 단언한다. 스텁이 인자를 버리면 timeout 누락이나 별칭 누락이
+    초록으로 지나가므로 여기서 호출을 기록해 확인한다.
+    """
+    calls: list[tuple[str, dict[str, Any]]] = []
     monkeypatch.setattr(
-        httpx, "post", _responds(httpx.Response(200, json=GENERATED_PAYLOAD, request=_REQUEST))
+        httpx,
+        "post",
+        _records(httpx.Response(200, json=GENERATED_PAYLOAD, request=_REQUEST), calls),
     )
 
     message = HttpAiEngineClient(BASE_URL).generate(EVENT_ID, context)
@@ -80,6 +103,13 @@ def test_generated_message_is_mapped_onto_the_contract(
     assert message.message_mode == "grounded"
     assert message.body == GENERATED_BODY
     assert len(message.sources) == 1
+
+    assert len(calls) == 1
+    url, kwargs = calls[0]
+    assert url == f"{BASE_URL}/v1/generate"
+    assert kwargs["timeout"] == 8.0
+    assert kwargs["json"]["eventId"] == EVENT_ID
+    assert "serviceMode" in kwargs["json"]["context"]
 
 
 def test_refusal_arrives_as_none_not_as_an_error(
@@ -126,5 +156,50 @@ def test_every_unreachable_shape_narrows_to_one_error(
     """
     monkeypatch.setattr(httpx, "post", post)
 
+    with pytest.raises(AiEngineUnavailableError):
+        HttpAiEngineClient(BASE_URL).generate(EVENT_ID, context)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param([], id="list-body"),
+        pytest.param(
+            {"message": {"body": "b", "messageMode": "grounded", "sources": []}},
+            id="missing-title",
+        ),
+        pytest.param(
+            {"message": {"title": "t", "body": "b", "messageMode": "bogus", "sources": []}},
+            id="bogus-message-mode",
+        ),
+        pytest.param(
+            {
+                "message": {
+                    "title": "t",
+                    "body": "b",
+                    "messageMode": "grounded",
+                    "sources": [{"title": "[더미] 국민행동요령"}],
+                }
+            },
+            id="source-missing-quote",
+        ),
+    ],
+)
+def test_every_malformed_200_narrows_to_one_error(
+    monkeypatch: pytest.MonkeyPatch,
+    context: GenerationContext,
+    payload: Any,
+) -> None:
+    """200인데 스키마가 어긋난 응답도 도달 실패와 같은 예외로 좁혀진다.
+
+    _post는 전송·JSON 파싱 실패만 잡는다. 응답 파싱(data.get, message["title"],
+    AlertMessage(...), Source.model_validate(...))은 generate() 본문에 있어,
+    가드가 없으면 AttributeError·KeyError·ValidationError가 그대로 새어
+    run_alert 수신자 루프 밖으로 올라간다. 도달 실패 쪽 계약과 같은 것을
+    스키마 불일치 쪽에서도 고정한다.
+    """
+    monkeypatch.setattr(
+        httpx, "post", _responds(httpx.Response(200, json=payload, request=_REQUEST))
+    )
     with pytest.raises(AiEngineUnavailableError):
         HttpAiEngineClient(BASE_URL).generate(EVENT_ID, context)

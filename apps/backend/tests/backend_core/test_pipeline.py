@@ -5,6 +5,7 @@ tests/backend_core/test_pipeline.py).
 """
 
 from datetime import UTC, datetime
+from typing import get_args
 
 from conftest import GROUNDED_BODY, FakeAiEngine
 
@@ -340,6 +341,9 @@ def test_availability_maps_to_service_mode(
         "all_excluded": "degraded",
         "upstream_unavailable": "degraded",
     }
+    assert set(expected) == set(get_args(Availability)), (
+        "Availability 리터럴이 늘면 이 매핑표도 늘어야 한다"
+    )
 
     for availability, mode in expected.items():
         shelters = ShelterList(
