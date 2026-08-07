@@ -93,7 +93,7 @@ All planning docs live under `docs/`; the repo root keeps only `AGENTS.md`, `CLA
 
 | Folder | Holds |
 |---|---|
-| `docs/공통_가이드/` | Project-wide design docs everyone reads — `개발자_가이드.md`, `환경_세팅_가이드.md`, `배포_절차.md`, `서버_운영.md`, `저장소_운영.md`, `아키텍처.md`, `워킹_스켈레톤_설명.md`, `워킹_스켈레톤_점검.md`, `리스크.md`, `구현_범위.md`, `외부_승인.md`, `비용_산정.md`, `개인정보_체크리스트.md`, `후속_과제.md` |
+| `docs/공통_가이드/` | Project-wide design docs everyone reads — `개발자_가이드.md`, `환경_세팅_가이드.md`, `배포_절차.md`, `서버_운영.md`, `AWS_계정_발급_가이드.md`, `저장소_운영.md`, `아키텍처.md`, `워킹_스켈레톤_설명.md`, `워킹_스켈레톤_점검.md`, `리스크.md`, `구현_범위.md`, `외부_승인.md`, `비용_산정.md`, `개인정보_체크리스트.md`, `후속_과제.md` |
 | `docs/역할_가이드/` | Per-role playbooks — who does what. `01-기획총괄.md` … `06-QA-보안.md` |
 | `docs/역할_일정/` | Per-role timelines — when it must be done. Same role numbering as `역할_가이드/` |
 | `docs/공유_문서/` | Continuously revised working documents (인터뷰 가이드, 회의 결과, …) — **not** competition submission forms, which stay out of the repo per "Not in this repository". Its `README.md` is the index — every file listed with 최종 수정일 · 버전 · 핵심 내용 · 상태·근거, updated in the same PR as the file itself |
