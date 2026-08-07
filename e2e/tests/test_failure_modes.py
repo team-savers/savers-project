@@ -3,7 +3,7 @@
 세 가지를 검사한다. 전부 "안내가 틀리는" 실패가 아니라 **"조용히 사라지는" 실패**를
 겨냥한다 — 리스크.md ②와 S1-3 DoD(docs/역할_일정/06-QA-보안.md)의 실패 모드 항목이다.
 
-1. 대피소를 하나도 안내할 수 없는 검색이 200으로 상태를 정직하게 말하는지
+1. 대피소 데이터가 0건인 행정동 검색이 200으로 상태를 정직하게 말하는지
    (빈 목록 + availability), 그 상태에서도 보호자 연결(guardian 토큰 체인)이
    살아 있는지 — 화면이 줄 수 있는 행동이 없을 때 남는 유일한 경로가 보호자다.
 2. 계단 불가(stairs_ok=False) 주민에게 계단 없는 대피소가 목록 맨 위에 오는지 —
@@ -22,15 +22,18 @@ docs/adr/0007-walking-skeleton.md "해결되지 않은 문제"가 같은 한계�
 기록해 뒀다. 그래서 아래 1번 테스트는 분기별로 검사한다: 메시지가 폴백이면
 119 문구와 빈 sources를, 근거 기반이면 sources 존재를 단언한다 — 어느 분기든
 "본문 없는 발송"이라는 무음 실패는 잡힌다.
+
+같은 이유로 1번이 만드는 상황은 **데이터 0건**(`upstream_unavailable`)이지
+**후보는 있었으나 전부 제외**(`all_excluded`)가 아니다. 후자는 지하 대피소만
+있는 시드 행정동이 있어야 재현되며 backend_core 시드 변경이 필요해 미커버다.
 """
 
 from __future__ import annotations
 
 import httpx
 import pytest
+from seed_data import SEED_DONG_CODE
 
-# 김순자 — stairs_ok=False + 보호자 등록. 최악 경로의 대상 프로필 (registry.py seed).
-WORST_CASE_USER_ID = "p001"
 # 캐시에 대피소가 한 곳도 없는 행정동. [밖이에요]를 누른 사용자가 데이터 없는
 # 지역에서 검색하는 상황 — 상류 API도 스텁이라 availability가 빈 상태를 말해야 한다.
 DONG_WITHOUT_DATA = "9999999999"
@@ -39,20 +42,12 @@ DONG_WITHOUT_DATA = "9999999999"
 FALLBACK_119_MARKER = "119에 연락하세요"
 
 
-def _dispatch_worst_case_delivery(client: httpx.Client) -> dict:
-    """데모 특보를 발송하고 p001의 배송 결과를 돌려준다."""
-    dispatch = client.post("/internal/alerts/dispatch")
-    assert dispatch.status_code == 200, dispatch.text
-    run = dispatch.json()
-    delivery = next((d for d in run["deliveries"] if d["userId"] == WORST_CASE_USER_ID), None)
-    assert delivery is not None, f"{WORST_CASE_USER_ID} 배송 결과가 없음 — 매칭 실패"
-    return delivery
-
-
 @pytest.mark.failure
-def test_no_usable_shelter_still_leaves_guardian_path(client: httpx.Client) -> None:
-    """대피소 0곳 상태가 정직하게 보고되고, 그 상태에서도 보호자 연결이 동작한다."""
-    delivery = _dispatch_worst_case_delivery(client)
+def test_no_shelter_data_still_leaves_guardian_path(
+    client: httpx.Client, worst_case_delivery: dict
+) -> None:
+    """대피소 데이터 0건이 정직하게 보고되고, 그 상태에서도 보호자 연결이 동작한다."""
+    delivery = worst_case_delivery
 
     # 세션 본문 — 어느 분기든 "본문 없는 발송"은 무음 실패다.
     session = client.get(f"/v1/session/{delivery['sessionToken']}")
@@ -81,8 +76,14 @@ def test_no_usable_shelter_still_leaves_guardian_path(client: httpx.Client) -> N
     assert search.status_code == 200, search.text
     shelters = search.json()
     assert shelters["items"] == [], "데이터 없는 행정동에서 대피소가 발명됨"
-    assert shelters["availability"] in {"upstream_unavailable", "all_excluded"}, (
-        f"빈 목록의 사유가 없음 — availability={shelters['availability']!r}. "
+    # 값을 하나로 못 박는다: 레코드가 0건이면 shelters.py는 안전 필터 앞에서 조기 반환하므로
+    # all_excluded("후보는 있었으나 전부 제외")는 이 경로에서 나올 수 없다. 둘 다 허용하면
+    # '조회 실패'를 '안내 가능한 대피소 없음'으로 잘못 보고하는 회귀가 그대로 통과한다.
+    # ⚠️ 라이브 대피소 API가 붙은 뒤 없는 행정동이 ok + 빈 목록을 반환하면 이 단언이
+    #    빨개진다 — 그게 잡아야 할 실패다("대피소 없음"으로 읽히는 거짓말, shelters.py
+    #    모듈 docstring ②). 단언을 다시 느슨하게 푸는 것이 아니라 서버를 고칠 것.
+    assert shelters["availability"] == "upstream_unavailable", (
+        f"빈 목록의 사유가 '조회 실패'가 아님 — availability={shelters['availability']!r}. "
         "프론트는 이 값으로 '대피소 없음'과 '조회 실패'를 갈라 말한다"
     )
     # 좌표가 본문으로 오가는 응답 — 캐시 금지는 위치 미저장 제약의 일부다
@@ -104,13 +105,18 @@ def test_no_usable_shelter_still_leaves_guardian_path(client: httpx.Client) -> N
 
 
 @pytest.mark.failure
-def test_stairs_blocked_resident_gets_stair_free_shelter_first(client: httpx.Client) -> None:
-    """계단 불가 주민의 목록 맨 위는 계단 없는 대피소여야 한다 (test_flow.py:45의 주석 확인)."""
-    delivery = _dispatch_worst_case_delivery(client)
+def test_stairs_blocked_resident_gets_stair_free_shelter_first(
+    client: httpx.Client, worst_case_delivery: dict
+) -> None:
+    """계단 불가 주민의 목록 맨 위는 계단 없는 대피소여야 한다.
+
+    test_flow.py의 test_dispatch_reaches_session_and_guardian이 주석으로만 남겨뒀던 확인이다.
+    """
+    delivery = worst_case_delivery
 
     search = client.post(
         "/v1/shelters/search",
-        json={"sessionToken": delivery["sessionToken"], "dongCode": "1162064500"},
+        json={"sessionToken": delivery["sessionToken"], "dongCode": SEED_DONG_CODE},
     )
     assert search.status_code == 200, search.text
     items = search.json()["items"]
@@ -127,16 +133,23 @@ def test_stairs_blocked_resident_gets_stair_free_shelter_first(client: httpx.Cli
 
 @pytest.mark.failure
 def test_bogus_tokens_fail_loudly_not_silently(client: httpx.Client) -> None:
-    """잘못된 토큰은 계약의 에러 형태로 크게 실패한다 — 조용한 200이 최악이다."""
+    """잘못된 토큰은 계약의 에러 형태로 크게 실패한다 — 조용한 200이 최악이다.
+
+    세 경로 모두 `code`까지 단언한다: 상태 코드만 맞고 본문이 계약을 벗어나면
+    프론트는 에러를 분기하지 못한 채 빈 화면을 보여준다(404와 410의 구분이
+    "잘못된 링크" / "지난 알림입니다"로 갈리는 지점이다).
+    """
     session = client.get("/v1/session/s_this_token_does_not_exist")
     assert session.status_code == 404, session.text
     assert session.json()["code"] == "SESSION_NOT_FOUND"
 
     search = client.post(
         "/v1/shelters/search",
-        json={"sessionToken": "s_this_token_does_not_exist", "dongCode": "1162064500"},
+        json={"sessionToken": "s_this_token_does_not_exist", "dongCode": SEED_DONG_CODE},
     )
     assert search.status_code == 404, search.text
+    assert search.json()["code"] == "SESSION_NOT_FOUND"
 
     guardian = client.get("/v1/guardian/g_this_token_does_not_exist")
     assert guardian.status_code == 404, guardian.text
+    assert guardian.json()["code"] == "SESSION_NOT_FOUND"
