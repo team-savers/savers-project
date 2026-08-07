@@ -1,0 +1,132 @@
+{
+  "header": {
+    "resultMsg": "NORMAL SERVICE",
+    "resultCode": "00",
+    "errorMsg": null
+  },
+  "numOfRows": 10,
+  "pageNo": 1,
+  "totalCount": 38381,
+  "body": [
+    {
+      "OBJECTID": 1042,
+      "SGG_CD": "11530",
+      "FLUD_GD": 1,
+      "FLUD_YEAR": "2022",
+      "X": 14124220,
+      "FLUD_AR": 118,
+      "CTPRVN_CD": "11",
+      "Y": 4510406,
+      "FLUD_SHIM": 0,
+      "EMD_CD": "11530101"
+    },
+    {
+      "OBJECTID": 1043,
+      "SGG_CD": "11530",
+      "FLUD_GD": 1,
+      "FLUD_YEAR": "2022",
+      "X": 14124236,
+      "FLUD_AR": 274,
+      "CTPRVN_CD": "11",
+      "Y": 4510287,
+      "FLUD_SHIM": 0,
+      "EMD_CD": "11530101"
+    },
+    {
+      "OBJECTID": 1044,
+      "SGG_CD": "11530",
+      "FLUD_GD": 1,
+      "FLUD_YEAR": "2022",
+      "X": 14124188,
+      "FLUD_AR": 141,
+      "CTPRVN_CD": "11",
+      "Y": 4510345,
+      "FLUD_SHIM": 0,
+      "EMD_CD": "11530101"
+    },
+    {
+      "OBJECTID": 1028,
+      "SGG_CD": "11380",
+      "FLUD_GD": 1,
+      "FLUD_YEAR": "2022",
+      "X": 14128166,
+      "FLUD_AR": 129,
+      "CTPRVN_CD": "11",
+      "Y": 4521768,
+      "FLUD_SHIM": 0,
+      "EMD_CD": "11380107"
+    },
+    {
+      "OBJECTID": 1029,
+      "SGG_CD": "11380",
+      "FLUD_GD": 1,
+      "FLUD_YEAR": "2022",
+      "X": 14128077,
+      "FLUD_AR": 157,
+      "CTPRVN_CD": "11",
+      "Y": 4521249,
+      "FLUD_SHIM": 0,
+      "EMD_CD": "11380107"
+    },
+    {
+      "OBJECTID": 1030,
+      "SGG_CD": "11380",
+      "FLUD_GD": 1,
+      "FLUD_YEAR": "2022",
+      "X": 14128474,
+      "FLUD_AR": 115,
+      "CTPRVN_CD": "11",
+      "Y": 4522406,
+      "FLUD_SHIM": 0,
+      "EMD_CD": "11380107"
+    },
+    {
+      "OBJECTID": 1031,
+      "SGG_CD": "11380",
+      "FLUD_GD": 1,
+      "FLUD_YEAR": "2022",
+      "X": 14127634,
+      "FLUD_AR": 636,
+      "CTPRVN_CD": "11",
+      "Y": 4523815,
+      "FLUD_SHIM": 0,
+      "EMD_CD": "11380108"
+    },
+    {
+      "OBJECTID": 1048,
+      "SGG_CD": "11530",
+      "FLUD_GD": 1,
+      "FLUD_YEAR": "2022",
+      "X": 14124809,
+      "FLUD_AR": 172,
+      "CTPRVN_CD": "11",
+      "Y": 4507277,
+      "FLUD_SHIM": 0,
+      "EMD_CD": "11530102"
+    },
+    {
+      "OBJECTID": 1049,
+      "SGG_CD": "11530",
+      "FLUD_GD": 1,
+      "FLUD_YEAR": "2022",
+      "X": 14125673,
+      "FLUD_AR": 534,
+      "CTPRVN_CD": "11",
+      "Y": 4507862,
+      "FLUD_SHIM": 0,
+      "EMD_CD": "11530102"
+    },
+    {
+      "OBJECTID": 1050,
+      "SGG_CD": "11530",
+      "FLUD_GD": 1,
+      "FLUD_YEAR": "2022",
+      "X": 14124855,
+      "FLUD_AR": 27,
+      "CTPRVN_CD": "11",
+      "Y": 4507492,
+      "FLUD_SHIM": 0,
+      "EMD_CD": "11530102"
+    }
+  ]
+}

@@ -18,6 +18,7 @@ from ai_engine.shelter_safety import loading, schema  # noqa: E402
 FIXTURES = Path(__file__).parent / "fixtures"
 SHELTERS_CSV = FIXTURES / "shelter_safety_shelters_mock.csv"
 REGISTRY_CSV = FIXTURES / "shelter_safety_registry_mock.csv"
+UNIFIED_REGISTRY_CSV = FIXTURES / "shelter_safety_unified_registry_mock.csv"
 
 
 def test_load_flood_shelters_keeps_address_code_as_string() -> None:
@@ -135,6 +136,72 @@ def test_select_primary_building_raises_on_unparseable_area() -> None:
 
     with pytest.raises(loading.UnparseableAreaError):
         loading.select_primary_building(registry_df)
+
+
+# ── 실제 통합 건축물대장 경로 (이 로더 자체는 조인 안 함 — 브이월드 PNU 조인은
+#    파일 단계에서 이미 끝나 반영돼 있음. schema.py 상단 docstring 참고) ──────
+
+
+def test_load_unified_registry_keeps_pk_as_string() -> None:
+    df = loading.load_unified_registry(UNIFIED_REGISTRY_CSV)
+    value = df.iloc[0][schema.UNIFIED_REGISTRY_PK_COL]
+    assert isinstance(value, str)
+
+
+def test_load_unified_registry_keeps_pnu_as_string() -> None:
+    """PNU도 pk와 같은 이유로 문자열 강제 — fixtures/README.md 참고: 목업 PNU는
+    전부 앞자리가 0이라, 문자열로 강제하지 않으면(int64로 읽히면) 선행 0이
+    사라지는 회귀를 이 테스트가 잡는다."""
+    df = loading.load_unified_registry(UNIFIED_REGISTRY_CSV)
+    value = df.iloc[0][schema.UNIFIED_REGISTRY_PNU_COL]
+    assert isinstance(value, str)
+    assert value.startswith("0")
+    assert len(value) == 19
+
+
+def test_load_unified_registry_reads_all_rows() -> None:
+    df = loading.load_unified_registry(UNIFIED_REGISTRY_CSV)
+    # fixtures/README.md 참고: 51행(안전 6 + 긴급 3 + U 40 + dup 2).
+    assert len(df) == 51
+
+
+def test_select_primary_building_reused_with_unified_registry_columns() -> None:
+    """레거시용 함수를 UNIFIED_REGISTRY_* 컬럼명으로 그대로 재사용할 수 있는지 —
+    fixtures/README.md의 dup_01(연면적 9999 vs 50) 케이스로 확인."""
+    registry_df = loading.load_unified_registry(UNIFIED_REGISTRY_CSV)
+
+    primary_df = loading.select_primary_building(
+        registry_df,
+        area_col=schema.UNIFIED_REGISTRY_TOTAL_FLOOR_AREA_COL,
+        address_col=schema.UNIFIED_REGISTRY_PK_COL,
+    )
+
+    assert primary_df[schema.UNIFIED_REGISTRY_PK_COL].is_unique
+    assert len(primary_df) == 50  # dup_01의 표제부 2행이 1행으로 줄어듦.
+
+    dup_row = primary_df[primary_df[schema.UNIFIED_REGISTRY_PK_COL] == "dup_01"].iloc[0]
+    assert dup_row[schema.UNIFIED_REGISTRY_TOTAL_FLOOR_AREA_COL] == pytest.approx(9999.0)
+    assert dup_row[schema.REGISTRY_BUILDING_NAME_COL] == "본관(실제 최대)"
+
+
+def test_select_primary_building_on_already_deduped_unified_registry_is_idempotent() -> None:
+    """실제 파일은 이미 필지(pk)당 1행으로 도착한다(2026-08-05 확인) — 이미 dedup된
+    입력에 다시 돌려도 아무 행도 제거되지 않아야 한다."""
+    registry_df = loading.load_unified_registry(UNIFIED_REGISTRY_CSV)
+    once = loading.select_primary_building(
+        registry_df,
+        area_col=schema.UNIFIED_REGISTRY_TOTAL_FLOOR_AREA_COL,
+        address_col=schema.UNIFIED_REGISTRY_PK_COL,
+    )
+
+    twice = loading.select_primary_building(
+        once,
+        area_col=schema.UNIFIED_REGISTRY_TOTAL_FLOOR_AREA_COL,
+        address_col=schema.UNIFIED_REGISTRY_PK_COL,
+    )
+
+    assert len(twice) == len(once)
+    assert set(twice[schema.UNIFIED_REGISTRY_PK_COL]) == set(once[schema.UNIFIED_REGISTRY_PK_COL])
 
 
 def test_select_primary_building_does_not_raise_on_preexisting_missing_area() -> None:
