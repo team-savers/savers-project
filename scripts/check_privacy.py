@@ -156,12 +156,16 @@ def check_s1_consent_separation(report: Report) -> None:
         )
     else:
         report.add(
-            "S1-model", "FAIL", f"분리 동의 필드 누락: {sorted(required - fields)} (있는 것: {sorted(fields)})"
+            "S1-model",
+            "FAIL",
+            f"분리 동의 필드 누락: {sorted(required - fields)} (있는 것: {sorted(fields)})",
         )
 
     ops_tsx = (FRONTEND_SRC / "pages" / "Ops.tsx").read_text(encoding="utf-8")
     if "분리동의" in ops_tsx and "declineNote" in ops_tsx:
-        report.add("S1-ui", "PASS", "/ops 등록 화면에 항목별 분리동의 UI 상수 존재 (필수/선택 구분 포함)")
+        report.add(
+            "S1-ui", "PASS", "/ops 등록 화면에 항목별 분리동의 UI 상수 존재 (필수/선택 구분 포함)"
+        )
     else:
         report.add("S1-ui", "FAIL", "/ops에서 분리동의 UI 정의를 찾지 못함")
 
@@ -181,7 +185,11 @@ def _http(
         req.add_header("Content-Type", "application/json")
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310 - 위에서 스킴 검증
-            return resp.status, {k.lower(): v for k, v in resp.headers.items()}, resp.read().decode()
+            return (
+                resp.status,
+                {k.lower(): v for k, v in resp.headers.items()},
+                resp.read().decode(),
+            )
     except urllib.error.HTTPError as err:
         return err.code, {k.lower(): v for k, v in err.headers.items()}, err.read().decode()
 
@@ -203,7 +211,12 @@ def check_live(report: Report, base_url: str, log_paths: list[Path]) -> None:
     status, headers, search_body = _http(
         "POST",
         f"{base_url}/v1/shelters/search",
-        {"sessionToken": token, "dongCode": "1162064500", "lat": float(SENTINEL_LAT), "lng": float(SENTINEL_LNG)},
+        {
+            "sessionToken": token,
+            "dongCode": "1162064500",
+            "lat": float(SENTINEL_LAT),
+            "lng": float(SENTINEL_LNG),
+        },
     )
     if status != 200:
         report.add("P2-nostore", "FAIL", f"좌표 포함 검색이 {status} — 검사를 진행할 수 없음")
@@ -237,11 +250,15 @@ def check_live(report: Report, base_url: str, log_paths: list[Path]) -> None:
     if leaked_state:
         report.add("P2-state", "FAIL", f"검색 후 재조회 상태에 좌표 잔존: {leaked_state}")
     else:
-        report.add("P2-state", "PASS", "검색 후 세션·보호자 재조회에 좌표 없음 (세션 범위 밖 미저장)")
+        report.add(
+            "P2-state", "PASS", "검색 후 세션·보호자 재조회에 좌표 없음 (세션 범위 밖 미저장)"
+        )
 
     # 로그 스캔 — 카나리아(요청 접근 기록) 없이는 통과로 세지 않는다.
     if not log_paths:
-        report.add("P2-logs", "WARN", "--log 미지정 — 서버 로그의 좌표 부재는 이번 실행에서 검사되지 않음")
+        report.add(
+            "P2-logs", "WARN", "--log 미지정 — 서버 로그의 좌표 부재는 이번 실행에서 검사되지 않음"
+        )
     else:
         log_text = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in log_paths)
         canary = "/v1/shelters/search" in log_text
@@ -254,19 +271,31 @@ def check_live(report: Report, base_url: str, log_paths: list[Path]) -> None:
                 "접근 로그가 꺼져 있음. 이 상태의 '좌표 없음'은 증거가 아님",
             )
         elif leaked:
-            report.add("P2-logs", "FAIL", f"서버 로그에 원본 좌표 발견 (조각 {leaked}): {[str(p) for p in log_paths]}")
+            report.add(
+                "P2-logs",
+                "FAIL",
+                f"서버 로그에 원본 좌표 발견 (조각 {leaked}): {[str(p) for p in log_paths]}",
+            )
         else:
             report.add("P2-logs", "PASS", f"로그 {len(log_paths)}개에 접근 기록은 있고 좌표는 없음")
 
     # P3: 저장이 없으면 파기할 대상도 없다 — P2 계열이 전부 통과일 때만 유도.
     p2_all_pass = all(i["status"] == "PASS" for i in report.items if i["check"].startswith("P2-"))
     if p2_all_pass:
-        report.add("P3-erasure", "PASS", "설계상 충족 — 저장 자체가 없음이 확인되어 철회 시 파기 대상이 없음 (P2에서 유도)")
+        report.add(
+            "P3-erasure",
+            "PASS",
+            "설계상 충족 — 저장 자체가 없음이 확인되어 철회 시 파기 대상이 없음 (P2에서 유도)",
+        )
     else:
         report.add("P3-erasure", "SKIP", "P2가 전부 통과일 때만 유도 가능 — 위 결과 참조")
 
     # P4: 좌표 없는 접근 기록(사실 확인자료). 전용 감사 로그는 미구현.
-    if log_paths and "/v1/shelters/search" in log_text and not any(f in log_text for f in SENTINEL_FRAGMENTS):
+    if (
+        log_paths
+        and "/v1/shelters/search" in log_text
+        and not any(f in log_text for f in SENTINEL_FRAGMENTS)
+    ):
         report.add(
             "P4-audit",
             "WARN",
@@ -284,7 +313,11 @@ def add_manual_skips(report: Report) -> None:
         "등록 저장소가 인메모리 스텁이라 스캔할 DB 없음 (실저장 경로는 예선 범위 밖 — "
         "2026-08-05 팀 결정, 후속_과제.md 4번). 저장소를 붙이는 PR이 이 SKIP을 검사로 바꿔야 함",
     )
-    report.add("S2/S4/N1/N2", "SKIP", "동의 문구·위탁 근거·처리방침은 문서 검토 항목 — 체크리스트가 사람 검토로 지정")
+    report.add(
+        "S2/S4/N1/N2",
+        "SKIP",
+        "동의 문구·위탁 근거·처리방침은 문서 검토 항목 — 체크리스트가 사람 검토로 지정",
+    )
 
 
 def main() -> int:
