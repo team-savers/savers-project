@@ -19,11 +19,7 @@ docs/공통_가이드/개인정보_체크리스트.md 의 P1~P4·S1~S4 를 기�
   import 하지 않는다, e2e 와 같은 경계 규칙)
     P2  원본 좌표 미저장 — 유일하게 이 스크립트만 아는 센티널 좌표로
         대피소 검색을 호출한 뒤: 응답에 좌표 반향 없음, Cache-Control:
-        no-store, 세션·보호자 재조회에 좌표 없음, 서버 로그(--log)에
-        좌표 없음을 확인한다.
-        ⚠️ 로그 검사는 카나리아를 함께 요구한다: 같은 로그에서 검색
-        요청의 접근 기록이 **보여야** 좌표 부재가 의미를 갖는다 —
-        엉뚱한 로그 파일을 긁고 "없음 = 통과"가 되는 무음 실패를 막는다.
+        no-store, 세션·보호자 재조회에 좌표 없음, 서버 로그에 좌표 없음.
     P3  철회 즉시 파기 — P2 가 "저장 자체가 없음"을 보이면 설계상 자동
         충족(파기할 대상이 없음). P2 결과에서 유도한다.
     P4  사실 확인자료(메타 로그) — 좌표 없는 접근 기록이 로그에 남는지.
@@ -41,10 +37,40 @@ docs/공통_가이드/개인정보_체크리스트.md 의 P1~P4·S1~S4 를 기�
         임시 Firestore 릴레이의 접근 통제이고, 여기서 말하는 백엔드 등록
         저장소와는 다른 저장소다(PR #76 리뷰).
 
+⚠️ P2 의 로그 검사가 **무엇을 증명하고 무엇을 증명하지 않는지** (PR #76 리뷰
+후 실측으로 확인한 것 — 이 절을 읽지 않으면 PASS 를 오독한다):
+
+  증명하는 것. 이 실행의 요청이 그 로그에 기록됐고(실행마다 고유한 nonce 를
+  쿼리스트링에 실어 보내 그것으로 확인한다), 그 로그가 요청 URL 을 그대로
+  남기며, 그런데도 센티널 좌표는 없다 — 즉 **좌표가 URL 로 새지 않았다.**
+
+  증명하지 않는 것. "코드가 좌표를 아무 데도 안 남긴다"가 아니다. 좌표는
+  POST 본문으로 가고 uvicorn 접근 로그는 본문을 기록하지 않으므로, 본문
+  좌표는 이 로그에 **원리상** 나타날 수 없다. 게다가 현재 apps/backend 에는
+  애플리케이션 레벨 로깅이 0건이어서(grep getLogger·import logging) 컨테이너
+  로그의 유일한 기록자가 uvicorn 이다.
+
+  그래서 이 검사가 실제로 잡는 회귀는 둘이다 — ① 좌표가 쿼리스트링으로
+  옮겨가는 변경(routes/shelters.py 가 POST 를 고른 이유가 정확히 이것이고,
+  쿼리 좌표는 실측상 로그에 그대로 남는다), ② 앞으로 추가되는 애플리케이션
+  로깅이 좌표를 찍는 경우. 둘 다 실재하는 위험이고, 그것이 이 항목을 두는
+  이유다. 다만 "본문 좌표도 안 남는다"의 증거로 인용하면 틀린다.
+
 실행:
     python3 scripts/check_privacy.py                          # 정적만
+    # 로컬: 살아 있는 로그 파일을 그대로 읽는다
     python3 scripts/check_privacy.py --base-url http://localhost:8000 \
-        --log /path/to/backend.log [--out report.json]        # 정적+라이브
+        --log /path/to/backend.log [--out report.json]
+    # 컨테이너: 요청을 보낸 **뒤에** 이 명령을 실행해 로그를 가져온다
+    python3 scripts/check_privacy.py --base-url http://localhost:8000 \
+        --log-command "docker compose -f infra/docker-compose.yml logs \
+            --no-color --no-log-prefix backend"
+
+⚠️ `--log` 로 넘기는 파일은 **검사 중에도 자라는** 파일이어야 한다. 미리
+떠 놓은 스냅샷을 주면 이 실행의 요청이 그 안에 없고, 그러면 좌표 부재는
+증거가 아니다 — nonce 카나리아가 그 상태를 FAIL 로 잡는다. 컨테이너 로그는
+파일이 아니라 명령으로 가져와야 하므로 `--log-command` 를 쓴다(스크립트가
+요청을 보낸 다음에 실행하므로 시간 창이 어긋나지 않는다).
 
 표준 라이브러리만 쓴다 — venv 없이 python3 만 있으면 어디서든 돈다.
 종료 코드: FAIL 이 하나라도 있으면 1, 아니면 0 (SKIP/WARN 은 실패가 아님).
@@ -55,10 +81,12 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -275,17 +303,35 @@ def _http(
 # 지키려면 항목이 조용히 빠지는 게 아니라 SKIP 으로 보여야 한다(PR #76 리뷰).
 LIVE_CHECKS = ("P2-cache", "P2-echo", "P2-state", "P2-logs", "P3-erasure", "P4-audit")
 
-# 센티널 요청의 접근 기록이 로그 파일에 도달할 때까지 기다리는 한도.
-# docker compose logs -f 로 흘려 쓰는 경우 파이프 버퍼 때문에 수백 ms 지연이
-# 생길 수 있어, 즉시 판정하면 "내 요청이 없다"는 오탐이 난다.
+# 센티널 요청의 접근 기록이 로그에 도달할 때까지 기다리는 한도. 컨테이너
+# 로그는 데몬 전파 구간이 HTTP 응답과 동기화되지 않아 지연이 0 이 아니다.
 LOG_ARRIVAL_TRIES = 20
 LOG_ARRIVAL_INTERVAL_S = 0.5
-# 대피소 검색 접근 기록을 세는 기준. uvicorn 기본 접근 로그가 경로를 그대로
-# 남긴다(실측 확인: `"POST /v1/shelters/search HTTP/1.1" 200`).
-SEARCH_ACCESS_MARK = "/v1/shelters/search"
+
+# 카나리아 쿼리 파라미터. 이 실행의 검색 요청에만 붙는 고유 nonce 를 실어
+# 보내고, 로그에서 그 nonce 를 찾는다. "경로가 로그에 있는가"로는 다른
+# 주체(예: 앞서 돌아간 E2E 테스트가 같은 경로를 3회 호출한다)가 남긴 줄로
+# 통과해버려서, 정작 이 실행의 요청이 로그에 없는 채로 "좌표 없음 = 통과"가
+# 된다(PR #76 리뷰에서 확인된 무음 실패). nonce 는 그 구멍을 닫는다.
+#
+# ⚠️ nonce 를 좌표로 만들지 말 것. 쿼리스트링은 접근 로그에 그대로 남으므로
+# 좌표를 실으면 점검이 스스로 유출을 만들고 P2-logs 가 FAIL 한다.
+# 미지의 쿼리 파라미터를 붙여도 200 이 유지되는 것은 실측 확인했다.
+CANARY_PARAM = "privacy_probe"
 
 
-def _read_logs(log_paths: list[Path]) -> str:
+def _read_logs(log_paths: list[Path], log_command: str | None) -> str:
+    """검사 시점의 서버 로그. 파일 경로들 또는 수집 명령 중 주어진 쪽을 쓴다.
+
+    명령 방식이 필요한 이유: 컨테이너 로그는 파일이 아니라 `docker compose
+    logs` 로 꺼내야 하고, 그 명령을 스크립트 **밖에서** 미리 실행하면 이 실행의
+    요청이 담기지 않은 스냅샷이 된다. 여기서 실행하면 시간 창이 어긋나지 않는다.
+    """
+    if log_command is not None:
+        proc = subprocess.run(  # noqa: S602 - 운영자가 직접 준 명령이다
+            log_command, shell=True, capture_output=True, text=True, check=False
+        )
+        return proc.stdout + proc.stderr
     return "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in log_paths)
 
 
@@ -296,12 +342,13 @@ def _skip_remaining(report: Report, reason: str) -> None:
             report.add(check, "SKIP", reason)
 
 
-def check_live(report: Report, base_url: str, log_paths: list[Path]) -> None:
+def check_live(
+    report: Report, base_url: str, log_paths: list[Path], log_command: str | None
+) -> None:
     """P2/P3/P4: 센티널 좌표를 흘려보내고 어디에도 남지 않는지 확인."""
-    # ⚠️ 센티널 요청을 보내기 **전에** 로그 줄 수를 센다. 요청 후 이 수가 늘지
-    # 않으면 검사 대상이 파일에 없다는 뜻이고, 그 상태의 "좌표 없음"은 증거가
-    # 아니다 — 스냅샷 로그를 검사하면 정확히 그 일이 벌어진다(PR #76 리뷰).
-    search_lines_before = _read_logs(log_paths).count(SEARCH_ACCESS_MARK) if log_paths else 0
+    # 이 실행의 검색 요청에만 붙는 nonce. 로그에서 이걸 찾아 "지금 검사하는
+    # 로그에 내 요청이 들어 있다"를 증명한다(CANARY_PARAM 주석 참조).
+    canary_nonce = f"CANARY{uuid.uuid4().hex[:12]}"
 
     status, _, dispatch_body = _http("POST", f"{base_url}/internal/alerts/dispatch")
     if status != 200:
@@ -319,7 +366,7 @@ def check_live(report: Report, base_url: str, log_paths: list[Path]) -> None:
     # 센티널 좌표로 검색 — [밖이에요] 경로에서 실좌표가 들어오는 그 요청이다.
     status, headers, search_body = _http(
         "POST",
-        f"{base_url}/v1/shelters/search",
+        f"{base_url}/v1/shelters/search?{CANARY_PARAM}={canary_nonce}",
         {
             "sessionToken": token,
             "dongCode": "1162064500",
@@ -372,43 +419,47 @@ def check_live(report: Report, base_url: str, log_paths: list[Path]) -> None:
     # 파일에 없는 채로 "좌표 없음 = 통과"가 된다 — 스냅샷 로그를 검사하면 반드시
     # 그 일이 벌어진다(PR #76 리뷰에서 확인된 실제 결함).
     log_canary_ok = False
-    if not log_paths:
+    if not log_paths and log_command is None:
         report.add(
-            "P2-logs", "WARN", "--log 미지정 — 서버 로그의 좌표 부재는 이번 실행에서 검사되지 않음"
+            "P2-logs",
+            "WARN",
+            "--log/--log-command 미지정 — 서버 로그의 좌표 부재는 이번 실행에서 검사되지 않음",
         )
     else:
-        # 접근 기록이 파일에 도달할 때까지 기다린다 — 흘려 쓰는 경우 지연이 있다.
-        log_text = _read_logs(log_paths)
+        # 내 요청의 nonce 가 로그에 나타날 때까지 기다린다.
+        log_text = _read_logs(log_paths, log_command)
         for _ in range(LOG_ARRIVAL_TRIES):
-            if log_text.count(SEARCH_ACCESS_MARK) > search_lines_before:
+            if canary_nonce in log_text:
                 break
             time.sleep(LOG_ARRIVAL_INTERVAL_S)
-            log_text = _read_logs(log_paths)
-        search_lines_after = log_text.count(SEARCH_ACCESS_MARK)
+            log_text = _read_logs(log_paths, log_command)
+        source = log_command or ", ".join(str(p) for p in log_paths)
         leaked = [f for f in SENTINEL_FRAGMENTS if f in log_text]
-        if search_lines_after <= search_lines_before:
+        if canary_nonce not in log_text:
             report.add(
                 "P2-logs",
                 "FAIL",
-                f"내 센티널 요청의 접근 기록이 로그에 나타나지 않음 "
-                f"(요청 전 {search_lines_before}줄 → {LOG_ARRIVAL_TRIES}회 재시도 후 "
-                f"{search_lines_after}줄). 얼어붙은 스냅샷을 검사하고 있거나"
-                "(`docker compose logs` 를 `-f` 없이 떠서 파일이 더 자라지 않는 경우) "
-                "접근 로그가 꺼져 있음. 이 상태의 '좌표 없음'은 증거가 아님",
+                f"이 실행의 요청이 검사한 로그에 없음 — nonce({canary_nonce})를 쿼리스트링에 "
+                f"실어 보냈는데 {LOG_ARRIVAL_TRIES}회 재시도 후에도 로그에 나타나지 않았다. "
+                "미리 떠 놓은 스냅샷을 검사하고 있거나, 엉뚱한 로그이거나, 접근 로그가 "
+                f"꺼져 있다. 검사 대상이 없는 상태의 '좌표 없음'은 증거가 아니다. (출처: {source})",
             )
         elif leaked:
             report.add(
                 "P2-logs",
                 "FAIL",
-                f"서버 로그에 원본 좌표 발견 (조각 {leaked}): {[str(p) for p in log_paths]}",
+                f"서버 로그에 원본 좌표 발견 (조각 {leaked}) — 좌표가 URL 로 새거나 "
+                f"애플리케이션 로깅이 좌표를 찍고 있다. (출처: {source})",
             )
         else:
             log_canary_ok = True
             report.add(
                 "P2-logs",
                 "PASS",
-                f"내 센티널 요청이 로그에 도달했고(검색 기록 {search_lines_before}→"
-                f"{search_lines_after}줄) 그 로그에 좌표는 없음",
+                "이 실행의 요청이 로그에 기록됐고(nonce 확인 — 로그가 요청 URL 을 남긴다는 "
+                "증거), 그 로그에 센티널 좌표는 없음 = 좌표가 URL 로 새지 않았다. "
+                "⚠️ POST 본문 좌표는 접근 로그에 원리상 안 남으므로 이 PASS 를 "
+                "'본문 좌표도 안 남는다'의 증거로 인용하면 틀린다(docstring 참조)",
             )
 
     # P3: 저장이 없으면 파기할 대상도 없다 — P2 계열이 전부 통과일 때만 유도.
@@ -455,7 +506,17 @@ def add_manual_skips(report: Report) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", help="기동된 backend 주소 (미지정 시 정적 검사만)")
-    parser.add_argument("--log", type=Path, nargs="*", default=[], help="스캔할 서버 로그 파일(들)")
+    parser.add_argument(
+        "--log",
+        type=Path,
+        nargs="*",
+        default=[],
+        help="스캔할 서버 로그 파일(들) — 검사 중에도 자라는 파일이어야 한다",
+    )
+    parser.add_argument(
+        "--log-command",
+        help="로그를 가져올 명령. 센티널 요청 **뒤에** 실행된다 (컨테이너 로그용)",
+    )
     parser.add_argument("--out", type=Path, help="결과 JSON 저장 경로 (S1-E6 증빙용)")
     args = parser.parse_args()
 
@@ -466,7 +527,7 @@ def main() -> int:
 
     if args.base_url:
         print("── 라이브 검사 (기동된 스택, HTTP만) ──")
-        check_live(report, args.base_url.rstrip("/"), args.log)
+        check_live(report, args.base_url.rstrip("/"), args.log, args.log_command)
     else:
         print("── 라이브 검사: --base-url 미지정으로 건너뜀 ──")
         report.add("P2/P3/P4", "SKIP", "--base-url 미지정 — 스택을 기동하고 다시 실행하세요")

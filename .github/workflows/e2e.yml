@@ -65,29 +65,26 @@ jobs:
       # 기동된 스택과 그 스택의 로그를 둘 다 요구하고, 그 둘이 여기밖에 없습니다.
       # 스택이 없으면(SAVERS_E2E_BASE_URL 미설정) 정적 검사만 돌고, 라이브 항목은
       # SKIP으로 보고됩니다 — SKIP은 통과가 아니라 "검사 안 됨"입니다.
-      # ⚠️ 로그는 반드시 `-f`로 **흘려 써야** 합니다. `-f` 없는 `docker compose logs`는
-      #    그 순간까지의 스냅샷이라 다음 줄에서 스크립트가 보내는 센티널 요청의 접근
-      #    기록이 파일에 절대 들어오지 않습니다. 그러면 카나리아가 앞서 돌아간 pytest의
-      #    같은 경로 줄로 통과해버려, 정작 검사 대상인 요청이 없는 채로 "좌표 없음 =
-      #    통과"가 됩니다 — 스크립트가 막으려는 그 무음 실패를 배선이 재현하는 셈입니다
-      #    (PR #76 리뷰에서 확인된 결함). 스크립트 쪽도 카나리아를 "내 요청이 로그에
-      #    추가됐는가"로 강화했으므로, 스냅샷을 넘기면 이제 PASS가 아니라 FAIL이 납니다.
+      # ⚠️ 로그를 여기서 미리 파일로 떠서 넘기면 안 됩니다. `docker compose logs`는
+      #    그 순간까지의 스냅샷이라, 스크립트가 뒤이어 보내는 센티널 요청의 접근 기록이
+      #    그 파일에 절대 들어가지 않습니다. 그런데 앞서 돌아간 E2E가 같은 경로를 3회
+      #    호출해 두었으므로, 경로만 보는 카나리아는 남의 요청으로 통과해버립니다 —
+      #    검사 대상이 없는 채로 "좌표 없음 = 통과"가 되는 무음 false PASS입니다
+      #    (PR #76 리뷰에서 확인된 결함).
+      #    그래서 로그 수집을 스크립트에 위임합니다(`--log-command`). 스크립트가 자기
+      #    요청을 보낸 **다음에** 이 명령을 실행하므로 시간 창이 어긋나지 않고,
+      #    백그라운드 `-f` 프로세스와 그 kill·경쟁 상태도 필요 없습니다. 카나리아도
+      #    실행마다 고유한 nonce를 쿼리스트링에 실어 보내는 방식이라 남의 요청으로는
+      #    통과할 수 없습니다.
       - name: 개인정보 점검 (미저장·분리동의)
         if: always()
         run: |
           mkdir -p privacy-out
           if [ -n "${SAVERS_E2E_BASE_URL:-}" ]; then
-            docker compose -f infra/docker-compose.yml logs -f --no-color --no-log-prefix backend \
-              > privacy-out/backend.log 2>&1 &
-            logs_pid=$!
-            rc=0
             python3 scripts/check_privacy.py \
               --base-url "$SAVERS_E2E_BASE_URL" \
-              --log privacy-out/backend.log \
-              --out privacy-out/privacy_report.json || rc=$?
-            kill "$logs_pid" 2>/dev/null || true
-            wait "$logs_pid" 2>/dev/null || true
-            exit "$rc"
+              --log-command "docker compose -f infra/docker-compose.yml logs --no-color --no-log-prefix backend" \
+              --out privacy-out/privacy_report.json
           else
             python3 scripts/check_privacy.py --out privacy-out/privacy_report.json
           fi
