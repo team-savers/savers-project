@@ -107,25 +107,34 @@ def run_pu_pipeline_from_unified_registry(
 
     registry_df = loading.load_unified_registry(registry_path)
 
-    # 같은 pk에 대피소/비-대피소 행이 섞여 있고 대피소 행의 연면적이 더 작으면,
+    # 같은 pk에 대피소/비-대피소 행이 섞여 있고 비-대피소 행의 연면적이 더 크면,
     # 연면적 최대 기준 dedup이 대피소 행을 버리고 그 필지 전체가 조용히 U로
     # 넘어간다 — split_unified_registry()보다 먼저 dedup이 실행되는 순서 자체는
-    # 그대로 두되, dedup 전후로 대피소 행 수가 보존되는지만 검증한다(PR #60 리뷰).
+    # 그대로 두되, dedup 전후로 "대피소 라벨을 가진 필지(pk)"가 보존되는지 검증
+    # 한다. 행 개수 비교(이전 버전)는 같은 pk에 대피소 행이 두 개(본관/별관 등)라
+    # 하나가 dedup으로 줄어도 필지 자체는 여전히 대피소인 정상 케이스에서도 오탐
+    # 했었다 — 그래서 행 수가 아니라 pk 집합으로 비교한다(PR #60 self-review).
     is_shelter_col = schema.UNIFIED_REGISTRY_IS_SHELTER_COL
-    n_shelter_before = int((registry_df[is_shelter_col] == 1).sum())
+    pk_col = schema.UNIFIED_REGISTRY_PK_COL
+    shelter_pks_before = set(registry_df.loc[registry_df[is_shelter_col] == 1, pk_col])
 
     registry_primary_df = loading.select_primary_building(
         registry_df,
         area_col=schema.UNIFIED_REGISTRY_TOTAL_FLOOR_AREA_COL,
-        address_col=schema.UNIFIED_REGISTRY_PK_COL,
+        address_col=pk_col,
     )
 
-    n_shelter_after = int((registry_primary_df[is_shelter_col] == 1).sum())
-    if n_shelter_after != n_shelter_before:
+    # Dedup keeps the largest 연면적 row per pk. Losing a *row* is harmless when the
+    # parcel keeps another shelter row; only a parcel whose surviving row is
+    # non-shelter silently drops the label into U.
+    lost_pks = shelter_pks_before - set(
+        registry_primary_df.loc[registry_primary_df[is_shelter_col] == 1, pk_col]
+    )
+    if lost_pks:
         raise ValueError(
-            f"주건축물 선정에서 대피소 행 {n_shelter_before - n_shelter_after}건이 탈락 "
-            f"({n_shelter_before} -> {n_shelter_after}) - 같은 pk에 대피소/비-대피소 행이 "
-            "섞여 있음. 라벨이 조용히 U로 흡수되므로 여기서 멈춘다"
+            f"주건축물 선정에서 대피소 필지 {len(lost_pks)}건의 라벨이 탈락 "
+            f"(예: {sorted(lost_pks)[:5]}) - 같은 pk에 대피소/비-대피소 행이 섞여 있고 "
+            "비-대피소 행의 연면적이 더 큼. 라벨이 조용히 U로 흡수되므로 여기서 멈춘다"
         )
 
     shelter_rows_df, u_candidates_df = labels.split_unified_registry(registry_primary_df)

@@ -29,6 +29,10 @@ UNIFIED_REGISTRY_CSV = FIXTURES / "shelter_safety_unified_registry_mock.csv"
 # 원본에 바로 섞으면 이 가드가 모든 기존 unified 테스트에서 항상 발동해버리므로
 # 분리한다 (PR #60 리뷰).
 UNIFIED_REGISTRY_DEDUP_GUARD_CSV = FIXTURES / "shelter_safety_unified_registry_dedup_guard_mock.csv"
+# 원본 fixture + dup_03(같은 pk, 대피소 행 2개 -- 본관/별관) 쌍만 추가된 별도 파일.
+# dedup으로 행 하나는 줄지만 필지(pk)는 여전히 대피소로 남는 정상 케이스 —
+# 가드가 이 케이스에서는 에러를 내지 않는지 확인하는 전용 (PR #60 self-review).
+UNIFIED_REGISTRY_DEDUP_OK_CSV = FIXTURES / "shelter_safety_unified_registry_dedup_ok_mock.csv"
 
 
 def _fake_scorer(
@@ -115,11 +119,26 @@ def test_unified_pipeline_raises_when_dedup_drops_a_shelter_row() -> None:
     (is_shelter=0, 연면적 9998) 행이 섞여 있다 — 연면적 최대 기준 dedup이면
     대피소 행이 버려지고 그 필지가 조용히 U로 넘어간다. select_primary_building()
     이 split_unified_registry()보다 먼저 실행되는 순서 자체는 그대로 두되, dedup
-    전후로 대피소 행 수가 보존되는지 검증하는 가드가 여기서 막아야 한다(PR #60 리뷰)."""
+    전후로 "대피소 라벨을 가진 필지(pk)"가 보존되는지 검증하는 가드가 여기서
+    막아야 한다(PR #60 리뷰 -> self-review로 행 수 비교에서 pk 집합 비교로 교체)."""
     with pytest.raises(ValueError, match="대피소 행"):
         run_pu_pipeline_from_unified_registry(
             UNIFIED_REGISTRY_DEDUP_GUARD_CSV, config=SpyPipelineConfig(), scorer=_fake_scorer
         )
+
+
+def test_unified_pipeline_dedup_reducing_duplicate_shelter_rows_does_not_raise() -> None:
+    """dup_03: 같은 pk에 대피소 행이 두 개(본관 연면적 2100 vs 별관 연면적 700) —
+    dedup으로 행 하나(별관)는 줄어도 그 필지는 여전히 대피소(is_shelter=1)로
+    남는다. 이런 정상적인 다중-표제부 케이스에서 가드가 오탐하지 않는지 확인
+    (PR #60 self-review — 행 수 비교였던 이전 버전은 이 케이스에서도 잘못 멈췄었음)."""
+    result = run_pu_pipeline_from_unified_registry(
+        UNIFIED_REGISTRY_DEDUP_OK_CSV, config=SpyPipelineConfig(), scorer=_fake_scorer
+    )
+
+    # 별관 행(REGPK_dup_03A)은 사라지지만, 본관 행(REGPK_dup_03B)이 대피소로
+    # 살아남아 최종 P(안전 대피소)에 포함돼야 한다.
+    assert "dup_03" in set(result.positive[schema.UNIFIED_REGISTRY_PK_COL])
 
 
 def test_unified_pipeline_diagnostics_match_mock_fixture_design() -> None:
