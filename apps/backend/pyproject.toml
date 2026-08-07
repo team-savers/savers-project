@@ -43,11 +43,13 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
-# ⚠️ 대피소 사전 캐시는 .py가 아니므로 명시하지 않으면 wheel/컨테이너 이미지에서 빠집니다.
-#    editable 설치에서는 소스를 직접 가리켜 증상이 없다가, 배포 이미지에서 오프라인
-#    폴백만 FileNotFoundError로 죽습니다 — 즉 장애 상황에서만 터지는 종류의 누락입니다.
+# ⚠️ 픽스처는 .py가 아니므로 명시하지 않으면 wheel/컨테이너 이미지에서 빠집니다.
+#    editable 설치에서는 소스를 직접 가리켜 증상이 없다가, 배포 이미지에서만 죽습니다 —
+#    즉 장애 상황에서만 터지는 종류의 누락입니다.
+#    확장자를 늘릴 때 여기도 같이 늘려야 합니다. 실제로 .jsonl만 적혀 있어서 replay
+#    픽스처(.json) 5종이 통째로 빠져 있었습니다.
 [tool.setuptools.package-data]
-backend_core = ["fixtures/*.jsonl"]
+backend_core = ["fixtures/*.jsonl", "fixtures/*.json"]
 
 # Pylance/pyright 경로 — 없으면 IDE에서 내부 import가 unresolved로 표시됨.
 [tool.pyright]
@@ -56,7 +58,7 @@ extraPaths = ["src"]
 # ⚠️ mypy는 이 디렉토리를 cwd로 실행해야 이 설정을 집습니다 (CI/scripts가 그렇게 호출).
 [tool.mypy]
 python_version = "3.12"
-files = ["src"]
+files = ["src", "scripts"]
 mypy_path = ["src"]
 ignore_missing_imports = false
 warn_unused_ignores = true

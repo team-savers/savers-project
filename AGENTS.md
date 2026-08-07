@@ -96,6 +96,7 @@ All planning docs live under `docs/`; the repo root keeps only `AGENTS.md`, `CLA
 | `docs/공통_가이드/` | Project-wide design docs everyone reads — `개발자_가이드.md`, `환경_세팅_가이드.md`, `배포_절차.md`, `저장소_운영.md`, `아키텍처.md`, `워킹_스켈레톤_설명.md`, `워킹_스켈레톤_점검.md`, `리스크.md`, `구현_범위.md`, `외부_승인.md`, `비용_산정.md`, `개인정보_체크리스트.md`, `후속_과제.md` |
 | `docs/역할_가이드/` | Per-role playbooks — who does what. `01-기획총괄.md` … `06-QA-보안.md` |
 | `docs/역할_일정/` | Per-role timelines — when it must be done. Same role numbering as `역할_가이드/` |
+| `docs/공유_문서/` | Continuously revised working documents (인터뷰 가이드, 회의 결과, …) — **not** competition submission forms, which stay out of the repo per "Not in this repository". Its `README.md` is the index — every file listed with 최종 수정일 · 버전 · 핵심 내용 · 상태·근거, updated in the same PR as the file itself |
 | `docs/adr/` | Architecture decision records (English filenames) |
 | `docs/pr-checklist.md` | PR procedure, inherited from the template |
 
@@ -255,3 +256,9 @@ apps/backend          ──HTTP only──>   apps/ai-engine     (contract in p
 - CI (ruff · mypy · pytest) and pre-commit enforce the same rules on purpose. If they drift apart, people start ignoring the hooks — fix the drift, don't route around it.
 - Repo settings (branch protection, merge strategy, labels) live only on GitHub's side — git does not track them and they never show up in a diff; they are re-applied by `scripts/setup-github.sh`. Details, the manual checklist, and the required-check contract: [docs/공통_가이드/저장소_운영.md](docs/공통_가이드/저장소_운영.md).
 - Architecture decisions go in `docs/adr/` as they are made. This is the anti-bus-factor mechanism for the front-loaded Tech Lead model — an undocumented decision is a decision the team loses.
+- **`docs/adr/` is the single source of truth for "확정" (confirmed).**
+  An item that cannot be traced to an ADR number is **검토 중** (under review), not 확정 — this applies to everyone, no exceptions.
+  Any document meant for outside readers (역할_가이드, 공통_가이드, etc.) marks each confirmed item with a one-line source, and **that source is an ADR number** — a path to another guide document does not qualify, because a guide citing itself is exactly the failure this rule exists to stop.
+  An item with no source line is a signal it hasn't actually been decided yet.
+  If something needs to be promoted to 확정, flag it to the Tech Lead to write the ADR — verbal agreement is not a contract in this repo (see the `Contracts before implementation` rule above), so writing it down is the Tech Lead's job, not the reporter's.
+  Existing documents are brought into line when you are already editing them for another reason; no separate cleanup PR — same as the line-wrapping rule above.
