@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from conftest import SEED_DONG_CODE
+from seed_data import SEED_DONG_CODE
 
 # 캐시에 대피소가 한 곳도 없는 행정동. [밖이에요]를 누른 사용자가 데이터 없는
 # 지역에서 검색하는 상황 — 상류 API도 스텁이라 availability가 빈 상태를 말해야 한다.

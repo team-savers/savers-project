@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from conftest import WORST_CASE_USER_ID
+from seed_data import WORST_CASE_USER_ID
 
 
 @pytest.mark.flow
