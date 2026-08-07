@@ -2,7 +2,7 @@
 
 - **상태**: 승인 (Accepted) — **단, 푸시 채널 부분은 [ADR-0005](0005-webpush-primary-channel.md)로 대체됨 (2026-07-26)**
 - **날짜**: 2026-07-25
-- **결정자**: 안은남 (PM), 이진호 (Frontend/UX), 김도혁 (QA/Security, 웹푸시 대체경로)
+- **결정자**: 안은남 (PM), 이진호 (Frontend/UX), 김도혁 (QA/Security, 웹푸시 대체경로) — 역할 표기는 결정 시점 기준이며, #17 이후 QA/Security는 최혜리, Backend/Infra는 김도혁이다. 현재 역할은 [AGENTS.md](../../AGENTS.md) 팀 표를 따른다
 - **관련 문서**: [CLAUDE.md](../../CLAUDE.md) 설계 원칙·Tech stack, [구현_범위.md](../공통_가이드/구현_범위.md) 4절, [개발자_가이드.md](../공통_가이드/개발자_가이드.md) 4절, [역할_가이드/04-프론트엔드-UX.md](../역할_가이드/04-프론트엔드-UX.md), [ADR-0001](0001-monorepo.md)
 
 ## 배경 (Context)
