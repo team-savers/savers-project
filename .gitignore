@@ -10,6 +10,9 @@
 내부_*.md
 docs/제출_자료/
 docs/참고_자료/
+# 공유_문서/는 개정되는 마크다운 전용입니다. 제출 서식 PDF를 경로만 바꿔 두는 우회를
+# 막기 위해 이 폴더의 PDF는 확장자로도 차단합니다(docs/제출_자료/ 경로 차단의 백스톱).
+docs/공유_문서/*.pdf
 
 # --- Jupyter Notebook & Lab Outputs ---
 .ipynb_checkpoints/

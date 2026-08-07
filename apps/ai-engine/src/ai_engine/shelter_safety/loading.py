@@ -67,9 +67,43 @@ def load_building_registry(path: str | Path) -> pd.DataFrame:
     return pd.read_csv(path, dtype={schema.REGISTRY_ROAD_ADDRESS_CODE_COL: str})
 
 
-def select_primary_building(registry_df: pd.DataFrame) -> pd.DataFrame:
-    """필지(도로명주소코드)당 표제부가 여러 행일 때, 연면적이 가장 큰 행을
-    주건축물로 선정해 1행으로 축소한다.
+def load_unified_registry(path: str | Path) -> pd.DataFrame:
+    """건축물대장 전체(실제 파일) CSV를 로드한다 — 라벨·건물 피처·(2026-08-05부터)
+    브이월드 PNU 조인으로 붙은 공간 피처까지 이미 한 행에 있는 완전판이라,
+    `load_flood_shelters()`와의 조인은 필요 없다. ⚠️ 이건 "조인이 아예 없다"는
+    뜻이 아니다 — 브이월드 GIS건물통합정보와의 PNU 조인은 실제로 있었고, 우리
+    파이프라인이 하는 게 아니라 이미 끝난 결과를 통째로 로드할 뿐이다
+    (schema.py 상단 docstring의 정정 내용 참고).
+
+    실제 파일 인코딩은 UTF-8 BOM으로 확인됨(2026-08-05) — `load_flood_shelters()`/
+    `load_building_registry()`(mock 대상, 인코딩 미확정)와 달리 여기서는 고정한다.
+    `PNU`도 `pk`와 같은 이유로 문자열 강제 — 19자리 정수라 int64로 읽어도 이번
+    3개구 데이터에서 선행 0 손실은 없지만(시군구코드가 전부 1로 시작), 식별자는
+    항상 문자열로 강제하는 이 모듈의 관례를 일관되게 적용한다.
+    """
+    import pandas as pd
+
+    return pd.read_csv(
+        path,
+        encoding="utf-8-sig",
+        dtype={schema.UNIFIED_REGISTRY_PK_COL: str, schema.UNIFIED_REGISTRY_PNU_COL: str},
+    )
+
+
+def select_primary_building(
+    registry_df: pd.DataFrame,
+    *,
+    area_col: str = schema.REGISTRY_TOTAL_FLOOR_AREA_COL,
+    address_col: str = schema.REGISTRY_ROAD_ADDRESS_CODE_COL,
+) -> pd.DataFrame:
+    """필지(`address_col`)당 표제부가 여러 행일 때, 연면적(`area_col`)이 가장 큰
+    행을 주건축물로 선정해 1행으로 축소한다.
+
+    키워드 인자 기본값은 레거시(mock) 스키마 — 실제 통합 건축물대장 파일은
+    `pipeline.run_pu_pipeline_from_unified_registry()`에서 `UNIFIED_REGISTRY_*`
+    상수를 명시적으로 넘겨 호출한다. 실제 파일은 이미 필지(`pk`)당 1행으로 정리돼
+    도착했으므로(2026-08-05 확인 — 중복 0건), 이 함수를 그대로 돌려도 그룹 크기가
+    항상 1이라 아무것도 제거되지 않는 멱등(idempotent) 연산이다.
 
     `idxmax`가 아니라 정렬 + `drop_duplicates`를 쓰는 이유: 연면적이 결측(NaN)인
     표제부가 섞여 있어도 (`na_position="last"`) 죽지 않고, 동점일 때도 항상 같은
@@ -81,12 +115,10 @@ def select_primary_building(registry_df: pd.DataFrame) -> pd.DataFrame:
     밀려서, 실제로는 가장 큰 건물인데 탈락하고 콤마 없는 작은 부속건물이
     "주건축물"로 잘못 뽑히는 사고가 실제로 있었다. 정리 후에도 파싱되지 않는
     값이 남으면(=정리 전에는 없던 결측이 새로 생기면) 조용히 넘어가지 않고
-    `UnparseableAreaError`를 낸다.
+    `UnparseableAreaError`를 낸다. (실제 통합 파일은 이미 float64라 이 정리가
+    걸리지 않지만, 숫자 입력에도 no-op이라 안전하게 통과한다.)
     """
     import pandas as pd
-
-    area_col = schema.REGISTRY_TOTAL_FLOOR_AREA_COL
-    address_col = schema.REGISTRY_ROAD_ADDRESS_CODE_COL
 
     working = registry_df.copy()
     original_na_count = working[area_col].isna().sum()

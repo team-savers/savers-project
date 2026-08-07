@@ -8,6 +8,7 @@ import os
 
 import httpx
 import pytest
+from seed_data import WORST_CASE_USER_ID
 
 BASE_URL_ENV = "SAVERS_E2E_BASE_URL"
 
@@ -35,3 +36,23 @@ def client(base_url: str):
     """
     with httpx.Client(base_url=base_url, timeout=30.0) as c:
         yield c
+
+
+@pytest.fixture
+def worst_case_delivery(client: httpx.Client) -> dict:
+    """데모 특보를 발송하고 p001의 배송 결과를 돌려준다.
+
+    함수 스코프인 것은 의도다 — 발송마다 새 세션/보호자 토큰이 나오므로, 앞선
+    테스트가 acknowledge한 상태가 다음 테스트로 새지 않는다.
+    """
+    dispatch = client.post("/internal/alerts/dispatch")
+    assert dispatch.status_code == 200, dispatch.text
+    run = dispatch.json()
+    assert run["matched"] >= 1, "seeded 행정동에 등록된 주민이 매칭되지 않음"
+
+    delivery = next((d for d in run["deliveries"] if d["userId"] == WORST_CASE_USER_ID), None)
+    assert delivery is not None, (
+        f"{WORST_CASE_USER_ID} 배송 결과가 없음 — 매칭 실패 "
+        "(registry.py 시드가 바뀌었다면 이 파일의 상수를 함께 고칠 것)"
+    )
+    return delivery
