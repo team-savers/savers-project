@@ -34,6 +34,10 @@
 //     지표를 부풀리지 않게 한다.
 //   - NLP/형태소 분석은 도입하지 않았다. 정해진 사전 + 경로만 사용한다.
 
+// 타입만 가져온다(런타임 의존 없음) — 단계적 노출의 지침 판별이 화면
+// 언어별로 갈리기 때문이다(아래 STEP_DIRECTIVE_PATTERNS 참조).
+import type { Language } from '../api/types'
+
 // ---- Term dictionary --------------------------------------------------
 
 export type TermCategory =
@@ -927,4 +931,147 @@ function countSentences(text: string): number {
   }
   const pieces = text.split(SENTENCE_END).filter((s) => s.trim().length > 0)
   return Math.max(1, pieces.length)
+}
+
+// ---- 단계적 노출(EasyText "다음" 버튼) ----------------------------------
+//
+// splitIntoSteps/orderStepsDirectiveFirst는 원래 EasyText.tsx 안에 있었다
+// (PR #50). 순수 함수라 프론트엔드에 테스트 러너가 들어오면 바로 테스트할
+// 수 있도록 여기로 옮겼다(PR #50 리뷰 코멘트).
+
+// 문장 경계. apps/ai-engine의 guardrail._SENTENCE_SPLIT과 반드시 같은
+// 기준(종결부호 뒤 공백, 줄바꿈)을 써야 한다 — 두 곳이 서로 다른 경계를
+// 쓰면 "몇 문장인지"가 화면마다 달라진다.
+//
+// lookbehind(`(?<=...)`)를 쓰지 않는다. Safari 16.4 미만에서는 정규식
+// 리터럴 **파싱 자체**가 실패해 이 모듈이 든 청크 전체가 평가에 실패하고,
+// 알림 화면이 빈 화면이 된다 — 기능만 꺼지는 실패가 아니라 부팅 실패다.
+// `npm run build` 경고 부재는 빌드 타깃이 지원한다는 뜻일 뿐 사용자 기기가
+// 지원한다는 뜻이 아니다(PR #50 리뷰 3라운드). 종결부호 뒤 공백을 줄바꿈으로
+// 표시한 뒤 줄바꿈으로만 자르면 같은 경계를 얻는다 — 줄바꿈은 원래도
+// 경계였다.
+const STEP_SENTENCE_MARK = /([.!?。])\s+/g
+const STEP_SENTENCE_SPLIT = /\n+/
+
+function splitSentences(text: string): string[] {
+  return text.replace(STEP_SENTENCE_MARK, '$1\n').split(STEP_SENTENCE_SPLIT)
+}
+
+// 숫자/구두점만 남은 조각("1.", "-", "②" 등 번호 매기기 목록의 마커)인지
+// 판별한다. 이런 조각은 단독 스텝으로 두면 안 된다 — 사용자가 "1."만 있는
+// 화면을 보고 탭해야 다음 내용이 나오는 결함이 생긴다.
+const STEP_FRAGMENT_ONLY = /^[\s\d.\-)②③④⑤①]+$/
+
+// "한 가지 행동 지침" 문장을 판별한다. 화면 언어별로 어미가 다르므로
+// 언어별 표를 둔다 — 한국어 어미만 보면 베트남어 화면에서 지침을 못 찾고,
+// 그러면 행동 문장이 첫 화면에서 사라진다(PR #50 리뷰, 머지 전 필수).
+//
+// ⚠️ ko의 두 패턴을 합집합하면 apps/ai-engine의 guardrail._DIRECTIVE_PATTERN
+// (하세요|하십시오|주세요|가세요|마세요)과 **문자 그대로 같다**. 둘을 나눈
+// 것은 순서를 고르기 위한 것일 뿐, 판별 대상 집합을 바꾼 게 아니다 — 이
+// 동일성이 두 곳의 "지침 문장" 정의를 일치시키는 불변식이므로, 어미를
+// 추가·삭제할 때는 guardrail 쪽과 함께 바꿔야 한다.
+//
+// 고유어 명령형(신으세요·닫으세요·챙기세요)은 양쪽 모두 매칭하지 못한다.
+// 프론트에서만 넓히면 위 불변식이 깨지므로 여기서는 넓히지 않는다 — 못
+// 찾으면 원문 순서를 그대로 두는 폴백이 동작하고, 패턴 확장은 ai-engine과
+// 함께 처리할 후속 과제다.
+//
+// vi: 명령·권유는 `hãy`, 금지는 `đừng` / `không được`. 단어 경계(\b)를 쓰지
+// 않는 이유는 `đ`가 ASCII 단어 문자가 아니어서 공백 뒤 `đừng`에 경계가 잡히지
+// 않기 때문이다. ko 패턴도 경계 없이 부분 문자열로 판별하므로 방식이 같다.
+const STEP_DIRECTIVE_PATTERNS: Partial<
+  Record<Language, { action: RegExp; prohibition: RegExp }>
+> = {
+  ko: { action: /(하세요|하십시오|주세요|가세요)/, prohibition: /마세요/ },
+  vi: { action: /hãy/i, prohibition: /(đừng|không được)/i },
+}
+
+// 번호·불릿 마커로 시작하는 스텝인지. 목록은 순서 자체가 의미이므로 재배열
+// 대상이 아니다 — "1. 창문을 닫으세요. 2. 밖으로 나가세요."에서 2번을 앞으로
+// 끌어올리면 사용자가 읽는 순서가 원문과 뒤집힌다(PR #50 리뷰).
+// STEP_FRAGMENT_ONLY는 "마커뿐인 조각"을 전체 일치로 보는 반면, 이쪽은
+// "마커로 시작하는 문장"을 접두 일치로 본다 — 쓰임이 다르다.
+const STEP_LIST_MARKER_PREFIX = /^\s*(?:\d+\s*[.)]|[-•·]|[①②③④⑤])/
+
+// 문장 단위로 쪼갠다. 번호 매기기 목록의 마커 조각("1." 등)은 독립 스텝으로
+// 두지 않고 인접 문장에 붙인다.
+export function splitIntoSteps(text: string): string[] {
+  const raw = splitSentences(text)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+
+  const merged: string[] = []
+  for (const piece of raw) {
+    const last = merged[merged.length - 1]
+    if (last !== undefined && STEP_FRAGMENT_ONLY.test(last)) {
+      // 이전 조각이 마커뿐이었다면(마커 혼자만 있어도) 지금 조각을 그 뒤에
+      // 붙인다 — 마커가 연달아 나오는 경우("1." "-")도 이 분기로 합쳐진다.
+      merged[merged.length - 1] = `${last} ${piece}`
+      continue
+    }
+    merged.push(piece)
+  }
+
+  // 텍스트 마지막이 마커뿐으로 끝나는 드문 경우 — 붙일 다음 문장이 없으니
+  // 이전 문장에 붙인다.
+  if (merged.length > 1) {
+    const lastIdx = merged.length - 1
+    const last = merged[lastIdx]
+    const prev = merged[lastIdx - 1]
+    if (last !== undefined && prev !== undefined && STEP_FRAGMENT_ONLY.test(last)) {
+      merged[lastIdx - 1] = `${prev} ${last}`
+      merged.pop()
+    }
+  }
+
+  return merged
+}
+
+// 행동 지침 문장을 첫 스텝으로 끌어올린다. 원문 순서가 "상황 설명 → 행동
+// 지침"이면 단계적 노출의 첫 화면에 행동 지침이 없어, 사용자가 왜
+// 대피해야 하는지도 모른 채 화면을 넘겨야 정작 무엇을 해야 하는지 보게
+// 된다 — Landing.tsx의 "푸시로 읽은 문장과 화면 문장이 같아야 한다"
+// 불변식, ai-engine의 test_message_is_self_contained(ADR-0005, "본문만
+// 읽어도 행동이 나와야 한다")와 충돌한다(PR #50 리뷰 블로킹 코멘트).
+// 지침 문장을 찾아 맨 앞으로 옮기고 나머지는 원래 상대 순서를 유지한다.
+// 지침 문장이 없으면(이미 첫 문장이거나, 매칭되는 어미가 없으면) 원문
+// 순서를 그대로 둔다.
+//
+// lang 은 화면 언어다 — 지침 어미가 언어마다 다르므로 반드시 받아야 한다.
+// 표에 없는 언어(zh·en)는 한국어 패턴으로 폴백한다. "그 언어의 어미를 모르면
+// 건드리지 않는다"가 아닌 이유: 생성 측 문안 프레임이 한국어 전용이라
+// (generation.py의 _OPENER·_DIRECTIVE_SHELTER — language는 프롬프트 힌트일 뿐)
+// zh/en 프로필이 실제로 받는 본문은 한국어일 공산이 크고, 그때 건너뛰면
+// 행동 지침이 다시 탭 뒤로 숨는다(PR #50 리뷰 3라운드). 같은 화면의 다른
+// 코드도 전부 "vi 아니면 ko" 이분법이다(substituteAdminTerms, t() 폴백).
+// 본문이 진짜 중국어·영어로 오는 날에는 한국어 어미가 하나도 안 걸려
+// 재배열이 일어나지 않으므로 이 폴백은 그 경우 무해하다.
+export function orderStepsDirectiveFirst(steps: string[], lang: Language): string[] {
+  const patterns = STEP_DIRECTIVE_PATTERNS[lang] ?? STEP_DIRECTIVE_PATTERNS.ko
+  if (patterns === undefined) return steps
+
+  // 번호 목록이면 재배열을 건너뛴다(STEP_LIST_MARKER_PREFIX 주석 참조).
+  if (steps.some((s) => STEP_LIST_MARKER_PREFIX.test(s))) return steps
+
+  const idx = findDirectiveIndex(steps, patterns)
+  if (idx <= 0) return steps
+  const directive = steps[idx]
+  if (directive === undefined) return steps
+  return [directive, ...steps.slice(0, idx), ...steps.slice(idx + 1)]
+}
+
+// 승격할 지침 문장의 인덱스. 금지문("…마세요", "đừng …")보다 **실제로 할
+// 행동**을 먼저 찾는다 — 첫 화면이 "지하 주차장에 가지 마세요"로 시작하면
+// 사용자가 처음 보는 문장이 "할 일"이 아니라 "하지 말 것"이 되고, 정작 할
+// 행동은 탭 뒤에 남는다(PR #50 리뷰). 행동 문장이 없을 때에만 금지문을
+// 승격한다 — 금지문뿐인 문안에서는 그것이 유일한 지침이다.
+function findDirectiveIndex(
+  steps: string[],
+  patterns: { action: RegExp; prohibition: RegExp },
+): number {
+  const { action, prohibition } = patterns
+  const actionIdx = steps.findIndex((s) => action.test(s) && !prohibition.test(s))
+  if (actionIdx !== -1) return actionIdx
+  return steps.findIndex((s) => action.test(s) || prohibition.test(s))
 }
