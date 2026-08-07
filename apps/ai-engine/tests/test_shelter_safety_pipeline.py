@@ -121,7 +121,7 @@ def test_unified_pipeline_raises_when_dedup_drops_a_shelter_row() -> None:
     이 split_unified_registry()보다 먼저 실행되는 순서 자체는 그대로 두되, dedup
     전후로 "대피소 라벨을 가진 필지(pk)"가 보존되는지 검증하는 가드가 여기서
     막아야 한다(PR #60 리뷰 -> self-review로 행 수 비교에서 pk 집합 비교로 교체)."""
-    with pytest.raises(ValueError, match="대피소 행"):
+    with pytest.raises(ValueError, match="라벨이 탈락"):
         run_pu_pipeline_from_unified_registry(
             UNIFIED_REGISTRY_DEDUP_GUARD_CSV, config=SpyPipelineConfig(), scorer=_fake_scorer
         )
