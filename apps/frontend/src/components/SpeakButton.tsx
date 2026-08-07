@@ -84,10 +84,24 @@ export function SpeakButton({ text, lang = 'ko', block = false }: Props): ReactN
   // 설정되어 useEffect cleanup 이 cancel 을 호출한다.
   const cancelledRef = useRef<boolean>(false)
 
+  // 발화 세대 카운터. speechSynthesis.cancel() 은 진행 중이던 utterance 에
+  // end 이벤트를 발생시키는데, 그 이벤트가 **새 발화의 start 이후에** 도착할
+  // 수 있다. 그러면 옛 utterance 의 onend 가 setSpeaking(false) 로 새 발화의
+  // 상태를 덮어써, 실제로 읽고 있는데 speaking 이 false 가 된다. 그 상태에서
+  // 본문이 또 바뀌면 아래 "발화 중 텍스트 갱신" 이펙트의 조건이 거짓이 되어
+  // 낭독이 조용히 멈춘다 — 단계적 노출에서 "다음"을 발화 중에 누르면 그
+  // 다음부터 재발화가 통째로 건너뛰어지는 증상이다(PR #50 리뷰 2라운드).
+  // 발화마다 세대 번호를 붙이고, 자기 세대가 아닌 핸들러는 상태를 건드리지
+  // 않게 한다.
+  const generationRef = useRef<number>(0)
+
   // 발화 중지. cancel 은 idempotent — 대기열에 없어도 안전하다.
   const stop = useCallback((): void => {
     const synth = getSynth()
     if (synth === null) return
+    // 세대를 올려 지금 취소되는 utterance 의 뒤늦은 end/error 가 이후 상태를
+    // 건드리지 못하게 한다.
+    generationRef.current += 1
     synth.cancel()
     setSpeaking(false)
   }, [])
@@ -116,51 +130,89 @@ export function SpeakButton({ text, lang = 'ko', block = false }: Props): ReactN
     }
   }, [stop])
 
-  const handleClick = useCallback((): void => {
-    const synth = getSynth()
-    if (synth === null) return
+  // 새 발화를 시작한다(토글이 아니라 항상 시작) — handleClick과 아래
+  // "발화 중 텍스트 갱신" 이펙트가 공유한다.
+  const speak = useCallback(
+    (toSpeak: string): void => {
+      const synth = getSynth()
+      if (synth === null) return
 
+      // 새 발화 시작 전에 반드시 잔여 대기열을 비운다. 그렇지 않으면 이전
+      // 발화가 누적되어 두 음성이 겹쳐 들린다. 세대를 먼저 올려, 이 cancel
+      // 이 유발하는 옛 utterance 의 end 이벤트가 아래 새 핸들러들의 상태를
+      // 덮어쓰지 못하게 한다(generationRef 주석 참조).
+      const generation = generationRef.current + 1
+      generationRef.current = generation
+      synth.cancel()
+      cancelledRef.current = false
+
+      const utter = new SpeechSynthesisUtterance(toSpeak)
+      utter.lang = bcp47
+      utter.rate = 0.95
+      utter.pitch = 1
+
+      // 해당 언어 음성이 있으면 지정. 없으면 브라우저 기본 음성으로
+      // 발화(사용자 환경에 설치된 음성이 없을 수 있다).
+      const voices = synth.getVoices()
+      const voice = pickVoice(voices, bcp47)
+      if (voice !== null) {
+        utter.voice = voice
+      }
+
+      // 세 핸들러 모두 자기 세대일 때만 상태를 바꾼다 — 더 새로운 발화가
+      // 이미 시작됐다면 이 utterance 의 이벤트는 지나간 사건이다.
+      utter.onstart = (): void => {
+        if (generationRef.current !== generation) return
+        if (cancelledRef.current) {
+          // 시작되기 전에 이미 취소됨 — 즉시 정지.
+          synth.cancel()
+          return
+        }
+        setSpeaking(true)
+      }
+      utter.onend = (): void => {
+        if (generationRef.current !== generation) return
+        setSpeaking(false)
+      }
+      utter.onerror = (): void => {
+        if (generationRef.current !== generation) return
+        setSpeaking(false)
+      }
+
+      synth.speak(utter)
+    },
+    [bcp47],
+  )
+
+  const handleClick = useCallback((): void => {
     // 이미 발화 중이면 토글 → 중지.
     if (speaking) {
       stop()
       return
     }
+    speak(text)
+  }, [speaking, stop, speak, text])
 
-    // 새 발화 시작 전에 반드시 잔여 대기열을 비운다. 그렇지 않으면 이전
-    // 발화가 누적되어 두 음성이 겹쳐 들린다.
-    synth.cancel()
-    cancelledRef.current = false
-
-    const utter = new SpeechSynthesisUtterance(text)
-    utter.lang = bcp47
-    utter.rate = 0.95
-    utter.pitch = 1
-
-    // 해당 언어 음성이 있으면 지정. 없으면 브라우저 기본 음성으로
-    // 발화(사용자 환경에 설치된 음성이 없을 수 있다).
-    const voices = synth.getVoices()
-    const voice = pickVoice(voices, bcp47)
-    if (voice !== null) {
-      utter.voice = voice
-    }
-
-    utter.onstart = (): void => {
-      if (cancelledRef.current) {
-        // 시작되기 전에 이미 취소됨 — 즉시 정지.
-        synth.cancel()
-        return
+  // 발화 중에 text prop이 바뀌면(예: EasyText 단계적 노출에서 "다음"을 눌러
+  // 문장이 새로 펼쳐짐) 갱신된 문장 전체로 다시 읽는다. 그렇지 않으면
+  // 화면에는 새 문장이 보이는데 소리는 이미 끝난 옛 문장에서 멈춰 있는
+  // 어긋남이 생긴다 — 이 버튼이 지키려는 "화면과 소리는 같은 문장을
+  // 말해야 한다" 불변식이 반대 방향으로 깨진다(PR #50 리뷰). 처음부터
+  // 다시 읽으므로 이미 들은 부분이 살짝 반복되지만, 문장이 어긋나는 것보다
+  // 낫다는 판단이다.
+  const speakingRef = useRef(speaking)
+  useEffect(() => {
+    speakingRef.current = speaking
+  }, [speaking])
+  const prevTextRef = useRef(text)
+  useEffect(() => {
+    if (prevTextRef.current !== text) {
+      prevTextRef.current = text
+      if (speakingRef.current) {
+        speak(text)
       }
-      setSpeaking(true)
     }
-    utter.onend = (): void => {
-      setSpeaking(false)
-    }
-    utter.onerror = (): void => {
-      setSpeaking(false)
-    }
-
-    synth.speak(utter)
-  }, [text, bcp47, speaking, stop])
+  }, [text, speak])
 
   // 비활성화 스타일: 지원되지 않는 환경에서 버튼이 죽은 컨트롤이 되는
   // 것을 명확히 시각화.
