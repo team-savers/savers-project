@@ -61,6 +61,36 @@ jobs:
         working-directory: e2e
         run: pytest -v
 
+      # 미저장·암호화 점검(S1-E6). 이 잡에 붙이는 이유는 하나입니다 — 라이브 검사가
+      # 기동된 스택과 그 스택의 로그를 둘 다 요구하고, 그 둘이 여기밖에 없습니다.
+      # 스택이 없으면(SAVERS_E2E_BASE_URL 미설정) 정적 검사만 돌고, 라이브 항목은
+      # SKIP으로 보고됩니다 — SKIP은 통과가 아니라 "검사 안 됨"입니다.
+      # ⚠️ 로그를 먼저 파일로 떨어뜨려야 합니다. 스크립트의 로그 검사는 카나리아를
+      #    요구해서(같은 로그에 검색 요청의 접근 기록이 보여야 좌표 부재가 증거가 됨),
+      #    빈 파일을 넘기면 통과가 아니라 FAIL이 납니다.
+      - name: 개인정보 점검 (미저장·분리동의)
+        if: always()
+        run: |
+          mkdir -p privacy-out
+          if [ -n "${SAVERS_E2E_BASE_URL:-}" ]; then
+            docker compose -f infra/docker-compose.yml logs --no-color --no-log-prefix backend \
+              > privacy-out/backend.log || true
+            python3 scripts/check_privacy.py \
+              --base-url "$SAVERS_E2E_BASE_URL" \
+              --log privacy-out/backend.log \
+              --out privacy-out/privacy_report.json
+          else
+            python3 scripts/check_privacy.py --out privacy-out/privacy_report.json
+          fi
+
+      - name: Upload privacy report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: privacy-check-report
+          path: privacy-out/*.json
+          retention-days: 30
+
       - name: Stack logs (실패 시 원인 파악용)
         if: failure() && hashFiles('infra/docker-compose.yml') != ''
         run: docker compose -f infra/docker-compose.yml logs --no-color --tail=200
