@@ -206,6 +206,12 @@ export type StringKey =
   | 'speak.stop'
   | 'speak.aria.read'
   | 'speak.aria.stop'
+  // EasyText 단계적 노출 — "다음" 버튼. 이 버튼은 행동 지침에 도달하는
+  // 유일한 통로이므로 화면 언어를 반드시 따라야 한다: 라벨이 한국어면
+  // 베트남어만 읽는 사용자에게 지침으로 가는 길이 읽을 수 없는 글자로
+  // 적혀 있는 셈이 된다(PR #50 리뷰, 머지 전 필수).
+  | 'easyText.next'
+  | 'easyText.allRevealed'
 
 // The dictionary entry shape. `ko` is always required — it is the baseline
 // that every fallback resolves to. `vi` is optional at the type level but
@@ -694,6 +700,15 @@ const DICTIONARY: Dictionary = {
   'speak.aria.stop': {
     ko: '읽어주기 멈추기',
     vi: 'Dừng đọc to',
+  },
+  // {current}/{total} — 지금 펼친 문장 수 / 전체 문장 수.
+  'easyText.next': {
+    ko: '다음 ({current}/{total})',
+    vi: 'Tiếp ({current}/{total})',
+  },
+  'easyText.allRevealed': {
+    ko: '모두 보여드렸습니다',
+    vi: 'Đã hiển thị toàn bộ',
   },
 }
 
