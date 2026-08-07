@@ -179,6 +179,16 @@ export function Preview({ token }: Props) {
     setSirenOn(sirenRef.current.start())
   }
 
+  // 도착하면 경보음의 목적이 끝난다. 도착 화면에는 툴바(끄는 수단)가 없으므로,
+  // 여기서 자동으로 끄지 않으면 소리만 남은 채 되돌아갈 길이 세 탭이다 —
+  // 소유권을 플로우로 올리면서 생긴 반대 방향 부작용(PR #54 리뷰 3라운드).
+  // 도착 화면에 툴바를 다시 띄우는 대신 단계 전환에서 끈다.
+  useEffect(() => {
+    if (stage !== 'arrived') return
+    sirenRef.current?.stop()
+    setSirenOn(false)
+  }, [stage])
+
   useEffect(() => {
     if (stage === 'intro') vibrateSafe(disasterStage === 1 ? 120 : [200, 100, 200])
     if (stage === 'arrived') vibrateSafe(400)
@@ -573,7 +583,10 @@ function IntroScreenTakeAction({
 
       {/* 대략적 위치 배지 — 정밀 GPS가 아니라 대피소 좌표 기준이라는 걸
           계속 밝힌다. */}
-      {mapCenter !== null && (
+      {/* 배지는 요약 화면과 같은 조건으로만 렌더한다 — 좌표 확인 경로가 붙는
+          날 부제는 "지금 계신 곳을 확인했어요"로 바뀌는데 배지만 "위치 미확인"
+          으로 남으면 머지 전 필수 3번의 모순이 되살아난다(PR #54 리뷰 3라운드). */}
+      {mapCenter !== null && !locationConfirmed && (
         <div
           style={{ position: 'absolute', top: '64px', left: 0, right: 0, zIndex: 2, display: 'flex', justifyContent: 'center' }}
         >
