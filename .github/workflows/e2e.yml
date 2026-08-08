@@ -14,12 +14,17 @@ on:
       - 'apps/**'
       - 'infra/**'
       - '.github/workflows/e2e.yml'
+      # ⚠️ 이 스크립트만 바뀐 PR 에서도 검사가 돌아야 합니다. 검사를 약화시키는
+      #    변경(GEO_ALLOWED_FILES 추가, 센티널 조각 완화)이 정확히 그 형태인데,
+      #    빠뜨리면 그 PR 에서 검사가 한 번도 실행되지 않은 채 머지됩니다.
+      - 'scripts/check_privacy.py'
   push:
     branches: [main]
     paths:
       - 'e2e/**'
       - 'apps/**'
       - 'infra/**'
+      - 'scripts/check_privacy.py'
 
 concurrency:
   group: e2e-${{ github.ref }}

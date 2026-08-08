@@ -109,7 +109,11 @@ GEO_ALLOWED_FILES = {
 SENTINEL_LAT = "37.4867309551"
 SENTINEL_LNG = "126.9312880274"
 # 로그에서 찾을 조각 — 반올림·포맷 변경에도 걸리도록 소수부 앞 8자리를 쓴다.
-SENTINEL_FRAGMENTS = ("48673095", "93128802")
+# 조각을 계단식으로 둔다 — 8자리 통짜만 보면 좌표를 소수 4~6자리로 줄여 남기는
+# 경로가 전부 PASS 로 빠진다(소수 4자리도 약 11m 정밀도로 여전히 개인위치정보다).
+# 현재 코드에 반올림 경로는 없지만, 생기는 순간 이 검사가 조용히 눈감는 것을 막는다.
+# (PR #76 재검토, 신호정)
+SENTINEL_FRAGMENTS = ("48673095", "93128802", "486730", "931288")
 
 
 class Report:
@@ -131,6 +135,18 @@ class Report:
 # ---- 정적 검사 ---------------------------------------------------------
 
 
+class _BlankParseError(RuntimeError):
+    """블랭킹 파서가 파일 끝에서 상태를 닫지 못했다.
+
+    이 예외가 나면 그 파일의 일부가 통째로 비워진 채 검사에 넘어갔다는 뜻이므로,
+    호출자는 PASS 가 아니라 FAIL 로 보고해야 한다.
+    """
+
+    def __init__(self, state: str) -> None:
+        super().__init__(f"블랭킹 파서가 {state!r} 상태로 파일 끝에 도달")
+        self.state = state
+
+
 def _blank_comments_and_strings(text: str) -> str:
     """주석과 문자열 리터럴을 같은 길이의 공백으로 바꾼다. 줄 번호는 보존된다.
 
@@ -140,10 +156,19 @@ def _blank_comments_and_strings(text: str) -> str:
     아닌데 FAIL 이 나서 리뷰를 막는다(PR #76 리뷰).
 
     완전한 TS 파서가 목표가 아니다. 목표는 "식별자가 코드 위치에 있는가"를
-    가르는 것이고, 그러려면 주석·문자열만 비우면 충분하다. 알려진 한계:
-    `//` 를 포함한 정규식 리터럴(예: `/a\\/\\/b/`)은 주석 시작으로 오인될 수
-    있다 — 이 저장소에 그런 패턴은 없고, 오인 방향이 "덜 검사"가 아니라
-    "그 줄을 비움"이라 미탐이 되므로, 실제로 쓰이면 정규식을 고치는 쪽이 맞다.
+    가르는 것이고, 그러려면 주석·문자열만 비우면 충분하다.
+
+    ⚠️ 오인의 방향이 **미탐**이라는 점이 이 함수의 핵심 위험이다. 정규식 리터럴
+    안의 따옴표를 문자열 시작으로 잘못 읽으면, 닫을 짝이 없어 그 상태가 파일
+    끝까지 이어지고 **그 구간 전체가 검사에서 사라진다.** 실제로 그렇게 됐다 —
+    `ShelterMap.tsx` 의 `/[&<>"']/g` 뒤쪽 구간에 `watchPosition` 을 넣어도
+    P1 이 초록으로 통과했다(PR #76 재검토, 신호정). 두 가지로 막는다.
+
+    1. `'`·`"` 문자열은 TS 에서 줄을 넘지 못하므로(백틱만 가능), 줄바꿈을 만나면
+       파서가 틀렸다고 보고 상태를 되돌린다. 오염이 그 한 줄에 갇힌다.
+    2. 파일 끝에서 상태가 남아 있으면 `_BlankParseError` 로 알린다. 이 스크립트의
+       원칙이 "못 잰 것을 통과로 세지 않는다"인데 이 함수만 예외였다 — 다음에
+       다른 형태로 파서가 틀려도 조용히 통과하는 대신 소리가 난다.
     """
     out = list(text)
     i, n = 0, len(text)
@@ -182,7 +207,15 @@ def _blank_comments_and_strings(text: str) -> str:
                 out[i] = " "
             i += 1
             continue
-        # 문자열 리터럴 안. 이스케이프는 다음 문자까지 함께 삼킨다 —
+        # 문자열 리터럴 안.
+        # 줄바꿈을 만난 ' / " 는 파서가 틀렸다는 신호다(TS 에서 두 따옴표는 줄을
+        # 넘지 못하고 백틱만 가능). 여기서 되돌리지 않으면 오인 지점부터 파일
+        # 끝까지가 통째로 비워져 그 구간의 실제 호출이 검사에서 사라진다.
+        if ch == "\n" and state in ('"', "'"):
+            state = None
+            i += 1
+            continue
+        # 이스케이프는 다음 문자까지 함께 삼킨다 —
         # `"\""` 의 가운데 따옴표를 종료로 오인하지 않기 위해서다.
         if ch == "\\":
             out[i] = " "
@@ -197,6 +230,13 @@ def _blank_comments_and_strings(text: str) -> str:
         if ch != "\n":
             out[i] = " "
         i += 1
+    # 백틱 템플릿 리터럴·블록주석은 줄을 넘는 것이 정상이므로, 파일 끝에 열린 채
+    # 남아 있다는 것은 시작 지점을 잘못 잡았다는 뜻이다. 조용히 넘기면 그 구간이
+    # 검사되지 않은 채 PASS 로 세어진다.
+    # ⚠️ 'line' 은 제외한다 — 줄 주석은 개행뿐 아니라 파일 끝에서도 정상 종료하므로
+    #    (마지막 줄이 `// …` 이고 개행이 없는 파일), 이걸 실패로 세면 오탐이 된다.
+    if state is not None and state != "line":
+        raise _BlankParseError(state)
     return "".join(out)
 
 
@@ -204,15 +244,32 @@ def check_p1_geolocation(report: Report) -> None:
     """P1: 위치 조회는 동의 분기 파일 안에만, 상시 추적 API 는 0건."""
     offenders: list[str] = []
     watch_hits: list[str] = []
+    unparsed: list[str] = []
     for path in FRONTEND_SRC.rglob("*.ts*"):
         rel = path.relative_to(FRONTEND_SRC).as_posix()
         # 주석·문자열을 비운 사본에서 찾는다 — 언급과 호출을 가르기 위해서다.
-        code = _blank_comments_and_strings(path.read_text(encoding="utf-8"))
+        try:
+            code = _blank_comments_and_strings(path.read_text(encoding="utf-8"))
+        except _BlankParseError as exc:
+            # 파싱이 틀린 파일은 "위반 없음"이 아니라 "검사되지 않음"이다.
+            unparsed.append(f"{rel} ({exc.state!r} 상태로 종료)")
+            continue
         for lineno, line in enumerate(code.splitlines(), start=1):
             if "watchPosition" in line:
                 watch_hits.append(f"{rel}:{lineno}")
             if "getCurrentPosition" in line and rel not in GEO_ALLOWED_FILES:
                 offenders.append(f"{rel}:{lineno}")
+
+    # 파싱 실패를 먼저 보고한다 — 그 파일들은 아래 두 판정의 근거가 되지 못한다.
+    if unparsed:
+        report.add(
+            "P1-parse",
+            "FAIL",
+            f"블랭킹 파서가 닫히지 않은 파일: {', '.join(unparsed)} — "
+            "그 구간은 검사되지 않았으므로 아래 P1 판정의 대상이 아니다",
+        )
+    else:
+        report.add("P1-parse", "PASS", "프론트 소스 전체가 블랭킹 파서를 정상 통과")
 
     if watch_hits:
         report.add(
