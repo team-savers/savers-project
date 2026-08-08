@@ -67,8 +67,21 @@ cd apps/frontend
 npm ci
 npm run dev        # 개발 서버 (포트 3000)
 npm run lint       # oxlint
-npm run typecheck  # tsc --noEmit
+npm run typecheck  # tsc --noEmit (app·sw·node·scripts 4패스)
 npm run build      # 프로덕션 빌드
+```
+
+### 명확성 지표 채점 (제출 산출물)
+
+용어 치환율(KPI ≥90%)을 파일로 뽑는 스크립트가 `scripts/measure-clarity.ts`에 있다.
+입력은 ai-engine 채점기의 보고서다 — 같은 문안을 두 채점기가 나눠 채점해
+케이스·문안·사전이 각각 하나만 존재하게 한다. 실행 순서와 채점 의미는
+[apps/ai-engine/eval/README.md](../ai-engine/eval/README.md)
+"명확성 지표가 절반만 여기 있는 이유" 절 참조. Node >= 22.18 필요
+(타입 스트리핑으로 .ts를 직접 실행).
+
+```bash
+npm run eval:clarity -- --in ../ai-engine/eval/reports/grounding_report.json
 ```
 
 ## 알림 채널

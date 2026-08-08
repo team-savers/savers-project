@@ -71,6 +71,13 @@ def _score(case: GoldenCase, response: GenerationResponse, *, threshold: float) 
     return {
         "delivered": True,
         "refusalReason": None,
+        # 전달된 문안 원문. 명확성 지표의 나머지 절반(용어 치환율)은 프론트엔드의
+        # measure-clarity 스크립트가 이 보고서를 입력으로 채점한다 — 사전이 둘이
+        # 되지 않도록 파이썬 쪽에는 치환율을 구현하지 않고(README "명확성 지표가
+        # 절반만 여기 있는 이유"), 같은 실행의 같은 문안을 넘겨 진실을 하나로
+        # 유지한다.
+        "body": body,
+        "sourceQuotes": quotes,
         "sourceFidelity": metrics.source_fidelity(
             body, quotes, frame_phrases=frame, threshold=threshold
         ),
@@ -120,6 +127,10 @@ def evaluate(
             {
                 "id": case.id,
                 "note": case.note,
+                # 수신자 언어. 명확성 채점(measure-clarity)이 화면 표시 문안을
+                # 재현할 때 필요하다 — 쉬운 말 치환은 한국어 화면에만 적용되고
+                # 베트남어 화면은 원문 그대로 렌더한다(EasyText와 동일 분기).
+                "language": case.context.get("recipient", {}).get("language", "ko"),
                 "expectationMet": _expectation_met(case, on),
                 "guardrailOn": on,
                 "guardrailOff": off,
