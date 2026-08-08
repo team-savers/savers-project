@@ -7,7 +7,6 @@ rebuilt here from the shared spec (packages/contracts/openapi.yaml, `generation`
 rather than shared as code.
 
 Failure handling follows ADR-0006:
-
 - **`message: null`** — a normal 200 refusal. Returned as `None`; the caller substitutes
   the pre-approved fallback. The engine never produces `official_fallback` itself.
 - **timeout / 503 / connection error** — raised as `AiEngineUnavailableError`, which the
@@ -79,15 +78,18 @@ class HttpAiEngineClient:
                 "context": context.model_dump(mode="json", by_alias=True),
             },
         )
-        message = data.get("message")
-        if message is None:
-            return None
-        return AlertMessage(
-            title=message["title"],
-            body=message["body"],
-            message_mode=message["messageMode"],
-            sources=[Source.model_validate(s) for s in message.get("sources", [])],
-        )
+        try:
+            message = data.get("message")
+            if message is None:
+                return None
+            return AlertMessage(
+                title=message["title"],
+                body=message["body"],
+                message_mode=message["messageMode"],
+                sources=[Source.model_validate(s) for s in message.get("sources", [])],
+            )
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            raise AiEngineUnavailableError(f"/v1/generate: malformed response: {exc}") from exc
 
     def answer(
         self,
@@ -105,8 +107,11 @@ class HttpAiEngineClient:
                 "locale": locale,
             },
         )
-        return ChatResponse(
-            answer=data["answer"],
-            sources=[Source.model_validate(s) for s in data.get("sources", [])],
-            refusal_reason=data.get("refusalReason"),
-        )
+        try:
+            return ChatResponse(
+                answer=data["answer"],
+                sources=[Source.model_validate(s) for s in data.get("sources", [])],
+                refusal_reason=data.get("refusalReason"),
+            )
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            raise AiEngineUnavailableError(f"/v1/answer: malformed response: {exc}") from exc
