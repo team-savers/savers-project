@@ -14,12 +14,17 @@ on:
       - 'apps/**'
       - 'infra/**'
       - '.github/workflows/e2e.yml'
+      # ⚠️ 이 스크립트만 바뀐 PR 에서도 검사가 돌아야 합니다. 검사를 약화시키는
+      #    변경(GEO_ALLOWED_FILES 추가, 센티널 조각 완화)이 정확히 그 형태인데,
+      #    빠뜨리면 그 PR 에서 검사가 한 번도 실행되지 않은 채 머지됩니다.
+      - 'scripts/check_privacy.py'
   push:
     branches: [main]
     paths:
       - 'e2e/**'
       - 'apps/**'
       - 'infra/**'
+      - 'scripts/check_privacy.py'
 
 concurrency:
   group: e2e-${{ github.ref }}
@@ -60,6 +65,42 @@ jobs:
       - name: Run E2E
         working-directory: e2e
         run: pytest -v
+
+      # 미저장·암호화 점검(S1-E6). 이 잡에 붙이는 이유는 하나입니다 — 라이브 검사가
+      # 기동된 스택과 그 스택의 로그를 둘 다 요구하고, 그 둘이 여기밖에 없습니다.
+      # 스택이 없으면(SAVERS_E2E_BASE_URL 미설정) 정적 검사만 돌고, 라이브 항목은
+      # SKIP으로 보고됩니다 — SKIP은 통과가 아니라 "검사 안 됨"입니다.
+      # ⚠️ 로그를 여기서 미리 파일로 떠서 넘기면 안 됩니다. `docker compose logs`는
+      #    그 순간까지의 스냅샷이라, 스크립트가 뒤이어 보내는 센티널 요청의 접근 기록이
+      #    그 파일에 절대 들어가지 않습니다. 그런데 앞서 돌아간 E2E가 같은 경로를 3회
+      #    호출해 두었으므로, 경로만 보는 카나리아는 남의 요청으로 통과해버립니다 —
+      #    검사 대상이 없는 채로 "좌표 없음 = 통과"가 되는 무음 false PASS입니다
+      #    (PR #76 리뷰에서 확인된 결함).
+      #    그래서 로그 수집을 스크립트에 위임합니다(`--log-command`). 스크립트가 자기
+      #    요청을 보낸 **다음에** 이 명령을 실행하므로 시간 창이 어긋나지 않고,
+      #    백그라운드 `-f` 프로세스와 그 kill·경쟁 상태도 필요 없습니다. 카나리아도
+      #    실행마다 고유한 nonce를 쿼리스트링에 실어 보내는 방식이라 남의 요청으로는
+      #    통과할 수 없습니다.
+      - name: 개인정보 점검 (미저장·분리동의)
+        if: always()
+        run: |
+          mkdir -p privacy-out
+          if [ -n "${SAVERS_E2E_BASE_URL:-}" ]; then
+            python3 scripts/check_privacy.py \
+              --base-url "$SAVERS_E2E_BASE_URL" \
+              --log-command "docker compose -f infra/docker-compose.yml logs --no-color --no-log-prefix backend" \
+              --out privacy-out/privacy_report.json
+          else
+            python3 scripts/check_privacy.py --out privacy-out/privacy_report.json
+          fi
+
+      - name: Upload privacy report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: privacy-check-report
+          path: privacy-out/*.json
+          retention-days: 30
 
       - name: Stack logs (실패 시 원인 파악용)
         if: failure() && hashFiles('infra/docker-compose.yml') != ''
