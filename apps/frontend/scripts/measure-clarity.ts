@@ -36,6 +36,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import {
+  ADMIN_TERMS,
   computeSubstitutionStats,
   measureReadability,
   substituteAdminTerms,
@@ -78,6 +79,27 @@ interface ClarityCase {
   displayed: SubstitutionStats | null
   // 참고 — 생성 문안 그대로의 전체 측정값(hasSingleAction 포함 원자료).
   generated: ReadabilityMetric | null
+  // 화면 표시 문안을 직접 스캔해 남은 어려운 말. 사전 보강 대상이다.
+  remainingAdminTerms: string[] | null
+}
+
+// 긴 용어부터 스캔한다. '하천 범람'을 '범람'으로 중복 집계하지 않기 위해서다.
+const TERMS_BY_LENGTH = [...ADMIN_TERMS].sort((a, b) => b.length - a.length)
+
+// ⚠️ 표시 문안을 **직접** 스캔한다. substituteAdminTerms를 한 번 더 돌려
+// adminTermsFound를 보는 방법은 쓸 수 없다 — 그 값은 '치환에 성공해 사라진'
+// 목록이라 여기서 필요한 것의 정반대이고, 2차 치환 패스도 selectSurface가
+// null을 반환하는 용어(예: 호우주의보)에서 같은 경로를 다시 타 또 놓친다.
+function scanRemainingTerms(text: string): string[] {
+  let rest = text
+  const found: string[] = []
+  for (const term of TERMS_BY_LENGTH) {
+    if (rest.includes(term)) {
+      found.push(term)
+      rest = rest.split(term).join(' ')
+    }
+  }
+  return found
 }
 
 function parseArgs(argv: string[]): { input: string; output: string } {
@@ -154,6 +176,7 @@ function main(): number {
         skipReason: `refused: ${on?.refusalReason ?? 'unknown'}`,
         displayed: null,
         generated: null,
+        remainingAdminTerms: null,
       }
     }
     if (typeof on.body !== 'string' || !Array.isArray(on.sourceQuotes)) {
@@ -164,6 +187,7 @@ function main(): number {
         skipReason: 'report has no body/sourceQuotes — run_grounding_eval.py가 구버전',
         displayed: null,
         generated: null,
+        remainingAdminTerms: null,
       }
     }
     const body = on.body
@@ -178,6 +202,7 @@ function main(): number {
       skipReason: null,
       displayed: computeSubstitutionStats(displayedBody, quotes),
       generated: measureReadability(body, quotes),
+      remainingAdminTerms: scanRemainingTerms(displayedBody),
     }))
   })
 
@@ -188,10 +213,12 @@ function main(): number {
   )
 
   // 표시 문안에 그래도 남는 어려운 말 — 사전 보강 대상을 바로 보여준다.
-  // (치환 후에도 남는 것은 사전에 없는 용어이거나 vi 화면의 한국어 문안이다.)
+  // 사전에 있는데도 남는 것(selectSurface가 null을 반환하는 경로)과 vi 화면의
+  // 한국어 문안이 여기 잡힌다. 사전에 아예 없는 용어는 이 경로로 잡히지
+  // 않는다 — ADMIN_TERMS를 스캔하는 방식이라 정의상 그렇고, 그건 별도 과제다.
   const remaining = new Map<string, number>()
   for (const c of scored) {
-    for (const term of (c.generated as ReadabilityMetric).adminTermsFound) {
+    for (const term of c.remainingAdminTerms as string[]) {
       remaining.set(term, (remaining.get(term) ?? 0) + 1)
     }
   }
