@@ -102,6 +102,15 @@ All planning docs live under `docs/`; the repo root keeps only `AGENTS.md`, `CLA
 
 `역할_가이드/` and `역할_일정/` are 1:1 by role number — adding a role means adding a file to both.
 
+### Prose style and character set
+
+Naming decides where a doc goes; **[docs/공통_가이드/문서_작성_규약.md](docs/공통_가이드/문서_작성_규약.md) decides how it reads.** Two axes, deliberately scoped differently:
+
+- **경어체 for Korean docs**, with `docs/adr/` staying 평서형 — that is the register of a decision record and all nine existing ADRs already use it. Don't mix the two inside one file.
+- **Keyboard-typable characters only in `docs/adr/` and `docs/공유_문서/`** — those texts get quoted by other documents or copied into submission forms that live outside this repo, and whoever retypes them cannot type a glyph their keyboard lacks. Everywhere else (guides, role docs, README, this file) ⚠️-style markers earn their keep as scan anchors, so they stay.
+
+That guide carries the full scope table, the substitution table, the inherited-violation counts, and a pre-commit check script. One sub-rule applies to **every** markdown file regardless of scope: **space both sides of a tilde** (`1 ~ 2`), or GFM pairs it with the next one and strikes through everything between.
+
 ### Not in this repository (deliberate)
 
 These are kept **outside** the repo because it is public, and `.gitignore` blocks them so they cannot be re-added by accident. Do not "restore" them:
@@ -253,6 +262,8 @@ apps/backend          ──HTTP only──>   apps/ai-engine     (contract in p
 ## Collaboration / Git
 
 - `main` is protected: feature branch → PR → **squash merge** → branch auto-deleted. Procedure: [docs/pr-checklist.md](docs/pr-checklist.md).
+- **Review comments follow a written format**, not taste: [docs/공통_가이드/코드_리뷰_가이드.md](docs/공통_가이드/코드_리뷰_가이드.md) — verdict-bearing headings, one of four handling labels (`머지 전 필수` / `이 PR에서 권장` / `후속 과제` / `참고, 조치 불필요`) next to each heading, and a confidence label on any claim you did not verify. Its §1-a checklist is the review counterpart of the architecture rules above. **Never comment on style, formatting, import order, or types** — ruff and mypy already decide those deterministically, and a human repeating them teaches the team to discount every review comment.
+- **Team messenger text follows a different convention**: conclusion on the first line, details behind a link, 5 lines max — [docs/공통_가이드/메신저_규약.md](docs/공통_가이드/메신저_규약.md). It exists partly to enforce the rule below: anything agreed in a chat is 검토 중 until it lands in an ADR, so a long message is a sign the content belongs in the repo instead.
 - CI (ruff · mypy · pytest) and pre-commit enforce the same rules on purpose. If they drift apart, people start ignoring the hooks — fix the drift, don't route around it.
 - Repo settings (branch protection, merge strategy, labels) live only on GitHub's side — git does not track them and they never show up in a diff; they are re-applied by `scripts/setup-github.sh`. Details, the manual checklist, and the required-check contract: [docs/공통_가이드/저장소_운영.md](docs/공통_가이드/저장소_운영.md).
 - Architecture decisions go in `docs/adr/` as they are made. This is the anti-bus-factor mechanism for the front-loaded Tech Lead model — an undocumented decision is a decision the team loses.

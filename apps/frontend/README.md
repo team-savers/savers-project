@@ -6,13 +6,17 @@ SAVERS 사용자 터미널 화면을 담당한다. React + Vite + TypeScript + P
 
 | 경로 | 화면 | 파일 |
 |------|------|------|
-| `/` | 홈 (진입 안내) | `src/App.tsx` (HomeView) |
-| `/demo` | 푸시 데모 + 페르소나 선택 | `src/App.tsx` (DemoView) |
+| `/` | 서비스 소개 홈. 매칭되지 않는 모든 경로의 폴백이다 | `src/pages/Home.tsx` |
+| `/demo` | 푸시 데모 + 페르소나 선택 + 실험 화면 진입점 | `src/App.tsx` (DemoView) |
 | `/a?t=<token>` | 재난 알림 랜딩 — 맞춤 행동 안내 + 대피소 + 챗봇 | `src/pages/Landing.tsx` |
 | `/ops` | 운영자 대리 등록 (보호자/복지관/고용주가 피보호자 등록) | `src/pages/Ops.tsx` |
+| `/register` | 보호자 모바일 대리 등록 | `src/pages/Register.tsx` |
 | `/join?u=<userId>` | 피보호자 폰 온보딩 (QR 스캔 → FCM 토큰 연결) | `src/pages/Join.tsx` |
+| `/preview?t=<token>` | ⚠️ 검토용 실험 화면(단계적 대피 플로우). `/a`에 반영된 것이 아니고, 생성 문안 본문·근거와 다국어 경로가 아직 없어 공개 링크를 걸지 않는다 — 진입은 `/demo`에서만 | `src/pages/Preview.tsx` |
+| `/mockup` | 발표용 정적 목업 5종. API 연동 없음 | `src/pages/Mockup.tsx` |
 
 라우팅은 `window.location.pathname` 기반이다. 라우터 라이브러리를 쓰지 않는다.
+라우트를 추가하면 이 표도 같은 PR에서 갱신한다.
 
 ## 폴더 구조
 
@@ -63,8 +67,21 @@ cd apps/frontend
 npm ci
 npm run dev        # 개발 서버 (포트 3000)
 npm run lint       # oxlint
-npm run typecheck  # tsc --noEmit
+npm run typecheck  # tsc --noEmit (app·sw·node·scripts 4패스)
 npm run build      # 프로덕션 빌드
+```
+
+### 명확성 지표 채점 (제출 산출물)
+
+용어 치환율(KPI ≥90%)을 파일로 뽑는 스크립트가 `scripts/measure-clarity.ts`에 있다.
+입력은 ai-engine 채점기의 보고서다 — 같은 문안을 두 채점기가 나눠 채점해
+케이스·문안·사전이 각각 하나만 존재하게 한다. 실행 순서와 채점 의미는
+[apps/ai-engine/eval/README.md](../ai-engine/eval/README.md)
+"명확성 지표가 절반만 여기 있는 이유" 절 참조. Node >= 22.18 필요
+(타입 스트리핑으로 .ts를 직접 실행).
+
+```bash
+npm run eval:clarity -- --in ../ai-engine/eval/reports/grounding_report.json
 ```
 
 ## 알림 채널
