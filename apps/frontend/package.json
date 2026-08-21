@@ -7,8 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",
-    "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.sw.json --noEmit && tsc -p tsconfig.node.json --noEmit",
-    "preview": "vite preview"
+    "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.sw.json --noEmit && tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.scripts.json --noEmit",
+    "preview": "vite preview",
+    "eval:clarity": "node scripts/measure-clarity.ts"
   },
   "dependencies": {
     "firebase": "^12.16.0",
