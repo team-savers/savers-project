@@ -48,7 +48,7 @@ import urllib.request
 #   `AIza` 로 시작하는 39자다. 둘 중 하나라도 없으면 config 가 비어 있다.
 AUTH_DOMAIN_RE = re.compile(r"[A-Za-z0-9-]+\.firebaseapp\.com")
 API_KEY_RE = re.compile(r"AIza[A-Za-z0-9_-]{30,40}")
-# 웹푸시 VAPID 공개키: uncompressed P-256 점을 base64url 로 담아 87~88자,
+# 웹푸시 VAPID 공개키: uncompressed P-256 점을 base64url 로 담아 86~88자,
 # 항상 'B' 로 시작한다. 번들의 다른 긴 문자열과 겹치지 않는 형태다.
 VAPID_RE = re.compile(r"\bB[A-Za-z0-9_-]{85,87}\b")
 BUNDLE_RE = re.compile(r"/assets/[A-Za-z0-9._-]+\.js")
@@ -199,16 +199,26 @@ def check_service_worker(report: Report, base: str) -> None:
         report.add("service-worker", "PASS", "/sw.js 서비스 + 스코프·캐시 헤더 정상")
 
     # 백그라운드 수신도 config 를 필요로 한다 — 워커 번들에 함께 박혀야 한다.
-    if AUTH_DOMAIN_RE.search(body) is None and API_KEY_RE.search(body) is None:
+    # ⚠️ 판정 기준을 check_firebase_config 와 **같게** 둔다(둘 다 있어야 PASS).
+    #    "둘 중 하나만 없으면 FAIL" 이 아니라 "둘 다 없을 때만 FAIL" 로 두면,
+    #    이 스크립트가 존재하는 이유인 half-config(authDomain 은 들어갔는데 apiKey 가
+    #    빠진 상태)를 서비스워커 쪽에서만 통과시킨다 — 같은 사고를 반쪽만 잡는 셈이다
+    #    (PR #81 리뷰, 안은남).
+    sw_domain = AUTH_DOMAIN_RE.search(body) is not None
+    sw_key = API_KEY_RE.search(body) is not None
+    if sw_domain and sw_key:
+        report.add("service-worker-config", "PASS", "/sw.js 에 config 포함 — 백그라운드 수신 가능")
+    else:
+        missing = ", ".join(
+            name for name, present in (("authDomain", sw_domain), ("apiKey", sw_key)) if not present
+        )
         report.add(
             "service-worker-config",
             "FAIL",
-            "/sw.js 에 Firebase config 가 없습니다 — 앱이 화면에 떠 있을 때만 알림이 보이고 "
-            "**닫혀 있을 때(백그라운드) 수신이 안 됩니다.** 캡처하려는 잠금화면 알림이 "
-            "정확히 이 경로입니다",
+            f"/sw.js 의 Firebase config 가 불완전합니다 (누락: {missing}) — 앱이 화면에 떠 "
+            "있을 때만 알림이 보이고 **닫혀 있을 때(백그라운드) 수신이 안 됩니다.** "
+            "캡처하려는 잠금화면 알림이 정확히 이 경로입니다",
         )
-    else:
-        report.add("service-worker-config", "PASS", "/sw.js 에 config 포함 — 백그라운드 수신 가능")
 
 
 def check_manifest(report: Report, base: str) -> None:
