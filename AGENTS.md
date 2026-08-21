@@ -8,7 +8,9 @@ This repository holds the planning set — design docs (`docs/공통_가이드/`
 
 **This repository is public** — judges browse it directly. Treat every commit as published: no secrets, no personal data beyond team member names, no competition submission forms (see "Not in this repository" below).
 
-What exists in code today is a **walking skeleton, not a working service**. One disaster event threads the whole path — `수신 → 매칭 → 검색 → 생성(가드레일) → 세션 발급 → 웹푸시 발송 → 대피소 안내 → 챗봇 → 보호자 상태` — with every external dependency replaced by an offline stub behind a named seam ([ADR-0007](docs/adr/0007-walking-skeleton.md)). Nothing here talks to a real API yet: the disaster feed, the 국민행동요령 corpus, HyperCLOVA X, FCM, the shelter API and the resident store are all stubbed or in-memory, and each has an owner and a phase in [docs/역할_일정/](docs/역할_일정/00-overall.md).
+What exists in code today is a **walking skeleton, not a working service**. One disaster event threads the whole path — `수신 → 매칭 → 검색 → 생성(가드레일) → 세션 발급 → 웹푸시 발송 → 대피소 안내 → 챗봇 → 보호자 상태` — with every external dependency replaced by an offline stub behind a named seam ([ADR-0007](docs/adr/0007-walking-skeleton.md)). Nothing here talks to a real API yet: the disaster feed, the 국민행동요령 corpus, HyperCLOVA X, FCM, the shelter API and the resident store are all stubbed or in-memory, and each has an owner and a date in [docs/역할_일정/](docs/역할_일정/00-overall.md).
+
+**Only a few of those seams get replaced before the finals** — real FCM sending, the event log, the flood-avoiding route (**OSMnx + networkx**), the suitability model, and the log-matching verifier. The rest (public-API polling, real datastore, Chroma) are deliberately deferred past the finals because they are not on the demo path; the seam catalogue in [docs/공통_가이드/워킹_스켈레톤_설명.md](docs/공통_가이드/워킹_스켈레톤_설명.md) marks which is which. **`Dispatcher.send()` is the one to fix first**: the default `RecordingDispatcher` records instead of sending, and two of the four submitted metrics cannot be measured at all until real push works.
 
 ⚠️ **Don't read the stubs as measurements.**
 The bundled corpus is dummy text marked `[더미]`;
@@ -20,7 +22,7 @@ and `src/api/http.ts` holds contract path constants with unimplemented bodies.
 Don't improvise a different structure — extend the one described under "Repo structure convention",
 and replace a stub at its seam rather than around it.
 
-Key hard dates: **preliminary round opens 2026-07-27**, **prelim submission (with measured metrics) due 2026-08-10 13:00**, **finals early September**; the build-out is a ~2-week sprint to 8/10 followed by a finals-prep track. All schedule phases (P1–P5) start on 2026-07-27 — no work is planned before the round opens; see [docs/역할_일정/00-overall.md](docs/역할_일정/00-overall.md) for the phased plan and per-role schedules.
+Key hard dates: **prelim submission was delivered 2026-08-10 13:00**; the team is now in the finals-prep track — **8/11–8/21 standby** (PM-only admin/goldens work), **8/22–8/29 implementation** — **8/22 is a half day (afternoon only, 4h; the morning is the Tech Lead's eval-harness slot)** and **Sundays 8/23 and 8/30 are off**, leaving a **52-hour implementation window per person** — **8/29 code freeze + demo-environment deploy (PM alone)**, **8/31–9/1 rehearsals**, **9/2–9/3 finals**, **9/4 awards. Fifty-two hours is the entire remaining implementation budget**, and there are only two implementers (AI/RAG/FE and Backend) with the critical chain alternating between them — see [docs/역할_일정/00-overall.md](docs/역할_일정/00-overall.md) for the per-segment plan, handoff deadlines, and per-role schedules.
 
 ## What SAVERS is
 
@@ -28,21 +30,32 @@ SAVERS is a disaster-response assistant for people who cannot judge or evacuate 
 
 First-target disaster type for the MVP: 호우·도시침수 (heavy rain / urban flooding).
 
-## Planned architecture (4 modules)
+## Planned architecture — three layers, three core technologies
 
-1. **실시간 위치 매칭 엔진 (Location Matching Engine)** — normally matches users by registered 행정동 (administrative district) only; on alert, does a one-time browser Geolocation lookup, reverse-geocoded via 카카오맵 API, to check danger-zone membership and shelter distance.
-2. **Advanced RAG 파이프라인** — chunks/embeds 행정안전부 국민행동요령 (official action manuals) into a Chroma vector DB; retrieval is conditioned on disaster type + user vulnerability profile.
-3. **에이전틱 LLM 메시지 생성 (Agentic persona LLM)** — LangChain-orchestrated, HyperCLOVA X-generated messages, constrained by a guardrail prompt that forces answers to cite only retrieved official source text (hallucination suppression).
-4. **무설치 사용자 터미널 (Zero-install terminal)** — delivery via PWA web push (FCM); the generated message is delivered **verbatim, with no template-slot substitution** ([ADR-0005](docs/adr/0005-webpush-primary-channel.md) — do not reintroduce a rendering adapter). Includes an interactive chatbot ("Interactive Care") for follow-up Q&A, with accessibility features (TTS, plain-language rewriting, auto-translation for foreign workers).
+Per 기획서 v3 the service is split into three layers: **① 판정 (assessment) belongs to the government** (기상청·홍수통제소·기후부 도시침수예보), **② 계산 (computation) is SAVERS**, **③ 전달 (delivery) is a zero-install mobile web channel**. **SAVERS does not implement its own hazard determination** — it converts an already-issued official warning into "where do I go, in how many minutes."
+
+The computation layer holds three SAVERS-specific technologies:
+
+1. **대피소 부합도 모델 (Shelter-suitability model)** — a PU-learning (spy technique) classifier over LightGBM, trained with 서울시's 수해대피소 designation list as labels. **Label/feature separation is an absolute rule**: Seoul-only data (designation list, 침수예상도) is used for labels and validation *only*, while model inputs are 13 nationally-available public features (표고, 대피 여유고, 지하층수, 하천 최단거리, …). Output is labelled 「서울시 지정기준 부합도」 with SHAP contributions — never 「부적합」, since not-designated does not mean unsuitable. Validation is **3-fold** (자치구 GroupKFold spatial-block CV · non-school recall@top-20% as the primary metric · lift over the 침수예상도 baseline); the fourth check (string/standard-field/model three-way comparison) was cut for the finals.
+2. **침수 회피 경로 (Flood-avoiding route)** — OSM road network loaded into a graph (**OSMnx + networkx**; the submitted plan said OSRM — see the correction note below), every link tagged with flood-risk grade R0–R3; R2 (침수심 0.5–1.0m) and R3 (지하차도·하천변) links are removed *first*, then the shortest remaining path is chosen. If nothing is passable the answer is **「경로 없음」 and the shelter is re-selected** — not a shortest path through water.
+3. **보호자 상황 확인 RAG (Guardian status RAG)** — retrieval over **event logs** (screen state, button clicks, arrival), not documents. The five-stage agentic loop 관측 → 계획·검색 → 행동·생성 → 응답 검증 → 전달·에스컬레이션 **re-enters at 관측 after 30 minutes of no response**; this loop is the entire basis of the "agentic" claim. Response verification splits each sentence into claims and matches them 1:1 against the log — **one unmatched claim blocks the whole sentence**. Retrieval scope is that session's log only; there is no document and no coordinate. Forbidden words: 「안전합니다」·「괜찮습니다」 — the chatbot restates the log, it does not judge safety.
+
+Delivery is **PWA web push (FCM)**; the generated message goes out **verbatim, with no template-slot substitution** ([ADR-0005](docs/adr/0005-webpush-primary-channel.md) — do not reintroduce a rendering adapter). The user flow is ①특보 수신 → ②정보 입력 → ③상황 분기 → ④행동 권고 (3-step traffic light: 상황 주시 / 대피 준비 / 즉시 대피) → ⑤경로 안내. First-phase scope is **Android zero-install web push**; iOS needs A2HS before web push opens.
+
+**Fallbacks never stop the guidance — they surface what was substituted.** 특보 API down → Redis cache; geocoding/DEM match failure → 「판정 불가」; log-verification failure → 최소안전문; no passable route → shelter re-selection. Every screen carries the judgement time and data-as-of time (「기상청 특보 21:12 기준 / 대피소 정보 21:20 기준」).
+
+> The 국민행동요령 corpus RAG (chunking · Chroma indexing · conditional retrieval · guardrail prompt) survives from the prelim round in `apps/ai-engine`. The guardian RAG **passes the whole session log as context and uses no vector index** — do not merge the two.
 
 ### Tech stack by layer
 
 | Layer | Tech |
 |---|---|
 | Data ingestion | 기상청·소방청·행정안전부 재난안전데이터 공유 플랫폼 Open API, Python/FastAPI scheduler |
-| Location processing | Browser Geolocation API, 카카오맵 역지오코딩 API, 행정동 code matching table |
-| Knowledge base | 행정안전부 국민행동요령 corpus, Chroma vector DB |
-| Generation/control | LangChain orchestration, HyperCLOVA X, guardrail prompts |
+| Location processing | Browser Geolocation API (client-side only), 카카오맵 역지오코딩 API, 행정동 code matching table |
+| Shelter suitability | LightGBM + spy-technique PU learning, SHAP, 자치구 GroupKFold spatial-block CV; sources: 서울 열린데이터광장 (OA-21181 · OA-21172 · OA-15636), 국토지리정보원 DEM, 건축물대장 |
+| Routing | OpenStreetMap → **OSMnx + networkx** in-memory graph, per-link flood-risk grades R0–R3 (pre-computed static table). **The submitted plan names OSRM in two places; the finals build uses the A-plan and the correction is recorded in [docs/공유_문서/서비스_기획서.md](docs/공유_문서/서비스_기획서.md). OSRM migration is the first roadmap item after the finals.** |
+| Knowledge base | 행정안전부 국민행동요령 corpus, Chroma vector DB (corpus RAG); **event logs, no vector index** (guardian RAG) |
+| Generation/control | LangChain orchestration, HyperCLOVA X, guardrail prompts, claim-level log-matching verifier |
 | Delivery/accessibility | PWA web push (Firebase Cloud Messaging) as the **primary** channel — 카카오 알림톡 not adopted, in the preliminary round or the finals ([ADR-0005](docs/adr/0005-webpush-primary-channel.md)), TTS, multilingual translation |
 | Infra/ops | AWS **single VM** (Seoul region ap-northeast-2, CPU-only — HyperCLOVA X/embedding are external APIs, **no GPU**; backend + ai-engine via docker-compose, managed redundancy deferred — see [ADR-0003](docs/adr/0003-single-vm-seoul.md); the PWA is a static build served off-VM by Vercel — see [ADR-0008](docs/adr/0008-frontend-static-hosting.md)), log-based latency measurement, offline cache fallback mode |
 =
@@ -51,7 +64,8 @@ First-target disaster type for the MVP: 호우·도시침수 (heavy rain / urban
 
 These came out of explicit risk mitigation decisions in the planning doc — don't casually "simplify" them away:
 
-- **No continuous location tracking.** Location is read once, at notification-open time, and is session-scoped only — never persisted to storage.
+- **No continuous location tracking — and the stronger form: the server never receives coordinates.** Location is read once, at notification-open time, and is session-scoped only. 행정동 resolution and shelter selection happen **client-side**, so there is no coordinate-receiving endpoint at all. The claim is not 「저장하지 않는다」 but 「받지 않는다」, and it is proven by code rather than by policy text. Verification therefore checks *that nothing was ever received*, not that something was deleted.
+- **SAVERS does not judge hazard itself.** The government's live assessment is authoritative; adding a self-derived warning would put the guidance ahead of the official 특보.
 - **Generation must be evidence-grounded.** The agentic LLM layer must answer only from retrieved 국민행동요령 source text; the guardrail prompt exists specifically to suppress hallucination, and its on/off effect is a measured KPI (see below) — don't remove or bypass it for convenience.
 - **Zero install burden on the vulnerable user.** Registration/setup is designed to be done by a guardian/복지관/지자체 on the person's behalf, not by the end user. Any feature that requires the vulnerable person to install an app or self-configure conflicts with this.
 - **Offline/degraded fallback required.** If the public disaster APIs are down or slow, the system must fall back to a pre-cached shelter/action-manual mode rather than failing silently.
@@ -59,26 +73,29 @@ These came out of explicit risk mitigation decisions in the planning doc — don
 
 ## Quality bar / evaluation methodology (build these as code, not manual review)
 
-The team's differentiation strategy is that quality is proven by **reproducible automated scripts**, submitted alongside the code, not by human surveys. When implementing evaluation:
+The team's differentiation strategy is that quality is proven by **reproducible automated scripts**, submitted alongside the code, not by human surveys. 기획서 v3 names **four metrics**, and the scoring script, eval set, and training code ship with them:
 
-- **알림 도달 속도**: end-to-end latency from disaster API ingestion to personalized alert dispatch. Target ≤30s. Measure via timestamp logging, report mean + p95 over 100 runs.
-- **근거 일치율 (source-fidelity rate)**: generated message vs. official 국민행동요령 source text agreement. Target ≥85%, scored against a 30–50 case eval set.
-- **환각 억제율 (hallucination suppression rate)**: same eval set run guardrail on/off; target ≥50% reduction in hallucinated content with guardrail on.
-- **메시지 명확성 (message clarity)**: plain-language term substitution rate ≥90%, "single actionable instruction" inclusion rate 100%, per 국립국어원 쉬운 공공언어 기준; scored by rule-based check + cross-model LLM grading (grading model must differ from the generation model to avoid self-grading bias).
-- **재난 이력 리플레이**: past 호우 특보 (heavy rain advisory) history is replayed end-to-end to validate real dispatch-condition latency and fidelity, not just synthetic tests.
+- **알림 도달 속도** — end-to-end latency from disaster API ingestion to personalized dispatch. Target ≤30s, measured as p95 over OTel end-to-end spans. **Requires real FCM sending**; with the recording dispatcher this metric cannot be measured at all.
+- **보호자 응답 정확도** — **zero statements not grounded in the log.** Scored against a 40-case guardian golden set (30 recommended questions + 10 free-form "기타"). When in doubt the system must refuse: under-refusal (answering something absent from the log) breaks the metric directly, over-refusal only costs coverage.
+- **위치정보 미수신 (no coordinate ever reaches the server)** — target is **zero code paths where a coordinate is received or stored**, verified by `scripts/check_privacy.py` scanning the whole tree. Reworded from 「위치정보 즉시 파기 준수율 100%」 on **2026-08-21**: `SessionStore` has no delete/purge method, so "purged" cannot be proven, while "never received" can be proven by a scan — and the submitted plan's security chapter already said 「저장하지 않는다」가 아니라 「받지 않는다」. See [docs/공유_문서/정량목표_검증설계.md](docs/공유_문서/정량목표_검증설계.md) §3.
+- **폐루프 2차 발송 성공률** — 100%. 30 minutes of no response must produce a guardian escalation that actually lands.
 
-All of the above targets are placeholder hypotheses to be replaced with real prototype measurements during the preliminary round — don't treat the numeric targets in this file as final ground truth once real measurements exist in the repo.
+The shelter-suitability model is scored separately by the **3-fold validation** described above. Its third-stage (model) numbers are **not yet measured** — 기획서 [표3] currently carries target ranges quoted from comparable PU-learning studies, and they must be replaced with the team's own measurements before the finals. **If the model does not beat the rule-based second stage, that is recorded as a failure case** rather than dressed up; not packaging a rule-based result as a model is the line this team holds.
+
+**Under-target results are published as failure cases, not hidden** — the 기획서 committed to that, and it is the basis of the team's credibility claim. The prelim-era metrics (근거 일치율, 환각 억제율, 메시지 명확성) measured the 국민행동요령 corpus RAG; their harness remains in `apps/ai-engine/eval/`, but the four metrics above are the submitted headline numbers.
 
 ## Team / module ownership
 
-| Person | Role | Owns |
+The team registered with six people; **two left for personal reasons, so it is now four**, and responsibilities were redistributed twice (the selection requirement of 3–6 members is still met). The two vanished roles were absorbed, not dropped: Frontend/UX went to AI/RAG, and QA/Security **plus infrastructure** went to PM.
+
+| Person | Position | Owns |
 |---|---|---|
-| 안은남 | PM | Milestones, integration, final demo |
-| 신호정 | Tech Lead | System architecture + inter-module contracts (OpenAPI/schemas), a walking skeleton threading the full flow, guardrail prompt design principles + initial version, repo scaffolding/CI/eval-harness skeleton — **concentrated up front** — then ongoing review/advisory. Architecture decisions are recorded as ADRs in `docs/adr/` so contract/skeleton knowledge is not siloed. |
-| 김소원 | AI/RAG Engineer | 국민행동요령 preprocessing/chunking, Chroma indexing, semantic search tuning, 근거 일치율 measurement |
-| 최혜리 (겸임) | Frontend/UX | PWA/웹푸시(FCM) integration, chatbot UI/UX, accessibility (multilingual/plain-language/voice), clarity metric instrumentation |
-| 김도혁 | Backend/Infra | 기상청·소방청 API integration, location matching engine, FastAPI backend, infra redundancy, offline fallback |
-| 최혜리 | QA/Security | Minimal-collection/encryption, guardrail validation, web-push fallback path, E2E testing, demo material |
+| 안은남 | 팀장 · PM · QA/보안 · 인프라 | Integration, risk, finals presentation **+ quality/security adjudication** — writes no feature code, which is precisely what makes the verdict independent **+ infrastructure**: `infra/`, deployment, server ops, instrumentation **+ threshold experiments** (guardrail similarity floor, SUPPORT_THRESHOLD, over-refusal tuning). Also owns the 40-case guardian golden set and the **five-case failure-mode demo script**. |
+| 신호정 | Tech Lead (design/contract only) | System architecture, **ownership of inter-module contracts**, verifier rules + closed-loop state-transition spec, design approval, **code-freeze declaration**, finals technical Q&A. **Writes no code** — two reasons: an implementer who also designs will diverge under a compressed schedule, and someone with no code in the tree can freeze it without a conflict of interest. Decisions are recorded as ADRs in `docs/adr/`. |
+| 김소원 | AI 모델 · RAG · 프론트엔드 | Shelter-suitability model training/validation/SHAP, guardian RAG **generation + log-matching verifier**, frontend (3-step traffic light, SHAP map, Q&A block). Generation and verification are one flow, so one person owns both. **Zero schedule buffer** — the cut-down cards are pre-agreed (drop free-form "기타" first, then revert SHAP to three fixed cards). |
+| 김도혁 | Backend | Flood-avoiding route (**OSMnx + networkx**, not OSRM), **event-log pipeline** (capture/store/query), FCM real-send reconnection, guardian second dispatch, closed-loop orchestration. The verifier and the generator both run on top of this log, so the foundation is his. |
+
+Two boundaries are load-bearing and easy to get wrong: **infrastructure belongs to PM** (but on finals day the *primary* on-site infra responder is Backend, because PM is on stage — judgement is PM's, hands are Backend's; the **8/29 demo deploy is done by PM alone**, which is why PM must have run the whole cycle solo on 8/26), and **Tech Lead writes no code**. Per-role detail lives in [docs/역할_가이드/](docs/역할_가이드/README.md), timing in [docs/역할_일정/](docs/역할_일정/README.md).
 
 ## Naming convention (documents & folders)
 
@@ -94,13 +111,13 @@ All planning docs live under `docs/`; the repo root keeps only `AGENTS.md`, `CLA
 | Folder | Holds |
 |---|---|
 | `docs/공통_가이드/` | Project-wide design docs everyone reads — `개발자_가이드.md`, `환경_세팅_가이드.md`, `배포_절차.md`, `서버_운영.md`, `AWS_계정_발급_가이드.md`, `저장소_운영.md`, `아키텍처.md`, `워킹_스켈레톤_설명.md`, `워킹_스켈레톤_점검.md`, `리스크.md`, `구현_범위.md`, `외부_승인.md`, `비용_산정.md`, `개인정보_체크리스트.md`, `후속_과제.md` |
-| `docs/역할_가이드/` | Per-role playbooks — who does what. `01-기획총괄.md` … `06-QA-보안.md` |
+| `docs/역할_가이드/` | Per-role playbooks — who does what. `01-기획총괄.md` … `04-백엔드.md` (four positions since the 2026-08-11 reshuffle) |
 | `docs/역할_일정/` | Per-role timelines — when it must be done. Same role numbering as `역할_가이드/` |
 | `docs/공유_문서/` | Continuously revised working documents (인터뷰 가이드, 회의 결과, …) — **not** competition submission forms, which stay out of the repo per "Not in this repository". Its `README.md` is the index — every file listed with 최종 수정일 · 버전 · 핵심 내용 · 상태·근거, updated in the same PR as the file itself |
 | `docs/adr/` | Architecture decision records (English filenames) |
 | `docs/pr-checklist.md` | PR procedure, inherited from the template |
 
-`역할_가이드/` and `역할_일정/` are 1:1 by role number — adding a role means adding a file to both.
+`역할_가이드/` and `역할_일정/` are 1:1 by role number — adding or removing a role means editing a file in both.
 
 ### Prose style and character set
 
@@ -162,7 +179,7 @@ Rewrap a file's paragraphs when you are already editing them for another reason.
 
 The team surveyed past winning teams' repo structures (research PDF kept outside this repo — see "Not in this repository"). Its **substantive** finding is not "split into many repos" (form) but **"keep AI as an independently deployable engine/module rather than an inline API call, and document deployment/ops directly in READMEs"** (substance).
 
-Given this team's constraints — 6 people, a short hackathon timeline, and a **front-loaded Tech Lead (early-concentration model)** — the coordination cost and integration debt of a multi-repo org outweigh its benefits. **This project uses a single monorepo**, while keeping AI as an independently deployable service inside it to satisfy the winning-pattern substance ([ADR-0001](docs/adr/0001-monorepo.md)). Actual layout:
+Given this team's constraints — a small team (6 at registration, 4 now), a short hackathon timeline, and a **front-loaded Tech Lead (early-concentration model)** — the coordination cost and integration debt of a multi-repo org outweigh its benefits. **This project uses a single monorepo**, while keeping AI as an independently deployable service inside it to satisfy the winning-pattern substance ([ADR-0001](docs/adr/0001-monorepo.md)). Actual layout:
 
 ```
 savers-project/
