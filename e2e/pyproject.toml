@@ -10,4 +10,9 @@ testpaths = ["tests"]
 markers = [
     "flow: 정상 관통 시나리오 (등록→감지→매칭→위치→생성→발송)",
     "failure: 실패 모드 — API 장애·위치 거부·가드레일 이탈 시 안전장치 동작",
+    # ⚠️ 이 마커가 붙은 테스트는 정상 TTL 스택에서 통과할 수 없습니다 — SAVERS_SESSION_TTL_S=0
+    #    으로 재생성한 backend 전용입니다. E2E 워크플로가 패스를 둘로 나눠 돌립니다
+    #    (정상 패스는 `-m "not expiry"`). --strict-markers가 없어 미등록 마커는 경고만
+    #    내므로, 여기 등록을 빠뜨리면 오타가 조용히 지나가 아무 테스트도 선택되지 않습니다.
+    "expiry: 세션 토큰 만료 → 410 SESSION_EXPIRED (TTL=0 backend 전용 패스)",
 ]
