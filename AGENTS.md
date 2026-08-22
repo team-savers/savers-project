@@ -73,12 +73,15 @@ All of the above targets are placeholder hypotheses to be replaced with real pro
 
 | Person | Role | Owns |
 |---|---|---|
-| 안은남 | PM | Milestones, integration, final demo |
+| 안은남 | PM · QA/Security · Infra | Milestones, integration, final demo, minimal-collection/encryption, guardrail validation, web-push fallback path, E2E testing, demo material, infra/deployment/server ops |
 | 신호정 | Tech Lead | System architecture + inter-module contracts (OpenAPI/schemas), a walking skeleton threading the full flow, guardrail prompt design principles + initial version, repo scaffolding/CI/eval-harness skeleton — **concentrated up front** — then ongoing review/advisory. Architecture decisions are recorded as ADRs in `docs/adr/` so contract/skeleton knowledge is not siloed. |
-| 김소원 | AI/RAG Engineer | 국민행동요령 preprocessing/chunking, Chroma indexing, semantic search tuning, 근거 일치율 measurement |
-| 최혜리 (겸임) | Frontend/UX | PWA/웹푸시(FCM) integration, chatbot UI/UX, accessibility (multilingual/plain-language/voice), clarity metric instrumentation |
-| 김도혁 | Backend/Infra | 기상청·소방청 API integration, location matching engine, FastAPI backend, infra redundancy, offline fallback |
-| 최혜리 | QA/Security | Minimal-collection/encryption, guardrail validation, web-push fallback path, E2E testing, demo material |
+| 김소원 | AI/RAG Engineer · Frontend/UX | 국민행동요령 preprocessing/chunking, Chroma indexing, semantic search tuning, 근거 일치율 measurement, PWA/웹푸시(FCM) integration, chatbot UI/UX, accessibility (multilingual/plain-language/voice), clarity metric instrumentation |
+| 김도혁 | Backend | 기상청·소방청 API integration, location matching engine, FastAPI backend, offline fallback |
+
+> 등록 인원은 6명이었으나, 이진호는 초반에 이탈해 표에 실린 적이 없다.
+> 이후 최혜리도 중도 하차했다 — 등록 6인 중 중도 하차 2인(이진호·최혜리)이 빠져 4인 체제가 됐다.
+> 최혜리의 Frontend/UX는 김소원이, QA/Security·Infra는 안은남이 흡수했다.
+> 전체 팀·모듈 오너십 서술은 위 표를 갱신 대상 원본으로 삼는다.
 
 ## Naming convention (documents & folders)
 
@@ -162,7 +165,7 @@ Rewrap a file's paragraphs when you are already editing them for another reason.
 
 The team surveyed past winning teams' repo structures (research PDF kept outside this repo — see "Not in this repository"). Its **substantive** finding is not "split into many repos" (form) but **"keep AI as an independently deployable engine/module rather than an inline API call, and document deployment/ops directly in READMEs"** (substance).
 
-Given this team's constraints — 6 people, a short hackathon timeline, and a **front-loaded Tech Lead (early-concentration model)** — the coordination cost and integration debt of a multi-repo org outweigh its benefits. **This project uses a single monorepo**, while keeping AI as an independently deployable service inside it to satisfy the winning-pattern substance ([ADR-0001](docs/adr/0001-monorepo.md)). Actual layout:
+Given this team's constraints — 6 people at ADR-0001's decision time (four now — see "Team / module ownership" above), a short hackathon timeline, and a **front-loaded Tech Lead (early-concentration model)** — the coordination cost and integration debt of a multi-repo org outweigh its benefits. **This project uses a single monorepo**, while keeping AI as an independently deployable service inside it to satisfy the winning-pattern substance ([ADR-0001](docs/adr/0001-monorepo.md)). Actual layout:
 
 ```
 savers-project/
