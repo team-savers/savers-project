@@ -85,6 +85,12 @@ FAIL 이다 — 읽지 못한 로그의 "좌표 없음"은 증거가 아니기 �
 
 표준 라이브러리만 쓴다 — venv 없이 python3 만 있으면 어디서든 돈다.
 종료 코드: FAIL 이 하나라도 있으면 1, 아니면 0 (SKIP/WARN 은 실패가 아님).
+
+⚠️ 리포트의 **항목 키 집합은 실행 조건과 무관하게 항상 같다**(현재 16개).
+라이브를 건너뛴 실행도 해당 항목을 SKIP 으로 채운다. 실행마다 키가 달라지면
+S1-E6 증빙을 시계열로 비교할 때 "항목이 빠진 것"과 "이름이 바뀐 것"을 구분할
+수 없기 때문이다(PR #76 재검토 4번). 항목을 추가할 때 이 성질을 깨지 말 것 —
+라이브 항목이면 LIVE_CHECKS 에도 함께 넣어야 한다.
 """
 
 from __future__ import annotations
@@ -838,21 +844,29 @@ def main() -> int:
     check_p1_geolocation(report)
     check_s1_consent_separation(report)
 
+    # ⚠️ 어떤 경로로 끝나든 리포트의 항목 키 집합은 같아야 한다. 실행 조건에 따라
+    # 키가 달라지면(라이브를 건너뛴 실행에서 여섯 항목이 한 줄로 합쳐지는 식) S1-E6
+    # 증빙을 시계열로 비교할 수 없다 — 항목이 빠진 것인지 이름이 바뀐 것인지
+    # 구분되지 않는다(PR #76 재검토 4번). 그래서 건너뛰는 경로도 LIVE_CHECKS 를
+    # 전부 SKIP 으로 채운다.
     if args.base_url and not args.base_url.startswith(("http://", "https://")):
         # _http 가 ValueError 로 죽으면 여기까지 온 정적 결과와 --out 보고서가
         # 통째로 날아간다. 스킴 누락은 --base-url 오타 중 가장 흔한 형태다.
         print("── 라이브 검사: --base-url 형식 오류로 건너뜀 ──")
         report.add(
-            "P2/P3/P4",
+            "P2-setup",
             "FAIL",
             f"--base-url 에 http(s):// 스킴이 없음: {args.base_url!r} — 예: http://localhost:8000",
+        )
+        _skip_remaining(
+            report, "--base-url 형식 오류로 라이브 검사를 시작하지 못함 — 위 P2-setup 참조"
         )
     elif args.base_url:
         print("── 라이브 검사 (기동된 스택, HTTP만) ──")
         check_live(report, args.base_url.rstrip("/"), args.log, args.log_command)
     else:
         print("── 라이브 검사: --base-url 미지정으로 건너뜀 ──")
-        report.add("P2/P3/P4", "SKIP", "--base-url 미지정 — 스택을 기동하고 다시 실행하세요")
+        _skip_remaining(report, "--base-url 미지정 — 스택을 기동하고 다시 실행하세요")
 
     print("── 자동화 불가 항목 ──")
     add_manual_skips(report)
