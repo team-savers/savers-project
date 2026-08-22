@@ -162,6 +162,56 @@ def find_bash():
     return (found, "wsl") if found else (None, None)
 
 
+# ---------------------------------------------------------------- repo .venv preference
+
+APP_MODULES = ("api", "backend_core", "ai_engine")
+
+# Cache keyed by interpreter path: probe_isolation, probe_editable and both fixes ask the
+# same question, and `evaluate()` runs twice when something was repaired.
+_VENV_HAS_APPS = {}
+
+
+def _activate_hint() -> str:
+    return r".venv\Scripts\activate" if os.name == "nt" else "source .venv/bin/activate"
+
+
+def _same_dir(a, b) -> bool:
+    try:
+        return os.path.normcase(os.path.realpath(str(a))) == os.path.normcase(
+            os.path.realpath(str(b))
+        )
+    except OSError:
+        return False
+
+
+def _current_env_label() -> str:
+    if sys.prefix != getattr(sys, "base_prefix", sys.prefix):
+        return f"venv: {sys.prefix}"
+    if os.environ.get("CONDA_PREFIX"):
+        return "conda: {}".format(os.environ.get("CONDA_DEFAULT_ENV") or "base")
+    return "시스템 파이썬"
+
+
+def dormant_venv(ctx):
+    """Repo-root .venv that already has the apps installed but is not the running interpreter.
+
+    A checkout carrying a working .venv wins over whatever env the shell happens to activate
+    (auto-activated conda is the common case). Installing the apps a second time into that
+    other env makes `git push` succeed or fail depending on which shell opened it, so the
+    doctor guides activation instead. scripts/run-tests.sh prefers the same .venv.
+    """
+    if ctx.mode == "container":
+        return None
+    venv = ctx.path(".venv")
+    exe = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    if not exe.is_file() or _same_dir(sys.prefix, venv):
+        return None
+    key = str(exe)
+    if key not in _VENV_HAS_APPS:
+        _VENV_HAS_APPS[key] = ok([key, "-c", "import " + ", ".join(APP_MODULES)])
+    return exe if _VENV_HAS_APPS[key] else None
+
+
 # ---------------------------------------------------------------- context
 
 
@@ -250,6 +300,9 @@ def probe_python(ctx):
 def probe_isolation(ctx):
     if ctx.mode == "container":
         return OK, "컨테이너 내부 — 이미지가 격리를 담당"
+    if dormant_venv(ctx):
+        # Isolated, but the wrong isolation: the repo's own .venv is the one the hooks use.
+        return BROKEN, f"저장소 .venv 미활성 (현재: {_current_env_label()}) — {_activate_hint()}"
     if sys.prefix != getattr(sys, "base_prefix", sys.prefix):
         return OK, f"venv: {sys.prefix}"
     conda = os.environ.get("CONDA_PREFIX")
@@ -262,6 +315,11 @@ def probe_isolation(ctx):
 
 
 def fix_isolation(ctx):
+    if dormant_venv(ctx):
+        print("     저장소 .venv에 앱이 이미 설치돼 있습니다. 활성화 후 다시 실행하세요:")
+        print(f"       {_activate_hint()}")
+        ctx.needs_restart = True
+        return False
     if os.environ.get("CONDA_PREFIX"):
         # Creating a venv on top of conda base works but produces a confusing hybrid;
         # the conda-native path is the user's call, not ours.
@@ -274,9 +332,8 @@ def fix_isolation(ctx):
         print(_c(f"     $ {sys.executable} -m venv .venv", "90"))
         if run([sys.executable, "-m", "venv", str(venv)], capture=False).returncode != 0:
             return False
-    activate = r".venv\Scripts\activate" if os.name == "nt" else "source .venv/bin/activate"
     print("     .venv 생성 완료. 활성화 후 이 스크립트를 다시 실행하세요:")
-    print(f"       {activate}")
+    print(f"       {_activate_hint()}")
     ctx.needs_restart = True
     return False
 
@@ -285,13 +342,22 @@ def fix_isolation(ctx):
 
 
 def probe_editable(ctx):
-    missing = [m for m in ("api", "backend_core", "ai_engine") if not has_module(m)]
-    if missing:
-        return MISSING, "import 실패: {}".format(", ".join(missing))
-    return OK, "api / backend_core / ai_engine"
+    missing = [m for m in APP_MODULES if not has_module(m)]
+    if not missing:
+        return OK, " / ".join(APP_MODULES)
+    if dormant_venv(ctx):
+        return MISSING, f"현재 환경에 없음 — 저장소 .venv 활성화 필요 ({_activate_hint()})"
+    return MISSING, "import 실패: {}".format(", ".join(missing))
 
 
 def fix_editable(ctx):
+    if dormant_venv(ctx):
+        # Installing here would leave two copies of the apps in two environments; which one
+        # the pre-push hook sees would then depend on the shell the push came from.
+        print("     저장소 .venv에 이미 설치돼 있어 현재 환경에는 설치하지 않습니다:")
+        print(f"       {_activate_hint()}")
+        ctx.needs_restart = True
+        return False
     backend = "{}[dev]".format(ctx.path("apps", "backend"))
     ai = "{}[dev]".format(ctx.path("apps", "ai-engine"))
     return pip_install("-e", backend, "-e", ai)
