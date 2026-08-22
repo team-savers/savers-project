@@ -1,0 +1,74 @@
+# .github/workflows/clarity-eval.yml
+name: Clarity Eval
+# ⚠️ paths 필터가 걸린 워크플로이므로 required status check로 지정하지 마세요.
+#    (해당 경로 변경이 없는 PR에서는 체크가 생성되지 않아 머지가 영구 블록됩니다 —
+#     docs/공통_가이드/저장소_운영.md §4의 알려진 함정. 파이썬 앱 CI만 required입니다.)
+#
+# 명확성 지표(용어 치환율)를 제출 가능한 파일로 만드는 워크플로입니다(후속_과제.md 5번).
+# 두 단계가 한 실행으로 이어집니다 — 같은 문안을 두 채점기가 나눠 채점합니다:
+#   1. python  apps/ai-engine/eval/run_grounding_eval.py  → 근거 일치율 + 문안(body) 포함 보고서
+#   2. node    apps/frontend/scripts/measure-clarity.ts   → 그 문안의 용어 치환율 보고서
+# StubGenerator 기반이라 외부 API 호출·비용이 없고 결정론적입니다. 실생성이 붙기
+# 전까지 수치는 잠정치입니다(보고서와 잡 로그에 같은 경고가 찍힙니다).
+
+on:
+  pull_request:
+    paths:
+      - 'apps/frontend/src/lib/readability.ts'
+      - 'apps/frontend/scripts/**'
+      - 'apps/ai-engine/eval/**'
+      - 'apps/ai-engine/src/ai_engine/**'
+      - '.github/workflows/clarity-eval.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/frontend/src/lib/readability.ts'
+      - 'apps/frontend/scripts/**'
+      - 'apps/ai-engine/eval/**'
+      - 'apps/ai-engine/src/ai_engine/**'
+      - '.github/workflows/clarity-eval.yml'
+  # 제출 직전 아무 커밋에서나 수동으로 최신 보고서를 뽑을 수 있게 열어 둡니다.
+  workflow_dispatch:
+
+concurrency:
+  group: clarity-eval-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  clarity:
+    name: Clarity metrics artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12' # apps/*/pyproject.toml requires-python과 싱크 (ci.yml과 동일)
+
+      # dev extra 불필요 — 채점기는 core 의존만 씁니다(StubGenerator·FixtureRetriever).
+      - name: Install ai-engine (core)
+        run: pip install ./apps/ai-engine
+
+      # ⚠️ eval 디렉토리를 cwd로 실행해야 합니다 — run_grounding_eval.py가 로컬 모듈
+      #    (metrics, dataset)을 같은 디렉토리에서 가져옵니다.
+      - name: Grounding eval (bodies + fidelity)
+        working-directory: apps/ai-engine/eval
+        run: python run_grounding_eval.py --out reports/grounding_report.json
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24 # 타입 스트리핑으로 .ts를 직접 실행 (>= 22.18 필요)
+
+      # 의존성 설치 불필요 — measure-clarity.ts는 node 내장 모듈 + src의 순수 함수만
+      # 씁니다.
+      - name: Clarity eval (substitution ratio)
+        working-directory: apps/frontend
+        run: node scripts/measure-clarity.ts --in ../ai-engine/eval/reports/grounding_report.json --out ../ai-engine/eval/reports/clarity_report.json
+
+      - name: Upload reports
+        uses: actions/upload-artifact@v7
+        with:
+          name: clarity-eval-reports
+          path: apps/ai-engine/eval/reports/*.json
+          retention-days: 30
