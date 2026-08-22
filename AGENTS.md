@@ -108,6 +108,11 @@ The team registered with six people; **two left for personal reasons, so it is n
 | 김소원 | AI 모델 · RAG · 프론트엔드 | Shelter-suitability model training/validation/SHAP, guardian RAG **generation + log-matching verifier**, frontend (3-step traffic light, SHAP map, Q&A block). Generation and verification are one flow, so one person owns both. **Zero schedule buffer** — the cut-down cards are pre-agreed (drop free-form "기타" first, then revert SHAP to three fixed cards). |
 | 김도혁 | Backend | Flood-avoiding route (**OSMnx + networkx**, not OSRM), **event-log pipeline** (capture/store/query), FCM real-send reconnection, guardian second dispatch, closed-loop orchestration. The verifier and the generator both run on top of this log, so the foundation is his. |
 
+> 등록 인원은 6명이었으나, 이진호는 초반에 이탈해 표에 실린 적이 없다.
+> 이후 최혜리도 중도 하차했다 — 등록 6인 중 중도 하차 2인(이진호·최혜리)이 빠져 4인 체제가 됐다.
+> 최혜리의 Frontend/UX는 김소원이, QA/Security·Infra는 안은남이 흡수했다.
+> 전체 팀·모듈 오너십 서술은 위 표를 갱신 대상 원본으로 삼는다.
+
 Two boundaries are load-bearing and easy to get wrong: **infrastructure belongs to PM** (but on finals day the *primary* on-site infra responder is Backend, because PM is on stage — judgement is PM's, hands are Backend's; the **8/29 demo deploy is done by PM alone**, which is why PM must have run the whole cycle solo on 8/26), and **Tech Lead writes no code**. Per-role detail lives in [docs/역할_가이드/](docs/역할_가이드/README.md), timing in [docs/역할_일정/](docs/역할_일정/README.md).
 
 ## Naming convention (documents & folders)
@@ -192,7 +197,7 @@ Rewrap a file's paragraphs when you are already editing them for another reason.
 
 The team surveyed past winning teams' repo structures (research PDF kept outside this repo — see "Not in this repository"). Its **substantive** finding is not "split into many repos" (form) but **"keep AI as an independently deployable engine/module rather than an inline API call, and document deployment/ops directly in READMEs"** (substance).
 
-Given this team's constraints — a small team (6 at registration, 4 now), a short hackathon timeline, and a **front-loaded Tech Lead (early-concentration model)** — the coordination cost and integration debt of a multi-repo org outweigh its benefits. **This project uses a single monorepo**, while keeping AI as an independently deployable service inside it to satisfy the winning-pattern substance ([ADR-0001](docs/adr/0001-monorepo.md)). Actual layout:
+Given this team's constraints — 6 people at ADR-0001's decision time (four now — see "Team / module ownership" above), a short hackathon timeline, and a **front-loaded Tech Lead (early-concentration model)** — the coordination cost and integration debt of a multi-repo org outweigh its benefits. **This project uses a single monorepo**, while keeping AI as an independently deployable service inside it to satisfy the winning-pattern substance ([ADR-0001](docs/adr/0001-monorepo.md)). Actual layout:
 
 ```
 savers-project/

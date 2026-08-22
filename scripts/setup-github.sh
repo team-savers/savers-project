@@ -23,8 +23,9 @@ if [[ "$MODE" == "--solo" ]]; then
   echo "==> --solo: PR 승인 요구 없음 (보호 규칙의 나머지는 동일)"
 else
   # require_code_owner_reviews: 루트 CODEOWNERS의 오너 배정이 끝나 true로 전환됨.
-  # ⚠️ CODEOWNERS의 모든 경로에 오너가 2명 이상이어야 한다 — 단독 오너 경로는 그 오너 자신의
-  #    PR을 승인할 사람이 없어 영구 블록된다(작성자 승인은 카운트되지 않음).
+  # ⚠️ CODEOWNERS의 모든 경로에 오너가 3명 이상이어야 한다 — 오너가 2명뿐이면 그중 1명이
+  #    작성자일 때 남은 1명이 유일한 승인자가 되고, 그 사람이 자리를 비우면 해당 경로가
+  #    영구 블록된다(작성자 승인은 카운트되지 않음).
   REVIEWS='{ "required_approving_review_count": 1, "require_code_owner_reviews": true }'
 fi
 
