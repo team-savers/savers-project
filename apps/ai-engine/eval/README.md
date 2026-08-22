@@ -15,7 +15,7 @@ SAVERS의 차별화 전략은 **"품질을 재현 가능한 자동 스크립트�
 | 알림 도달 속도 | 재난 API 수신 → 개인화 알림 발송까지 end-to-end | ≤30초 (100회 평균+p95) | ✅ `run_latency_eval.py` |
 | 근거 일치율 | 생성 메시지 ↔ 국민행동요령 원문 일치 | ≥85% (30~50 케이스) | ✅ `run_grounding_eval.py` |
 | 환각 억제율 | 동일 셋에 가드레일 on/off 비교 | 환각 ≥50% 감소 | ✅ `run_grounding_eval.py` |
-| 메시지 명확성 | 쉬운 말 대체율 / 단일 행동지침 포함률 | ≥90% / 100% | ⚠️ 절반만 — 아래 참고 |
+| 메시지 명확성 | 쉬운 말 대체율 / 단일 행동지침 포함률 | ≥90% / 100% | ⚠️ 포함률만 — 대체율은 프론트 채점기가 이 보고서를 이어받아 채점 (아래 참고) |
 
 ## 지금 있는 것
 
@@ -85,8 +85,29 @@ python apps/ai-engine/eval/run_latency_eval.py --runs 100   # 스택 기동 필�
 파이썬으로 사전을 다시 만들면 **같은 제출 지표에 진실이 둘**이 되고,
 두 사전이 어긋나는 순간 어느 쪽 수치를 낸 것인지 아무도 답할 수 없습니다.
 
-남은 작업은 그 함수들의 출력을 파일로 떨어뜨리는 것이고,
-[후속_과제.md](../../../docs/공통_가이드/후속_과제.md) 5번 항목입니다(소관: 프론트엔드).
+그래서 용어 치환율은 프론트엔드의
+[`apps/frontend/scripts/measure-clarity.ts`](../../frontend/scripts/measure-clarity.ts)가
+**이 채점기의 보고서를 입력으로 이어받아** 채점합니다
+(후속_과제.md 5번을 닫은 구현).
+`run_grounding_eval.py`가 케이스별로 전달 문안(`body`)·근거 인용(`sourceQuotes`)·
+수신자 언어(`language`)를 보고서에 실어 주고,
+프론트 스크립트는 같은 실행의 같은 문안을 치환율로 채점합니다 —
+케이스도 문안도 사전도 각각 하나만 존재합니다.
+
+```bash
+# 1) 여기(eval/)에서 문안 생성 + 근거 채점
+python run_grounding_eval.py --out reports/grounding_report.json
+# 2) 프론트에서 같은 보고서로 치환율 채점 (Node >= 22.18)
+cd ../../frontend
+npm run eval:clarity -- --in ../ai-engine/eval/reports/grounding_report.json
+```
+
+CI에서는 [.github/workflows/clarity-eval.yml](../../../.github/workflows/clarity-eval.yml)
+(비필수)이 두 단계를 한 실행으로 돌려 보고서 2종을 아티팩트로 올립니다.
+치환율은 두 기준으로 나옵니다 — **화면 표시 문안 기준이 KPI**이고
+(한국어 화면은 `substituteAdminTerms` 적용 후, 베트남어 화면은 사전이 없어
+원문 그대로 — EasyText와 동일 분기), 생성 문안 그대로의 값은 참고치입니다
+(verbatim 인용이 설계라 낮은 것이 정상).
 
 ## 파일 이름 규칙 (CI 동작을 가릅니다)
 
