@@ -107,6 +107,7 @@ import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 # 스캔 뿌리는 src 가 아니라 앱 전체다. src 만 보면 public/sw.js, index.html 의
@@ -574,6 +575,29 @@ def _skip_remaining(report: Report, reason: str) -> None:
             report.add(check, "SKIP", reason)
 
 
+class _ResponseShapeError(RuntimeError):
+    """응답 본문이 계약에서 벗어났다 (JSON 아님, 필드 없음, 타입 다름)."""
+
+
+def _field(body: str, *path: str) -> Any:
+    """JSON 응답에서 path 를 따라 값을 꺼낸다. 벗어나면 _ResponseShapeError.
+
+    KeyError/TypeError/JSONDecodeError 로 죽게 두면 여기까지 쌓인 결과와 --out
+    보고서가 함께 날아간다 — 이 스크립트의 산출물이 바로 그 보고서다. 백엔드
+    응답 모양은 구현자 둘이 계속 바꾸므로, 계약 이탈은 크래시가 아니라 FAIL 로
+    남겨야 한다(PR #76 리뷰).
+    """
+    try:
+        value: Any = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise _ResponseShapeError(f"응답이 JSON 이 아님: {exc}") from exc
+    for key in path:
+        if not isinstance(value, dict) or key not in value:
+            raise _ResponseShapeError(f"응답에 {'.'.join(path)!r} 없음 — 계약이 바뀌었는지 확인")
+        value = value[key]
+    return value
+
+
 def check_live(
     report: Report, base_url: str, log_paths: list[Path], log_command: str | None
 ) -> None:
@@ -590,13 +614,19 @@ def check_live(
         report.add("P2-setup", "FAIL", f"dispatch가 {status} — 스택이 정상 기동됐는지 확인 필요")
         _skip_remaining(report, "dispatch 실패로 센티널 요청을 보내지 못함 — 위 P2-setup 참조")
         return
-    deliveries = json.loads(dispatch_body)["deliveries"]
-    if not deliveries:
-        report.add("P2-setup", "FAIL", "배송 결과 0건 — 시드 주민 매칭 실패")
-        _skip_remaining(report, "배송 0건으로 검사할 세션이 없음 — 위 P2-setup 참조")
+    try:
+        deliveries = _field(dispatch_body, "deliveries")
+        if not deliveries:
+            report.add("P2-setup", "FAIL", "배송 결과 0건 — 시드 주민 매칭 실패")
+            _skip_remaining(report, "배송 0건으로 검사할 세션이 없음 — 위 P2-setup 참조")
+            return
+        delivery = json.dumps(deliveries[0])
+        token = _field(delivery, "sessionToken")
+        guardian_token = _field(delivery, "guardianToken")
+    except _ResponseShapeError as exc:
+        report.add("P2-setup", "FAIL", f"dispatch 응답 해석 실패 — {exc}")
+        _skip_remaining(report, "dispatch 응답을 해석하지 못해 세션이 없음 — 위 P2-setup 참조")
         return
-    delivery = deliveries[0]
-    token = delivery["sessionToken"]
 
     # 검색에 쓸 행정동은 세션에서 받아온다. 상수로 박아 두면 시드나 대피소
     # 픽스처가 바뀌는 순간 검색이 0건이 되고, 그 0건이 아래 P2 전 항목을
@@ -606,7 +636,12 @@ def check_live(
         report.add("P2-setup", "FAIL", f"세션 조회가 {status} — 검사에 쓸 행정동 코드를 얻지 못함")
         _skip_remaining(report, "세션 조회 실패로 센티널 요청을 보내지 못함 — 위 P2-setup 참조")
         return
-    dong_code = json.loads(session_body)["profile"]["dongCode"]
+    try:
+        dong_code = _field(session_body, "profile", "dongCode")
+    except _ResponseShapeError as exc:
+        report.add("P2-setup", "FAIL", f"세션 응답 해석 실패 — {exc}")
+        _skip_remaining(report, "세션 응답에서 행정동 코드를 얻지 못함 — 위 P2-setup 참조")
+        return
 
     # 센티널 좌표로 검색 — [밖이에요] 경로에서 실좌표가 들어오는 그 요청이다.
     status, headers, search_body = _http(
@@ -628,7 +663,14 @@ def check_live(
     # 만지기도 전에 반환하므로(backend_core/shelters.py 의 `if not records`),
     # 그 상태의 "좌표 흔적 없음"은 미저장의 증거가 아니라 검사 대상이 없었다는
     # 뜻이다. basis 는 조기 반환 **전에** 정해지므로 그것만 봐서도 안 된다.
-    search = json.loads(search_body)
+    try:
+        search = json.loads(search_body)
+        if not isinstance(search, dict):
+            raise _ResponseShapeError("검색 응답이 객체가 아님")
+    except (json.JSONDecodeError, _ResponseShapeError) as exc:
+        report.add("P2-setup", "FAIL", f"검색 응답 해석 실패 — {exc}")
+        _skip_remaining(report, "검색 응답을 해석하지 못해 검사 대상이 없음 — 위 P2-setup 참조")
+        return
     items = search.get("items") or []
     if search.get("basis") != "coordinate" or not items:
         report.add(
@@ -662,7 +704,7 @@ def check_live(
         no_store_misses.append(f"검색({headers.get('cache-control')!r})")
     for name, url in (
         ("session", f"{base_url}/v1/session/{token}"),
-        ("guardian", f"{base_url}/v1/guardian/{delivery['guardianToken']}"),
+        ("guardian", f"{base_url}/v1/guardian/{guardian_token}"),
     ):
         state_status, state_headers, state_body = _http("GET", url)
         if state_status != 200:
@@ -719,12 +761,14 @@ def check_live(
     else:
         source = log_command or ", ".join(str(p) for p in log_paths)
         # 내 요청의 nonce 가 로그에 나타날 때까지 기다린다.
+        # 첫 읽기 실패도 재시도 대상이다 — 파일이 막 생기는 시점이나 로테이션
+        # 순간에 걸리면 None 이 오는데, 거기서 바로 포기하면 멀쩡한 스택을 FAIL 로
+        # 판정한다(PR #76 리뷰). 읽기에 실패하면 직전 내용을 유지한 채 기다린다.
         log_text = _read_logs(log_paths, log_command)
         for _ in range(LOG_ARRIVAL_TRIES):
-            if log_text is None or canary_nonce in log_text:
+            if log_text is not None and canary_nonce in log_text:
                 break
             time.sleep(LOG_ARRIVAL_INTERVAL_S)
-            # 재시도 중 읽기가 실패하면(로테이션) 직전 내용을 유지한 채 계속 기다린다.
             refreshed = _read_logs(log_paths, log_command)
             if refreshed is not None:
                 log_text = refreshed
@@ -844,6 +888,22 @@ def main() -> int:
     check_p1_geolocation(report)
     check_s1_consent_separation(report)
 
+    try:
+        _run_checks(report, args)
+    finally:
+        # 어떤 예외로 끝나든 여기까지 모인 결과는 증빙으로 남긴다. 이 스크립트의
+        # 산출물이 이 파일이므로, 중간에 죽으면서 파일까지 잃는 것이 최악이다
+        # (PR #76 리뷰). 예외 자체는 삼키지 않는다 — 트레이스백은 그대로 보인다.
+        _write_report(report, args.out)
+
+    if report.failed:
+        print("\n결과: FAIL — 위 ❌ 항목을 해결하기 전에는 통과가 아닙니다")
+        return 1
+    print("\n결과: PASS (SKIP/WARN은 '검사 안 됨'이지 '통과'가 아님 — 항목별 사유 참조)")
+    return 0
+
+
+def _run_checks(report: Report, args: argparse.Namespace) -> None:
     # ⚠️ 어떤 경로로 끝나든 리포트의 항목 키 집합은 같아야 한다. 실행 조건에 따라
     # 키가 달라지면(라이브를 건너뛴 실행에서 여섯 항목이 한 줄로 합쳐지는 식) S1-E6
     # 증빙을 시계열로 비교할 수 없다 — 항목이 빠진 것인지 이름이 바뀐 것인지
@@ -871,24 +931,21 @@ def main() -> int:
     print("── 자동화 불가 항목 ──")
     add_manual_skips(report)
 
-    if args.out:
-        args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(
-            json.dumps(
-                {"generatedAt": datetime.now(UTC).isoformat(), "items": report.items},
-                ensure_ascii=False,
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        print(f"보고서: {args.out}")
 
-    if report.failed:
-        print("\n결과: FAIL — 위 ❌ 항목을 해결하기 전에는 통과가 아닙니다")
-        return 1
-    print("\n결과: PASS (SKIP/WARN은 '검사 안 됨'이지 '통과'가 아님 — 항목별 사유 참조)")
-    return 0
+def _write_report(report: Report, out: Path | None) -> None:
+    if out is None:
+        return
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        json.dumps(
+            {"generatedAt": datetime.now(UTC).isoformat(), "items": report.items},
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    print(f"보고서: {out}")
 
 
 if __name__ == "__main__":
