@@ -14,12 +14,17 @@ on:
       - 'apps/**'
       - 'infra/**'
       - '.github/workflows/e2e.yml'
+      # ⚠️ 이 스크립트만 바뀐 PR 에서도 검사가 돌아야 합니다. 검사를 약화시키는
+      #    변경(GEO_ALLOWED_FILES 추가, 센티널 조각 완화)이 정확히 그 형태인데,
+      #    빠뜨리면 그 PR 에서 검사가 한 번도 실행되지 않은 채 머지됩니다.
+      - 'scripts/check_privacy.py'
   push:
     branches: [main]
     paths:
       - 'e2e/**'
       - 'apps/**'
       - 'infra/**'
+      - 'scripts/check_privacy.py'
 
 concurrency:
   group: e2e-${{ github.ref }}
@@ -57,9 +62,96 @@ jobs:
         run: playwright install --with-deps chromium
 
       # ⚠️ cwd를 e2e로 두어야 e2e/pyproject.toml의 testpaths/markers를 집습니다.
-      - name: Run E2E
+      #
+      # 테스트가 두 패스로 갈리는 이유는 세션 TTL이 **프로세스 전역 싱글턴**이라
+      # (api/deps.py의 lru_cache) 테스트별로 다르게 줄 수 없기 때문입니다. 만료를
+      # HTTP만으로 만들 방법이 없어, TTL이 다른 backend를 한 번 더 띄웁니다.
+      # `-m "not expiry"` 는 마커 없는 테스트를 전부 선택하므로 기존 수집 범위는 그대로입니다.
+      - name: Run E2E (정상 TTL 패스)
         working-directory: e2e
-        run: pytest -v
+        run: pytest -v -m "not expiry"
+
+      # 미저장·암호화 점검(S1-E6). 이 잡에 붙이는 이유는 하나입니다 — 라이브 검사가
+      # 기동된 스택과 그 스택의 로그를 둘 다 요구하고, 그 둘이 여기밖에 없습니다.
+      # 스택이 없으면(SAVERS_E2E_BASE_URL 미설정) 정적 검사만 돌고, 라이브 항목은
+      # SKIP으로 보고됩니다 — SKIP은 통과가 아니라 "검사 안 됨"입니다.
+      #
+      # ⚠️ 이 스텝은 아래 "Recreate backend with TTL=0"보다 **앞이어야 합니다.**
+      #    그 뒤로 옮기면 세션이 발급 즉시 만료되어 센티널 검색이 전부 410으로 떨어지고,
+      #    라이브 항목이 통째로 SKIP + 종료 코드 1이 되어 잡이 매 실행 빨간불이 됩니다
+      #    (PR #76 리뷰에서 실측 확인). 같은 이유로 그 스텝의 주석도 "항상 마지막 테스트
+      #    스텝"이라고 못 박고 있습니다.
+      # ⚠️ 로그를 여기서 미리 파일로 떠서 넘기면 안 됩니다. `docker compose logs`는
+      #    그 순간까지의 스냅샷이라, 스크립트가 뒤이어 보내는 센티널 요청의 접근 기록이
+      #    그 파일에 절대 들어가지 않습니다. 그런데 앞서 돌아간 E2E가 같은 경로를 3회
+      #    호출해 두었으므로, 경로만 보는 카나리아는 남의 요청으로 통과해버립니다 —
+      #    검사 대상이 없는 채로 "좌표 없음 = 통과"가 되는 무음 false PASS입니다
+      #    (PR #76 리뷰에서 확인된 결함).
+      #    그래서 로그 수집을 스크립트에 위임합니다(`--log-command`). 스크립트가 자기
+      #    요청을 보낸 **다음에** 이 명령을 실행하므로 시간 창이 어긋나지 않고,
+      #    백그라운드 `-f` 프로세스와 그 kill·경쟁 상태도 필요 없습니다. 카나리아도
+      #    실행마다 고유한 nonce를 쿼리스트링에 실어 보내는 방식이라 남의 요청으로는
+      #    통과할 수 없습니다.
+      # ⚠️ always()가 아니라 !cancelled()입니다. 이 워크플로는 cancel-in-progress라
+      #    PR에 두 번 푸시하면 앞 실행이 취소되는데, always()는 취소된 실행에서도
+      #    돌아 철거 중인 스택을 상대로 검사가 시작됩니다(PR #76 리뷰).
+      - name: 개인정보 점검 (미저장·분리동의)
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p privacy-out
+          if [ -n "${SAVERS_E2E_BASE_URL:-}" ]; then
+            python3 scripts/check_privacy.py \
+              --base-url "$SAVERS_E2E_BASE_URL" \
+              --log-command "docker compose -f infra/docker-compose.yml logs --no-color --no-log-prefix backend" \
+              --out privacy-out/privacy_report.json
+          else
+            python3 scripts/check_privacy.py --out privacy-out/privacy_report.json
+          fi
+
+      - name: Upload privacy report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: privacy-check-report
+          path: privacy-out/*.json
+          retention-days: 30
+
+      # TTL=0이면 발송 직후부터 만료라 sleep이 필요 없습니다. 짧은 양수 TTL을 쓰지 않는
+      # 이유는 expires_at이 발송 루프 진입 시각 기준이어서(backend_core/pipeline.py)
+      # ai-engine이 느릴 때 TTL 창을 발송 소요시간이 먹기 때문입니다 — 그러면 정상 패스의
+      # 테스트가 "세션 만료 버그"처럼 보이는 410으로 무너집니다.
+      #
+      # ⚠️ 마커 환경변수를 이 스텝이 직접 발행합니다($GITHUB_ENV). 아래 pytest 스텝에
+      #    옮기지 마세요 — 둘을 갈라 두면 이 스텝만 지웠을 때 "backend는 정상 TTL인데
+      #    테스트는 돈다"가 아니라 "backend는 TTL=0인데 테스트는 skip"이라는 **무음 실패**가
+      #    가능해집니다. 한 스텝이 둘을 함께 발행하면 지우는 순간 테스트도 같이 사라집니다.
+      # ⚠️ !cancelled() 인 이유는 위 개인정보 점검이 이 앞에 있기 때문입니다. 기본
+      #    조건(success())으로 두면 점검이 FAIL 한 실행에서 만료 패스가 통째로 skip 되어,
+      #    별개의 QA 신호 두 개가 한쪽 실패로 함께 사라집니다. 아래 pytest 스텝은 이
+      #    스텝의 outcome 을 직접 보므로, 재생성이 실패하면 여전히 돌지 않습니다.
+      - name: Recreate backend with TTL=0 (만료 전용 패스 준비)
+        id: ttl0
+        if: ${{ !cancelled() && hashFiles('infra/docker-compose.yml') != '' }}
+        env:
+          # 셸 환경변수가 infra/.env를 이깁니다(compose 보간 ${SAVERS_SESSION_TTL_S:-21600}).
+          SAVERS_SESSION_TTL_S: '0'
+        run: |
+          # restart가 아니라 재생성이어야 환경변수를 다시 읽습니다 — 출력이 Recreated여야
+          # 정상입니다(docs/공통_가이드/배포_절차.md의 환경변수 반영 절차와 같은 이유).
+          # --no-deps: ai-engine은 그대로 둡니다(정상 패스에서 이미 웜입니다).
+          # --wait-timeout: compose --wait는 기본 무제한이라, healthy가 못 되면 이미 통과한
+          #   잡이 러너 타임아웃까지 매달립니다.
+          docker compose -f infra/docker-compose.yml up -d --wait --wait-timeout 60 \
+            --no-deps --force-recreate backend
+          echo "SAVERS_SESSION_TTL_S=0" >> "$GITHUB_ENV"
+
+      # ⚠️ 이 스텝은 **항상 마지막 테스트 스텝이어야 합니다.** 이 뒤에 테스트를 추가하면
+      #    모든 세션이 발급 즉시 만료된 스택에서 돌아 전부 410이 됩니다. 위 Install browser가
+      #    예고하는 Playwright 딥링크 시나리오를 붙일 곳은 여기가 아니라 정상 TTL 패스입니다.
+      - name: Run E2E (만료 전용 패스)
+        if: ${{ !cancelled() && steps.ttl0.outcome == 'success' }}
+        working-directory: e2e
+        run: pytest -v -m expiry
 
       - name: Stack logs (실패 시 원인 파악용)
         if: failure() && hashFiles('infra/docker-compose.yml') != ''

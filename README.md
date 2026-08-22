@@ -105,6 +105,9 @@ bash scripts/run-tests.sh        # 전체 앱 lint + mypy + pytest
 - [docs/adr/](docs/adr/) — 아키텍처 결정 기록
 - [docs/역할_가이드/](docs/역할_가이드/) · [docs/역할_일정/](docs/역할_일정/) — 역할별 담당과 일정
 - [docs/pr-checklist.md](docs/pr-checklist.md) — PR 절차
+- [docs/공통_가이드/코드_리뷰_가이드.md](docs/공통_가이드/코드_리뷰_가이드.md) — 리뷰 코멘트 서식과 처리 등급
+- [docs/공통_가이드/문서_작성_규약.md](docs/공통_가이드/문서_작성_규약.md) — 문서의 문체·문자 규칙
+- [docs/공통_가이드/메신저_규약.md](docs/공통_가이드/메신저_규약.md) — 팀 메신저 메시지 서식
 
 ## 라이선스
 
