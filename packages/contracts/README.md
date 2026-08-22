@@ -13,6 +13,7 @@
 | frontend ↔ backend | 세션·대피소·챗봇·기기등록·보호자 5개 | v0 초안 (2026-07-27, 이진호 제안 / Tech Lead 확정 대기) |
 | backend ↔ ai-engine (생성) | `POST /v1/generate` | v0 ([ADR-0006](../../docs/adr/0006-generation-contract.md)) · **구현됨** |
 | backend ↔ ai-engine (챗봇) | `POST /v1/answer` | v0 ([ADR-0007](../../docs/adr/0007-walking-skeleton.md)) · **구현됨** |
+| 세션 이벤트 로그 (backend 내부) | `POST`·`GET /internal/sessions/{token}/events` | v0 초안 (2026-08-22, Tech Lead) · **미구현** (8/24 백엔드) |
 | 재난 이벤트 스키마 (수집→매칭) | — | 미작성 (백엔드 내부 모델 `backend_core.models.DisasterEvent`로만 존재) |
 
 **검색(retrieval)은 계약에 없습니다.** ai-engine 내부 단방향 파이프라인의 중간 단계이며
@@ -27,6 +28,9 @@ ADR-0006이 **두 구간을 한 파일에 둔 이유**는 당시 [`contracts-che
 오버라이드(:8100)로 구분하며, 내부 구간은 `security: []`로 세션 토큰을 요구하지 않습니다.
 ⚠️ 내부 구간 경로는 **배포에서 외부에 열지 마세요** — 공개되면 취약계층 프로필이 인증 없이
 새어 나갑니다.
+세션 이벤트 로그는 새는 것이 프로필이 아니라 **상호작용 이력**(누가 언제 알림을 열고 무엇을 눌렀는지)이며,
+차단 지점은 같습니다 — [`infra/Caddyfile`](../../infra/Caddyfile)의 `handle /internal/*`이고,
+배포마다 [배포_절차.md](../../docs/공통_가이드/배포_절차.md) 검증 ⑧이 확인합니다.
 
 **초안의 목적은 확정이 아니라 병렬화입니다.** 응답의 모양이 먼저 고정되면 프론트는 mock으로
 화면을 완성할 수 있고, 백엔드·AI 엔진은 나중에 합류해도 같은 모양만 맞추면 그대로 붙습니다.

@@ -31,7 +31,9 @@ info:
     > 보호자 답변·대조 검증기·폐루프가 공통으로 대조하는 사실의 원천입니다.
     > 이벤트는 `type`·`at`·`payload` 셋으로 고정하고, `payload`의 허용 키를
     > 닫아(`additionalProperties: false`) 좌표가 들어갈 자리를 없앴습니다.
-    > `at`은 서버만 찍습니다.
+    > `at`은 서버만 찍습니다 — 본문에 `at`을 넣으면 422입니다.
+    > 종류별 `payload` 짝(`SessionEventPayloadRules`)과 세션당 1건 제약은
+    > 설명이 아니라 스키마로 강제됩니다.
 
     > **변경 이력(v0.4)**: backend ↔ ai-engine 내부 계약 신설
     > (`POST /v1/generate`, `generation` 태그). `AlertMessage.messageMode`가
@@ -89,8 +91,16 @@ tags:
     description: |
       **내부 구간 (backend 내부 · backend → 생성부).** 브라우저가 직접 부르지 않습니다 —
       한 사람이 알림을 열었는지·무엇을 눌렀는지가 그대로 들어 있어, 공개되면
-      상호작용 이력이 인증 없이 새어 나갑니다. 배포에서 `/internal/*`는
-      리버스 프록시 바깥에 열지 않습니다(#25와 같은 성격의 노출 차단 대상).
+      상호작용 이력이 인증 없이 새어 나갑니다.
+
+      **차단은 이미 서 있습니다.** `infra/Caddyfile`의 `handle /internal/*`가
+      프록시 이전에 404를 돌려주고, 백엔드는 `127.0.0.1:8000` 바인딩입니다.
+      `/internal/alerts/dispatch`가 한 번 443으로 열렸던 사고(#25)를 고친 벽이
+      그대로 이 경로에도 적용되며, 배포 때마다 `배포_절차.md` 검증 ⑧이
+      `internal 404`·`health 200`을 함께 확인합니다. 인증을 붙이지 않는 이유는
+      호출자가 VM 안뿐이고, 키 발급·보관·회수가 따라오는 인증보다 차단이
+      관리 요소가 적기 때문입니다. **이 경로를 프록시에 노출하려면 그 전에
+      인증을 설계해야 합니다.**
   - name: generation
     description: |
       **내부 구간 (backend → ai-engine).** 브라우저가 직접 부르지 않습니다 —
@@ -643,7 +653,17 @@ paths:
 
         **`at`은 요청 본문으로 받지 않고 서버가 찍습니다.** 도달 시각(30초 지표)과
         30분 무응답 판정이 같은 시계를 써야 하고, 클라이언트 시각은 기기 설정에
-        따라 어긋납니다.
+        따라 어긋납니다. 이것은 설명이 아니라 제약입니다 — `SessionEventCreate`는
+        `additionalProperties: false`이므로 본문에 `at`을 넣으면 **422로 거부**되며,
+        보낸 값이 조용히 무시되는 일은 없습니다.
+
+        **단발 이벤트는 재요청해도 두 번 세지지 않습니다(멱등).**
+        `SessionEventType` 표에서 "세션당 1건"으로 표시된 종류는 이미 기록돼 있으면
+        새 이벤트를 만들지 않고 **기존 `at`을 유지한 채 200**을 돌려줍니다. 네트워크
+        오류로 같은 `POST`가 두 번 도착하는 것은 정상 경로이고, 그때
+        `guardian_notified`가 2건이 되면 M4(폐루프 2차 발송 성공률)의 분자가
+        실제보다 커집니다. 지표의 근거가 로그인 이상, 중복 제거는 계측 코드가 아니라
+        이 계약이 책임집니다.
 
         `token`은 세션 토큰입니다. 보호자 토큰으로는 기록하지 않습니다 — 보호자의
         열람·확인도 그 세션의 이벤트이므로 서버가 세션 토큰으로 환산해 기록합니다.
@@ -664,7 +684,10 @@ paths:
               $ref: '#/components/schemas/SessionEventCreate'
       responses:
         '200':
-          description: 기록 완료
+          description: |
+            기록 완료. 단발 이벤트가 이미 있었던 경우에도 200이며, 이때 새 이벤트는
+            만들어지지 않고 기존 `at`이 유지됩니다 — 호출자는 두 경우를 구분할 필요가
+            없습니다(구분이 필요해지면 그것은 재시도를 세고 있다는 뜻입니다).
           content:
             application/json:
               schema:
@@ -683,9 +706,15 @@ paths:
                 $ref: '#/components/schemas/Error'
         '422':
           description: |
-            `type`이 목록 밖이거나 `payload`에 허용되지 않은 키가 있습니다.
             **조용히 버리지 않고 거부합니다** — 기록되지 않은 이벤트는 나중에
-            "일어나지 않은 일"과 구분되지 않습니다.
+            "일어나지 않은 일"과 구분되지 않습니다. 거부 사유는 넷입니다.
+
+            - `type`이 목록 밖이다
+            - 본문에 `type`·`payload` 밖의 키가 있다 (`at`을 보낸 경우가 여기입니다)
+            - `payload`에 허용되지 않은 키가 있다
+            - `type`과 `payload`의 짝이 `SessionEventPayloadRules`에 어긋난다
+              (필수 키 누락, 그 종류가 쓰지 않는 키, `all_excluded`인데 `shelterId`가
+              있는 모순 등)
           content:
             application/json:
               schema:
@@ -1446,18 +1475,24 @@ components:
         보고, 맞출 것이 없으면 그 문장을 차단합니다. 목록을 늘리는 것은 챗봇이
         말할 수 있는 범위를 늘리는 일이므로 계약 변경으로만 합니다.
 
-        | 값 | 언제 기록되는가 | 기록 주체 |
-        |---|---|---|
-        | `alert_dispatched` | 세션을 발급하고 발송을 시도한 시각 | Backend |
-        | `push_delivered` | 발송 결과가 성공으로 돌아온 시각 | Backend |
-        | `session_opened` | 피보호자가 링크를 **처음** 연 시각 | Backend |
-        | `response_recorded` | [집이에요]/[밖이에요]를 누른 시각 | Backend |
-        | `shelter_shown` | 대피소 안내를 내려준 시각 | Backend |
-        | `chat_answered` | 챗봇이 답하거나 거절한 시각 | Backend |
-        | `followup_due` | 30분 무응답으로 폐루프가 재진입한 시각 | Backend |
-        | `guardian_notified` | 보호자에게 2차 발송이 나간 시각 | Backend |
-        | `guardian_opened` | 보호자가 상태 페이지를 처음 연 시각 | Backend |
-        | `guardian_acknowledged` | 보호자가 [내가 확인했음]을 누른 시각 | Backend |
+        | 값 | 언제 기록되는가 | 기록 주체 | 세션당 |
+        |---|---|---|---|
+        | `alert_dispatched` | 세션을 발급하고 발송을 시도한 시각 | Backend | 1건 |
+        | `push_delivered` | 발송 결과가 성공으로 돌아온 시각 | Backend | 1건 |
+        | `session_opened` | 피보호자가 링크를 **처음** 연 시각 | Backend | 1건 |
+        | `response_recorded` | [집이에요]/[밖이에요]를 누른 시각 | Backend | 여러 건 |
+        | `shelter_shown` | 대피소 안내를 내려준 시각 | Backend | 여러 건 |
+        | `chat_answered` | 챗봇이 답하거나 거절한 시각 | Backend | 여러 건 |
+        | `followup_due` | 30분 무응답으로 폐루프가 재진입한 시각 | Backend | 1건 |
+        | `guardian_notified` | 보호자에게 2차 발송이 나간 시각 | Backend | 1건 |
+        | `guardian_opened` | 보호자가 상태 페이지를 처음 연 시각 | Backend | 1건 |
+        | `guardian_acknowledged` | 보호자가 [내가 확인했음]을 누른 시각 | Backend | 1건 |
+
+        **「세션당 1건」은 멱등 제약입니다.** 이미 있으면 두 번째 `POST`는 새 이벤트를
+        만들지 않고 기존 `at`을 유지한 채 200을 돌려줍니다 — 재시도가 M4(폐루프 2차
+        발송 성공률)를 부풀리지 못하게 하기 위한 것입니다. 「여러 건」 셋은 사용자가
+        실제로 다시 누르거나 다시 물어볼 수 있는 행위라 중복 제거 대상이 아니며,
+        재응답·재조회 자체가 답변이 인용할 수 있는 사실입니다.
 
         ⚠️ **어느 것도 안전 상태가 아닙니다.** `GuardianStatus.lastResponse`에 붙은
         경고가 그대로 적용됩니다 — 답변은 「무엇이 언제 눌렸다/안 눌렸다」까지만
@@ -1489,6 +1524,18 @@ components:
         것이 M3 지표(위치정보 무저장·무로깅)의 근거 중 하나이고, 키를 닫아 둔 덕분에
         그 근거는 약속이 아니라 구조입니다.
 
+        ⚠️ **`choice`·`shelterId`는 민감 필드입니다 — 저장 시 암호화가 전제입니다.**
+        좌표는 아니지만 둘 다 위치 성격의 값입니다. `choice`는 재난 시점의 재실
+        여부(집 안/밖)이고, `shelterId`는 그 사람이 어디로 안내받았는지입니다.
+        레포 규약(`packages/contracts/README.md` "규칙", `AGENTS.md` 「최소 수집·암호화」)이
+        요구하는 조건이 이 두 키에 그대로 걸립니다 — 이벤트 로그를 SQLite로 시작하더라도
+        이 두 컬럼은 평문으로 두지 않습니다. 점검은 `개인정보_체크리스트.md` S3(민감정보
+        저장 시 암호화)과 같은 방식입니다.
+
+        M3(무저장·무로깅) 대상은 **좌표**이고, 이 두 키는 M3가 아니라 **암호화** 대상이라는
+        점을 구분해 두십시오. 좌표를 저장하지 않는 것과, 저장하는 민감 값을 암호화하는
+        것은 다른 요구입니다.
+
         | 키 | 쓰는 이벤트 |
         |---|---|
         | `choice` | `response_recorded` |
@@ -1497,11 +1544,21 @@ components:
         | `channel` | `alert_dispatched`·`push_delivered`·`guardian_notified` |
         | `attempt` | `alert_dispatched`(1) ·`guardian_notified`(2) |
         | `reason` | `followup_due` |
+
+        **이 표는 설명이 아니라 `SessionEventPayloadRules`로 강제됩니다.** 종류가 쓰지
+        않는 키를 넣거나 필수 키를 빠뜨리면 422입니다. 표만 있고 강제가 없으면 잘못
+        짝지어진 이벤트가 로그에 남고, 검증기는 그것을 사실로 대조합니다.
       properties:
         choice:
           type: string
           enum: [home, outside]
-          description: 누른 버튼. `GuardianStatus.lastResponse`와 같은 값입니다.
+          description: |
+            누른 버튼. `GuardianStatus.lastResponse`의 두 값과 같지만, **`none`은
+            없습니다** — `lastResponse`는 `home`·`outside`·`none` 셋이고 `none`은
+            "아직 응답 없음"을 화면에 표시하기 위한 값입니다. 로그에서 응답 없음은
+            `response_recorded` 이벤트의 **부재**로 표현하므로, `none`을 값으로 가진
+            이벤트는 존재할 수 없습니다(`SessionEvent`의 「없는 일은 이벤트의 부재로」
+            규칙). 보호자 화면이 쓰는 `none`은 로그를 읽어 파생하는 값입니다.
         availability:
           type: string
           enum: [ok, all_excluded, cache_only, upstream_unavailable]
@@ -1510,7 +1567,11 @@ components:
             이것도 답변이 인용할 수 있는 근거입니다.
         shelterId:
           type: string
-          description: 안내한 대피소 id. `availability`가 `ok`일 때만 채웁니다.
+          description: |
+            안내한 대피소 id. **`availability`가 `ok`이면 필수이고, 그 밖이면 있어서는
+            안 됩니다** — `SessionEventPayloadRules`가 강제합니다. 「안내할 대피소가
+            없었다」면서 대피소 id가 함께 남으면 검증기는 두 사실을 모두 인용 가능한
+            것으로 보고, 답변이 있지도 않은 안내를 말하게 됩니다.
           example: shelter-1103
         refused:
           type: boolean
@@ -1528,13 +1589,126 @@ components:
           enum: [no_response_30m]
           description: 폐루프 재진입 사유. 지금은 30분 무응답 하나뿐입니다.
 
+    SessionEventPayloadRules:
+      description: |
+        `type`과 `payload`의 짝. `SessionEventPayload`의 표를 그대로 옮긴 것이지만,
+        여기 있는 쪽이 **강제되는 버전**입니다 — 설명문은 어기고 지나갈 수 있고
+        스키마는 그럴 수 없습니다.
+
+        `SessionEvent`·`SessionEventCreate`가 `allOf`로 참조하므로 기록과 조회에
+        같은 규칙이 걸립니다. 규칙은 셋뿐입니다.
+
+        1. **필수 키** — 그 종류가 반드시 쓰는 키가 없으면 422.
+        2. **허용 키** — 그 종류가 쓰지 않는 키가 있으면 422(`propertyNames`).
+           `payload`를 아예 쓰지 않는 세 종류는 `payload` 자체가 금지입니다.
+        3. **모순 금지** — `shelter_shown`은 `availability: ok`일 때만 `shelterId`를
+           가집니다. `all_excluded`인데 대피소 id가 붙는 조합은 통과하지 못합니다.
+
+        `attempt`를 상수로 고정한 것(`alert_dispatched`=1, `guardian_notified`=2)은
+        M4(폐루프 2차 발송 성공률)의 분자·분모가 이 값으로 갈리기 때문입니다. 1차
+        발송이 `attempt: 2`로 기록되면 지표는 조용히 틀립니다.
+
+        ⚠️ **종류를 추가할 때 여기 블록도 함께 추가하십시오.** 규칙이 없는 종류는
+        `payload`에 허용 키 전부를 넣을 수 있는 상태가 되며, 그것은 표만 있고 강제가
+        없던 상태로 되돌아가는 것입니다.
+      allOf:
+        - if:
+            required: [type]
+            properties: { type: { const: alert_dispatched } }
+          then:
+            required: [payload]
+            properties:
+              payload:
+                required: [channel, attempt]
+                propertyNames: { enum: [channel, attempt] }
+                properties: { attempt: { const: 1 } }
+        - if:
+            required: [type]
+            properties: { type: { const: push_delivered } }
+          then:
+            required: [payload]
+            properties:
+              payload:
+                required: [channel]
+                propertyNames: { enum: [channel] }
+        - if:
+            required: [type]
+            properties: { type: { const: session_opened } }
+          then:
+            not: { required: [payload] }
+        - if:
+            required: [type]
+            properties: { type: { const: response_recorded } }
+          then:
+            required: [payload]
+            properties:
+              payload:
+                required: [choice]
+                propertyNames: { enum: [choice] }
+        - if:
+            required: [type]
+            properties: { type: { const: shelter_shown } }
+          then:
+            required: [payload]
+            properties:
+              payload:
+                required: [availability]
+                propertyNames: { enum: [availability, shelterId] }
+                # availability != ok 인데 shelterId 가 붙는 조합을 여기서 끊는다.
+                if:
+                  required: [availability]
+                  properties: { availability: { const: ok } }
+                then:
+                  required: [shelterId]
+                else:
+                  not: { required: [shelterId] }
+        - if:
+            required: [type]
+            properties: { type: { const: chat_answered } }
+          then:
+            required: [payload]
+            properties:
+              payload:
+                required: [refused]
+                propertyNames: { enum: [refused] }
+        - if:
+            required: [type]
+            properties: { type: { const: followup_due } }
+          then:
+            required: [payload]
+            properties:
+              payload:
+                required: [reason]
+                propertyNames: { enum: [reason] }
+        - if:
+            required: [type]
+            properties: { type: { const: guardian_notified } }
+          then:
+            required: [payload]
+            properties:
+              payload:
+                required: [channel, attempt]
+                propertyNames: { enum: [channel, attempt] }
+                properties: { attempt: { const: 2 } }
+        - if:
+            required: [type]
+            properties: { type: { const: guardian_opened } }
+          then:
+            not: { required: [payload] }
+        - if:
+            required: [type]
+            properties: { type: { const: guardian_acknowledged } }
+          then:
+            not: { required: [payload] }
+
     SessionEvent:
       type: object
       required: [type, at]
+      additionalProperties: false
       description: |
         세션에서 일어난 사실 1건. **필드는 `type`·`at`·`payload` 셋뿐이며 늘리지
         않습니다** — 이벤트가 커지면 답변이 인용할 수 있는 것과 없는 것의 경계가
-        흐려집니다.
+        흐려집니다. `additionalProperties: false`가 그 셋을 실제로 닫습니다.
 
         **없는 일은 이벤트의 부재로 표현합니다.** 「누르지 않았습니다」라고 말할 수
         있는 유일한 근거는 해당 이벤트가 목록에 없다는 사실이며, 「안 눌렀음」을
@@ -1550,18 +1724,33 @@ components:
           example: '2026-08-24T03:13:41Z'
         payload:
           $ref: '#/components/schemas/SessionEventPayload'
+      allOf:
+        - $ref: '#/components/schemas/SessionEventPayloadRules'
 
     SessionEventCreate:
       type: object
       required: [type]
+      additionalProperties: false
       description: |
         기록 요청 본문. `at`이 없는 것이 `SessionEvent`와의 유일한 차이이며,
         의도된 것입니다 — 시각은 서버만 찍습니다.
+
+        **`additionalProperties: false`가 그 의도를 강제합니다.** `at`을 담아 보내면
+        무시되는 것이 아니라 422로 거부됩니다. 무시하면 보낸 쪽은 자기 시각이 기록된
+        줄 알고, 30분 무응답 판정은 서버 시각으로 돌아가 두 시계가 조용히 갈립니다.
+
+        ⚠️ 이 스키마와 `SessionEvent`가 `type`·`payload`를 각각 적는 것은 중복으로
+        보이지만 `allOf`로 합칠 수 없습니다 — `additionalProperties: false`는 같은
+        스키마 객체의 `properties`만 보므로, `SessionEvent`를 `allOf: [SessionEventCreate, at]`
+        로 조립하면 `at`이 허용되지 않은 키가 되어 모든 응답이 스키마 위반이 됩니다.
+        중복은 두 줄이고, 그것을 없애려면 위의 422 강제를 포기해야 합니다.
       properties:
         type:
           $ref: '#/components/schemas/SessionEventType'
         payload:
           $ref: '#/components/schemas/SessionEventPayload'
+      allOf:
+        - $ref: '#/components/schemas/SessionEventPayloadRules'
 
     SessionEventLog:
       type: object
