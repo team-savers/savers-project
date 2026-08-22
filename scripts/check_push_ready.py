@@ -63,6 +63,10 @@ STORAGE_RE = re.compile(r"[a-z0-9][a-z0-9-]*\.(?:appspot\.com|firebasestorage\.a
 #    뒤따르는 따옴표와의 사이에 단어 경계가 서지 않아 **진짜 키를 놓친다**(약 1/64).
 #    앞뒤로 base64url 문자가 아닌 것만 요구하는 lookaround 가 양방향 모두 정확하다.
 VAPID_RE = re.compile(r"(?<![A-Za-z0-9_-])B[A-Za-z0-9_-]{86}(?![A-Za-z0-9_-])")
+# ⚠️ index.html 의 첫 /assets/*.js 하나만 본다 — 현재 프론트가 단일 청크라는 가정이다.
+#    코드 스플리팅(후속_과제 6번 "라우트 코드 분할이 없다")이 들어오면 첫 매치가
+#    엔트리가 아닌 modulepreload 청크일 수 있고, config 가 다른 청크에 실려
+#    **멀쩡한 배포본이 FAIL 로 뒤집힌다.** 그때는 전체 /assets/*.js 를 모아 검사하도록 바꾼다.
 BUNDLE_RE = re.compile(r"/assets/[A-Za-z0-9._-]+\.js")
 
 # 웹푸시가 HTTPS 없이 허용되는 예외. 접두어 비교(`startswith("http://127.")`)로 두면
