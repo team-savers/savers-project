@@ -162,3 +162,162 @@ class TestStripFrame:
         )
         assert "등록하신" not in stripped
         assert "저지대" in stripped
+
+
+# ── Guardian answer metrics (M2, M4) ─────────────────────────────────────────
+# The fixtures below are the six shapes ADR-0012 names. The 40-case golden set is a
+# separate deliverable (PM); these exist so the *scoring rule* has regression cover
+# before that data lands.
+
+LOG_OPENED_NO_RESPONSE = [
+    {"type": "alert_dispatched", "at": "2026-08-24T03:12:00Z"},
+    {"type": "push_delivered", "at": "2026-08-24T03:12:07Z"},
+    {"type": "session_opened", "at": "2026-08-24T03:13:41Z"},
+]
+
+CITED_OPENED_NO_RESPONSE = [
+    {"type": "alert_dispatched", "present": True, "at": "2026-08-24T03:12:00Z"},
+    {"type": "session_opened", "present": True, "at": "2026-08-24T03:13:41Z"},
+    {"type": "response_recorded", "present": False, "at": None},
+]
+
+ANSWER_OPENED_NO_RESPONSE = "알림을 열어 보셨고, 아직 어느 쪽도 누르지 않으셨습니다."
+
+
+class TestEvidenceMismatches:
+    def test_presence_and_absence_both_hold(self) -> None:
+        assert metrics.evidence_mismatches(CITED_OPENED_NO_RESPONSE, LOG_OPENED_NO_RESPONSE) == []
+
+    def test_claimed_event_is_not_in_the_log(self) -> None:
+        cited = [{"type": "response_recorded", "present": True, "at": "2026-08-24T03:14:02Z"}]
+        assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == ["presence_mismatch"]
+
+    def test_absence_claimed_for_an_event_that_happened(self) -> None:
+        cited = [{"type": "session_opened", "present": False, "at": None}]
+        assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == ["absent_mismatch"]
+
+    def test_right_event_wrong_minute(self) -> None:
+        cited = [{"type": "session_opened", "present": True, "at": "2026-08-24T03:15:41Z"}]
+        assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == ["time_mismatch"]
+
+    def test_seconds_are_truncated_not_compared(self) -> None:
+        # ADR-0012 §2: comparison is minute-level. Same minute, different second, passes.
+        cited = [{"type": "session_opened", "present": True, "at": "2026-08-24T03:13:02Z"}]
+        assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == []
+
+    def test_offset_timestamps_compare_as_instants(self) -> None:
+        # 12:13:41+09:00 is the same instant as 03:13:41Z — a KST-stamped citation of the
+        # same event must not read as a mismatch.
+        cited = [{"type": "session_opened", "present": True, "at": "2026-08-24T12:13:41+09:00"}]
+        assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == []
+
+    def test_unparsable_or_naive_time_is_not_silently_passed(self) -> None:
+        cited = [
+            {"type": "session_opened", "present": True, "at": "2026-08-24 03:13"},
+            {"type": "session_opened", "present": True, "at": "어제"},
+        ]
+        assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == [
+            "malformed_evidence",
+            "malformed_evidence",
+        ]
+
+    def test_absence_must_not_carry_a_time(self) -> None:
+        cited = [{"type": "response_recorded", "present": False, "at": "2026-08-24T03:14:02Z"}]
+        assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == ["malformed_evidence"]
+
+    def test_codes_come_back_in_citation_order(self) -> None:
+        cited = [
+            {"type": "session_opened", "present": False, "at": None},
+            {"type": "session_opened", "present": True, "at": "2026-08-24T03:59:00Z"},
+        ]
+        assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == [
+            "absent_mismatch",
+            "time_mismatch",
+        ]
+
+
+class TestForbiddenPhrases:
+    def test_safety_assertion_is_caught(self) -> None:
+        assert metrics.forbidden_phrase_hits("지금은 안전합니다.") == ["안전합니다"]
+
+    def test_line_break_inside_the_phrase_does_not_hide_it(self) -> None:
+        assert metrics.forbidden_phrase_hits("괜찮\n습니다") == ["괜찮습니다"]
+
+    def test_plain_report_is_clean(self) -> None:
+        assert metrics.forbidden_phrase_hits(ANSWER_OPENED_NO_RESPONSE) == []
+
+
+class TestGuardianViolations:
+    def test_grounded_answer_has_none(self) -> None:
+        assert (
+            metrics.guardian_violations(
+                answer=ANSWER_OPENED_NO_RESPONSE,
+                evidence=CITED_OPENED_NO_RESPONSE,
+                events=LOG_OPENED_NO_RESPONSE,
+            )
+            == []
+        )
+
+    def test_answer_without_citations_breaks_the_contract_invariant(self) -> None:
+        assert metrics.guardian_violations(
+            answer="열어 보셨습니다.", evidence=[], events=LOG_OPENED_NO_RESPONSE
+        ) == ["no_evidence"]
+
+    def test_refusal_is_clean_not_a_violation(self) -> None:
+        assert (
+            metrics.guardian_violations(answer=None, evidence=[], events=LOG_OPENED_NO_RESPONSE)
+            == []
+        )
+
+    def test_safety_assertion_blocks_even_with_valid_citations(self) -> None:
+        assert metrics.guardian_violations(
+            answer="열어 보셨으니 안전합니다.",
+            evidence=CITED_OPENED_NO_RESPONSE,
+            events=LOG_OPENED_NO_RESPONSE,
+        ) == ["forbidden_phrase"]
+
+
+class TestGuardianAccuracy:
+    def test_share_of_clean_answers(self) -> None:
+        assert metrics.guardian_accuracy([[], ["time_mismatch"], [], []]) == 0.75
+
+    def test_nothing_graded_is_not_measurable(self) -> None:
+        assert metrics.guardian_accuracy([]) is None
+
+
+class TestFollowupDeliveryRate:
+    def test_notified_after_due_counts_as_sent(self) -> None:
+        log = [
+            {"type": "alert_dispatched", "at": "2026-08-24T03:12:00Z"},
+            {"type": "followup_due", "at": "2026-08-24T03:42:07Z"},
+            {"type": "guardian_notified", "at": "2026-08-24T03:42:09Z"},
+        ]
+        assert metrics.followup_delivery_rate([log]) == 1.0
+
+    def test_due_without_a_send_is_a_miss(self) -> None:
+        log = [{"type": "followup_due", "at": "2026-08-24T03:42:07Z"}]
+        assert metrics.followup_delivery_rate([log]) == 0.0
+
+    def test_notification_before_the_timer_does_not_count(self) -> None:
+        # A guardian_notified that predates followup_due belongs to some other path;
+        # crediting it would let a first-shot send masquerade as the closed loop.
+        log = [
+            {"type": "guardian_notified", "at": "2026-08-24T03:12:09Z"},
+            {"type": "followup_due", "at": "2026-08-24T03:42:07Z"},
+        ]
+        assert metrics.followup_delivery_rate([log]) == 0.0
+
+    def test_sessions_that_never_re_entered_are_excluded(self) -> None:
+        answered = [
+            {"type": "alert_dispatched", "at": "2026-08-24T03:12:00Z"},
+            {"type": "response_recorded", "at": "2026-08-24T03:14:02Z"},
+        ]
+        due = [
+            {"type": "followup_due", "at": "2026-08-24T03:42:07Z"},
+            {"type": "guardian_notified", "at": "2026-08-24T03:42:09Z"},
+        ]
+        assert metrics.followup_delivery_rate([answered, due]) == 1.0
+
+    def test_no_session_reached_the_timer_is_not_measurable(self) -> None:
+        answered = [{"type": "response_recorded", "at": "2026-08-24T03:14:02Z"}]
+        assert metrics.followup_delivery_rate([answered]) is None

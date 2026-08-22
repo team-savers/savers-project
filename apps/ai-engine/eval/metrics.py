@@ -26,8 +26,9 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 # Character bigrams over Hangul + digits only. Whitespace, punctuation and particles carry
 # no claim, and dropping them keeps "지하차도는 통행하지 마세요" comparable to the source
@@ -249,3 +250,170 @@ def mean(values: Sequence[float | None]) -> float | None:
     if not measured:
         return None
     return sum(measured) / len(measured)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Guardian answer metrics (M2, M4)
+#
+# These score the *finals* metrics, which are graded against the session event log rather
+# than the corpus: M2 (로그에 없는 사실이 섞인 응답 0건) and M4 (폐루프 2차 발송 성공률).
+# The rules they implement are ADR-0012 §2 (대조), §3 (금지 표현) and §4 (차단 사유 코드).
+#
+# ⚠️ Same independence rule as the top of this module, for the same reason: the verifier
+# in `ai_engine` computes a similar comparison, and importing it would make the score
+# follow the implementation — a verifier bug would grade itself as correct. Two
+# implementations of one written rule (ADR-0012) is the check; keep them apart.
+#
+# Time comparison is on UTC instants truncated to the minute. Display timezone is a
+# generation concern, not a scoring one: what is graded here is the machine timestamp the
+# answer cited, not how the sentence spelled it out.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ADR-0012 §3. Not exhaustive by design — the ADR says so, and a bypass phrase
+# ("걱정 안 하셔도 됩니다") is meant to be caught by a golden case, not by growing this
+# list until it reads like a filter.
+SAFETY_ASSERTIONS = (
+    "안전합니다",
+    "괜찮습니다",
+    "무사합니다",
+    "이상 없습니다",
+)
+
+
+def _instant_minute(value: object) -> str | None:
+    """RFC3339 timestamp -> UTC minute key. `None` when absent or unparsable."""
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(UTC).strftime("%Y-%m-%dT%H:%M")
+
+
+def evidence_mismatches(
+    evidence: Sequence[Mapping[str, object]],
+    events: Sequence[Mapping[str, object]],
+) -> list[str]:
+    """ADR-0012 §2: check each cited evidence item against the log.
+
+    Returns one block-reason code per failing item, in the order the items were cited.
+    An empty list means every citation held. The codes are the ADR's, not free text, so a
+    report can count *why* answers were blocked rather than only how many.
+    """
+    by_type: dict[str, list[str | None]] = {}
+    for event in events:
+        event_type = event.get("type")
+        if isinstance(event_type, str):
+            by_type.setdefault(event_type, []).append(_instant_minute(event.get("at")))
+
+    codes: list[str] = []
+    for item in evidence:
+        item_type = item.get("type")
+        present = item.get("present")
+        if not isinstance(item_type, str) or not isinstance(present, bool):
+            codes.append("malformed_evidence")
+            continue
+
+        logged = by_type.get(item_type, [])
+        if present:
+            cited = _instant_minute(item.get("at"))
+            if cited is None:
+                # `present: true` without a parsable time cannot be compared at all.
+                # Treating it as a pass would let an unverifiable citation through.
+                codes.append("malformed_evidence")
+            elif not logged:
+                codes.append("presence_mismatch")
+            elif cited not in logged:
+                codes.append("time_mismatch")
+        elif item.get("at") is not None:
+            # ADR-0012: `present: false` carries no time. A time here means the producer
+            # is confused about which direction it is asserting.
+            codes.append("malformed_evidence")
+        elif logged:
+            codes.append("absent_mismatch")
+    return codes
+
+
+def forbidden_phrase_hits(answer: str, phrases: Sequence[str] = SAFETY_ASSERTIONS) -> list[str]:
+    """ADR-0012 §3: phrases that must not appear, whatever the evidence says.
+
+    Matching is on the answer with whitespace collapsed, so a line break inside the phrase
+    does not hide it.
+    """
+    collapsed = re.sub(r"\s+", "", answer)
+    return [phrase for phrase in phrases if re.sub(r"\s+", "", phrase) in collapsed]
+
+
+def guardian_violations(
+    *,
+    answer: str | None,
+    evidence: Sequence[Mapping[str, object]],
+    events: Sequence[Mapping[str, object]],
+    forbidden: Sequence[str] = SAFETY_ASSERTIONS,
+) -> list[str]:
+    """Every ADR-0012 block reason for one guardian answer. Empty list = deliverable.
+
+    A refusal (`answer is None`) has nothing to check and yields no violations — it is the
+    designed path, not a failure. Whether refusing *too often* is a problem is a different
+    number (거절률), deliberately not folded in here: mixing them would let an engine that
+    refuses everything score a perfect M2.
+    """
+    if answer is None:
+        return []
+    if not evidence:
+        # The contract's invariant is `sources` empty -> `answer` null. An answer that
+        # arrives with no citations has already broken it, and nothing can be compared.
+        return ["no_evidence"]
+    return evidence_mismatches(evidence, events) + [
+        "forbidden_phrase" for _ in forbidden_phrase_hits(answer, forbidden)
+    ]
+
+
+def guardian_accuracy(case_violations: Sequence[Sequence[str]]) -> float | None:
+    """M2: share of graded answers with zero violations. `None` when nothing was graded.
+
+    Refusals count as graded and clean (see `guardian_violations`), because a refusal that
+    was correct is exactly the behaviour the metric is defending.
+    """
+    if not case_violations:
+        return None
+    clean = sum(1 for violations in case_violations if not violations)
+    return clean / len(case_violations)
+
+
+def followup_delivery_rate(
+    session_logs: Sequence[Sequence[Mapping[str, object]]],
+) -> float | None:
+    """M4: among sessions where the loop re-entered, the share that actually sent.
+
+    A session counts once `followup_due` is logged; it succeeds when a `guardian_notified`
+    follows it in time. `None` — not 0.0 — when no session ever reached `followup_due`:
+    a run where the 30분 timer never fired has not measured this at all, and reporting 0
+    would read as "the loop failed every time".
+    """
+    due_count = 0
+    sent_count = 0
+    for events in session_logs:
+        due_at: str | None = None
+        sent = False
+        for event in sorted(events, key=lambda e: str(e.get("at", ""))):
+            event_type = event.get("type")
+            at = _instant_minute(event.get("at"))
+            if event_type == "followup_due" and due_at is None:
+                due_at = at
+            elif (
+                event_type == "guardian_notified"
+                and due_at is not None
+                and at is not None
+                and at >= due_at
+            ):
+                sent = True
+        if due_at is not None:
+            due_count += 1
+            sent_count += int(sent)
+    if due_count == 0:
+        return None
+    return sent_count / due_count
