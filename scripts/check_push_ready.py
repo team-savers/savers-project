@@ -13,7 +13,9 @@
                 프리뷰 배포에 접근 보호가 걸려 있으면 **실기기 브라우저에서
                 열 수 없어** 캡처 자체가 불가능합니다.
   2. HTTPS    — 웹푸시는 localhost를 제외하면 HTTPS가 필수입니다.
-  3. 앱 config — Firebase 웹앱 설정 6종이 번들에 박혀 있는지.
+  3. 앱 config — Firebase 웹앱 설정이 번들에 박혀 있는지. 앱 쪽
+                `isFirebaseConfigured()`가 6종을 **전부** 요구하므로, 여기서도
+                일부만 보고 통과시키지 않습니다(아래 CONFIG_MARKERS 주석 참고).
   4. VAPID    — 웹푸시 공개키가 번들에 박혀 있는지. 이것만 빠져도 토큰
                 발급이 `misconfigured`로 끝나 알림이 한 통도 가지 않습니다.
   5. 서비스워커 — `sw.js`가 서비스되고, 스코프 헤더와 캐시 헤더가 맞는지.
@@ -45,15 +47,49 @@ import urllib.request
 
 # Firebase 웹앱 config 흔적. 값은 절대 출력하지 않고 형태만 본다.
 #   authDomain 은 항상 `<project>.firebaseapp.com` 이고, 브라우저 API 키는
-#   `AIza` 로 시작하는 39자다. 둘 중 하나라도 없으면 config 가 비어 있다.
+#   `AIza` 로 시작하는 39자다.
 AUTH_DOMAIN_RE = re.compile(r"[A-Za-z0-9-]+\.firebaseapp\.com")
 API_KEY_RE = re.compile(r"AIza[A-Za-z0-9_-]{30,40}")
-# 웹푸시 VAPID 공개키: uncompressed P-256 점을 base64url 로 담아 86~88자,
-# 항상 'B' 로 시작한다. 번들의 다른 긴 문자열과 겹치지 않는 형태다.
-VAPID_RE = re.compile(r"\bB[A-Za-z0-9_-]{85,87}\b")
+#   appId 는 `1:<messagingSenderId>:web:<hex>` 형태다 — 이 하나로 senderId 까지
+#   함께 확인된다. storageBucket 은 프로젝트 생성 시기에 따라 두 도메인 중 하나다.
+APP_ID_RE = re.compile(r"1:\d{6,}:web:[0-9a-f]{6,}")
+STORAGE_RE = re.compile(r"[a-z0-9][a-z0-9-]*\.(?:appspot\.com|firebasestorage\.app)")
+# 웹푸시 VAPID 공개키: uncompressed P-256 점(65바이트)을 base64url 로 담아 **항상 87자**,
+# 'B' 로 시작한다. 길이를 범위로 두면 번들 안의 긴 base64url 블롭에서 `-` 뒤 경계가
+# 우연히 맞아 오탐한다(실측: 무작위 4000자 블롭 200개 중 10건). 87자로 못박는다.
+VAPID_RE = re.compile(r"\bB[A-Za-z0-9_-]{86}\b")
 BUNDLE_RE = re.compile(r"/assets/[A-Za-z0-9._-]+\.js")
 
+# ⚠️ Firebase JS SDK 가 번들에 **항상** 넣는 DEFAULT_VAPID_KEY 상수다.
+#    걸러내지 않으면 firebase/messaging 을 import 하는 모든 빌드가 무조건 PASS 한다 —
+#    키를 한 번도 주입하지 않은 배포본까지 초록으로 나와, 이 스크립트가 막으려던
+#    "필요조건이 빠졌는데 초록" 을 스스로 만든다 (PR #81 리뷰).
+SDK_DEFAULT_VAPID = (
+    "BDOU99-h67HcA6JeFXHbSNMu7e2yNNu3RzoMj8TM4W88jITfq7ZmPvIM1Iv-4_l2LxQcYwhqby2xGpWwzjfAnG4"
+)
+
+# 판정에 쓰는 config 흔적. 앱의 isFirebaseConfigured() 는 6종을 전부 요구하는데,
+# projectId 는 authDomain 의 앞부분이고 messagingSenderId 는 appId 의 가운데
+# 세그먼트라, 아래 4개로 6종 전부를 사실상 덮는다. 일부만 들어간 빌드는 화면에
+# 오류가 없고 콘솔 경고만 남으므로, 여기서 잡지 못하면 실기기에서 드러난다.
+CONFIG_MARKERS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("authDomain", AUTH_DOMAIN_RE),
+    ("apiKey", API_KEY_RE),
+    ("appId", APP_ID_RE),
+    ("storageBucket", STORAGE_RE),
+)
+
 TIMEOUT_S = 25
+
+
+def missing_config_markers(source: str) -> list[str]:
+    """없는 config 흔적의 **이름**만 돌려준다. 값은 어떤 경우에도 돌려주지 않는다."""
+    return [name for name, pattern in CONFIG_MARKERS if pattern.search(source) is None]
+
+
+def has_vapid_key(source: str) -> bool:
+    """SDK 내장 기본키를 제외한 VAPID 공개키가 들어 있는지."""
+    return any(key != SDK_DEFAULT_VAPID for key in VAPID_RE.findall(source))
 
 
 class Report:
@@ -146,25 +182,19 @@ def check_reachable(report: Report, base: str) -> str | None:
 
 def check_firebase_config(report: Report, bundle: str) -> None:
     """앱 config 6종 + VAPID. 값은 출력하지 않고 존재만 본다."""
-    has_domain = AUTH_DOMAIN_RE.search(bundle) is not None
-    has_key = API_KEY_RE.search(bundle) is not None
-    if has_domain and has_key:
+    missing = missing_config_markers(bundle)
+    if not missing:
         report.add("firebase-config", "PASS", "Firebase 웹앱 config 가 번들에 포함됨 (값 미출력)")
     else:
-        missing = [
-            name
-            for name, present in (("authDomain", has_domain), ("apiKey", has_key))
-            if not present
-        ]
         report.add(
             "firebase-config",
             "FAIL",
-            f"Firebase config 가 번들에 없습니다 (누락 흔적: {', '.join(missing)}). "
+            f"번들의 Firebase config 가 불완전합니다 (누락 흔적: {', '.join(missing)}). "
             "VITE_FIREBASE_* 6종을 호스팅 환경변수에 넣고 **다시 빌드**해야 합니다 — "
             "값만 저장하고 재배포하지 않으면 번들은 그대로입니다",
         )
 
-    if VAPID_RE.search(bundle) is not None:
+    if has_vapid_key(bundle):
         report.add("vapid", "PASS", "웹푸시 공개키(VAPID)가 번들에 포함됨 (값 미출력)")
     else:
         report.add(
@@ -176,13 +206,18 @@ def check_firebase_config(report: Report, bundle: str) -> None:
         )
 
 
+def why(status: int, body: str) -> str:
+    """실패 사유 표기. status 0 은 HTTP 코드가 아니라 접속 실패이므로 원인을 대신 싣는다."""
+    return f"접속 실패: {body}" if status == 0 else f"HTTP {status}"
+
+
 def check_service_worker(report: Report, base: str) -> None:
     status, headers, body, _ = fetch(f"{base}/sw.js")
     if status != 200 or not body:
         report.add(
             "service-worker",
             "FAIL",
-            f"/sw.js 를 받을 수 없습니다({status}) — 백그라운드 수신 경로가 없습니다",
+            f"/sw.js 를 받을 수 없습니다({why(status, body)}) — 백그라운드 수신 경로가 없습니다",
         )
         return
 
@@ -199,19 +234,16 @@ def check_service_worker(report: Report, base: str) -> None:
         report.add("service-worker", "PASS", "/sw.js 서비스 + 스코프·캐시 헤더 정상")
 
     # 백그라운드 수신도 config 를 필요로 한다 — 워커 번들에 함께 박혀야 한다.
-    # ⚠️ 판정 기준을 check_firebase_config 와 **같게** 둔다(둘 다 있어야 PASS).
-    #    "둘 중 하나만 없으면 FAIL" 이 아니라 "둘 다 없을 때만 FAIL" 로 두면,
-    #    이 스크립트가 존재하는 이유인 half-config(authDomain 은 들어갔는데 apiKey 가
-    #    빠진 상태)를 서비스워커 쪽에서만 통과시킨다 — 같은 사고를 반쪽만 잡는 셈이다
-    #    (PR #81 리뷰, 안은남).
-    sw_domain = AUTH_DOMAIN_RE.search(body) is not None
-    sw_key = API_KEY_RE.search(body) is not None
-    if sw_domain and sw_key:
+    # ⚠️ 판정 기준을 check_firebase_config 와 **같게** 둔다(하나라도 없으면 FAIL).
+    #    "전부 없을 때만 FAIL" 로 두면, 이 스크립트가 존재하는 이유인 half-config
+    #    (authDomain 은 들어갔는데 apiKey 가 빠진 상태)를 서비스워커 쪽에서만
+    #    통과시킨다 — 같은 사고를 반쪽만 잡는 셈이다 (PR #81 리뷰, 안은남).
+    #    두 곳이 같은 CONFIG_MARKERS 를 쓰므로 기준이 갈라질 수 없다.
+    sw_missing = missing_config_markers(body)
+    if not sw_missing:
         report.add("service-worker-config", "PASS", "/sw.js 에 config 포함 — 백그라운드 수신 가능")
     else:
-        missing = ", ".join(
-            name for name, present in (("authDomain", sw_domain), ("apiKey", sw_key)) if not present
-        )
+        missing = ", ".join(sw_missing)
         report.add(
             "service-worker-config",
             "FAIL",
@@ -222,14 +254,14 @@ def check_service_worker(report: Report, base: str) -> None:
 
 
 def check_manifest(report: Report, base: str) -> None:
-    status, _, _, _ = fetch(f"{base}/manifest.webmanifest")
+    status, _, body, _ = fetch(f"{base}/manifest.webmanifest")
     if status == 200:
         report.add("manifest", "PASS", "매니페스트 서비스됨 — iOS 홈 화면 추가(A2HS) 전제 충족")
     else:
         report.add(
             "manifest",
             "WARN",
-            f"매니페스트를 받을 수 없습니다({status}) — 안드로이드 검증에는 영향이 없지만 "
+            f"매니페스트를 받을 수 없습니다({why(status, body)}) — 안드로이드 검증에는 영향이 없지만 "
             "iOS 는 A2HS 상태에서만 웹푸시가 동작하므로 iOS 경로가 막힙니다",
         )
 
@@ -241,6 +273,10 @@ def main() -> int:
     )
     args = parser.parse_args()
     base = args.url.rstrip("/")
+    # 스킴이 없으면 아래 https 판정이 "http:// 로 시작하지 않으니 HTTPS" 로 오판한 뒤
+    # fetch 가 ValueError 로 죽는다. 판정을 시작하기 전에 사용법 오류로 끊는다.
+    if not base.startswith(("http://", "https://")):
+        parser.error(f"URL 은 http:// 또는 https:// 로 시작해야 합니다: {base}")
 
     print(f"── 대상: {base} ──")
     report = Report()
