@@ -73,12 +73,12 @@ All of the above targets are placeholder hypotheses to be replaced with real pro
 
 | Person | Role | Owns |
 |---|---|---|
-| 안은남 | PM | Milestones, integration, final demo |
+| 안은남 | PM · QA/Security · Infra | Milestones, integration, final demo, minimal-collection/encryption, guardrail validation, web-push fallback path, E2E testing, demo material, infra/deployment/server ops |
 | 신호정 | Tech Lead | System architecture + inter-module contracts (OpenAPI/schemas), a walking skeleton threading the full flow, guardrail prompt design principles + initial version, repo scaffolding/CI/eval-harness skeleton — **concentrated up front** — then ongoing review/advisory. Architecture decisions are recorded as ADRs in `docs/adr/` so contract/skeleton knowledge is not siloed. |
-| 김소원 | AI/RAG Engineer | 국민행동요령 preprocessing/chunking, Chroma indexing, semantic search tuning, 근거 일치율 measurement |
-| 최혜리 (겸임) | Frontend/UX | PWA/웹푸시(FCM) integration, chatbot UI/UX, accessibility (multilingual/plain-language/voice), clarity metric instrumentation |
-| 김도혁 | Backend/Infra | 기상청·소방청 API integration, location matching engine, FastAPI backend, infra redundancy, offline fallback |
-| 최혜리 | QA/Security | Minimal-collection/encryption, guardrail validation, web-push fallback path, E2E testing, demo material |
+| 김소원 | AI/RAG Engineer · Frontend/UX | 국민행동요령 preprocessing/chunking, Chroma indexing, semantic search tuning, 근거 일치율 measurement, PWA/웹푸시(FCM) integration, chatbot UI/UX, accessibility (multilingual/plain-language/voice), clarity metric instrumentation |
+| 김도혁 | Backend | 기상청·소방청 API integration, location matching engine, FastAPI backend, offline fallback |
+
+> 6인 등록 → 2인 중도 하차로 4인 체제 전환 (최혜리 이탈). Frontend/UX는 김소원, QA/Security+Infra는 안은남이 흡수했다. 전체 팀·모듈 오너십 서술은 위 표를 갱신 대상 원본으로 삼는다.
 
 ## Naming convention (documents & folders)
 

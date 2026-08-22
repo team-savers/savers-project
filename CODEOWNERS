@@ -49,3 +49,11 @@
 /docs/adr/                   @Yopkigom @eunnamahn @kimdohyuk8888-bot
 
 # 평가 하네스는 ai-engine 소속이지만 채점 기준은 QA와 공동 소유 (자기채점 편향 방지).
+/apps/ai-engine/eval/        @ksw199777-hue @eunnamahn @Yopkigom
+
+# 앱을 가로지르는 관통 테스트 — 특정 앱이 아니라 QA(PM 겸임) 소유
+/e2e/                        @eunnamahn @Yopkigom @kimdohyuk8888-bot
+
+# 파이프라인 · 품질 게이트 — 영향 범위가 넓어 Tech Lead 필수
+/.github/                    @Yopkigom @eunnamahn @kimdohyuk8888-bot
+/scripts/                    @Yopkigom @eunnamahn @kimdohyuk8888-bot
