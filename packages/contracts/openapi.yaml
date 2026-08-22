@@ -22,9 +22,17 @@ openapi: 3.1.0
 
 info:
   title: SAVERS API
-  version: 0.7.0-draft
+  version: 0.8.0-draft
   description: |
     재난 취약계층 대상 무설치 대피 안내 서비스의 모듈 간 계약 초안입니다.
+
+    > **변경 이력(v0.8)**: 웹푸시 발송 페이로드(`WebPushPayload`)를 명문화했습니다
+    > ([#15](https://github.com/team-savers/savers-project/issues/15) 1번).
+    > **발송은 data-only 고정이고 `notification` 블록은 금지**입니다 - SDK가 자체 표시해
+    > 알림이 2건 뜨고, 그중 하나는 `data.url`이 없어 딥링크가 죽습니다.
+    > 백엔드와 서비스워커 양쪽 주석에만 있던 규칙을 계약으로 올린 것입니다.
+    > v0.7이 1차·2차 발송을 `role`로 갈라 놓았지만 **페이로드의 모양은 하나**이고,
+    > 이 스키마가 그 하나를 정합니다.
 
     > **변경 이력(v0.6)**: 보호자 Q&A 신설(`POST /v1/guardian/{token}/ask`).
     > **v0.7보다 늦게 들어옵니다** — 합의한 머지 순서가 PR 122 다음이 PR 104였고,
@@ -127,6 +135,10 @@ tags:
     description: |
       웹푸시 토큰 등록·해제. 피보호자 기기와 보호자 기기를 `role`로 구분하며,
       1차 발송은 `ward`에게만, 2차 발송은 `guardian`에게만 갑니다.
+
+      **어느 쪽으로 나가든 발송 페이로드의 모양은 하나이고, `WebPushPayload`
+      스키마가 정합니다** — 서비스하는 경로는 없지만 백엔드와 서비스워커가
+      맞춰야 하는 계약이라 이 파일에 둡니다.
   - name: guardian
     description: 보호자 상태 페이지와 보호자 기기 갱신
   - name: session-log
@@ -2183,6 +2195,49 @@ components:
           description: FCM 등록 토큰.
         userAgent:
           type: [string, 'null']
+
+    WebPushPayload:
+      type: object
+      required: [data]
+      description: |
+        **발송 페이로드의 모양.** 이 저장소가 서비스하는 경로가 아니라
+        백엔드가 FCM에 넣고 서비스워커(`apps/frontend/src/sw.ts`)가 꺼내 읽는
+        메시지의 계약입니다. 양쪽 코드에 이미 같은 규칙이 주석으로 적혀 있었으나
+        계약에는 없어, 새 발송부가 생기면 아무것도 막지 못하는 상태였습니다.
+
+        ⚠️ **`notification` 블록을 넣지 않습니다. 발송은 data-only 고정입니다.**
+        FCM SDK는 `notification` 블록이 있는 백그라운드 메시지를 **자체적으로 한 번
+        표시**합니다. 서비스워커의 `showNotification`과 겹쳐 알림이 2건 뜨고,
+        더 나쁜 쪽은 클릭 동작입니다 - SDK가 표시한 알림에는 우리가 넣은 `data.url`이
+        없어, 탭하면 딥링크가 아니라 origin 기본 페이지로 갑니다.
+        **알림 2개 중 하나는 딥링크가 죽은 채로 뜹니다.**
+
+        서비스워커가 `payload.notification`을 폴백으로 읽는 방어를 두고 있지만,
+        그것은 계약 위반의 면죄부가 아니라 한 통이라도 살리기 위한 안전망입니다.
+
+        FCM `data`의 값은 **문자열만 허용**되므로 숫자·불린을 넣지 않습니다.
+      properties:
+        data:
+          type: object
+          required: [title, body, url]
+          additionalProperties: false
+          properties:
+            title:
+              type: string
+              description: 알림 제목. `[세이버스] {행정동} {특보명}` 형태입니다.
+              example: '[세이버스] 서원동 호우경보'
+            body:
+              type: string
+              description: |
+                **생성된 문안 그대로입니다.** 자르지도, 슬롯에 끼우지도 않습니다
+                ([ADR-0005](../../docs/adr/0005-webpush-primary-channel.md) -
+                렌더링 어댑터는 폐기했고 재도입하지 않습니다).
+            url:
+              type: string
+              description: |
+                딥링크. `{PUBLIC_BASE_URL}/a?t={세션 토큰}&s={stage}` 형태이며,
+                서비스워커의 `notificationclick`이 이 값으로 이동합니다.
+              example: https://savers.example/a?t=s_9f2c8a1b4e7d&s=2
 
     RegistrationTarget:
       type: object
