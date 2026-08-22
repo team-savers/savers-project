@@ -1,39 +1,59 @@
 # CODEOWNERS — 경로별 기본 리뷰어 자동 배정.
+#
+# 2026-08-11 갱신 — 4인 체제 반영 (안은남 · 신호정 · 김소원 · 김도혁)
+#   · @twentycherry-gif(최혜리) 중도 하차 → 전 경로에서 제거
+#   · 프론트엔드 오너를 @ksw199777-hue(김소원)로 승계
+#   · QA 판정 주체를 @eunnamahn(안은남)으로 승계 — 구현을 하지 않으므로 구조적 독립
+#   · 모든 경로 오너를 3명 이상으로 상향 (아래 「왜 3명인가」 참조)
+#
 # public 리포이므로 무료 플랜에서도 동작합니다 (private 무료 플랜에서는 무시됨).
+# ⚠️ 레포를 비공개로 전환하면 이 파일 전체가 무시되고, 브랜치 보호의
+#    「Require review from Code Owners」도 충족 불가 상태가 됩니다. 전환 전 반드시 함께 검토.
 #
 # ⚠️ 아래 @핸들은 **GitHub 계정 ID**여야 합니다. 실명이나 없는 계정을 적으면 조용히 무시되고
 #    리뷰어 자동 배정이 통째로 동작하지 않습니다. 또한 레포에 write 권한이 있어야 오너로 인정됩니다.
-# ⚠️ **모든 경로의 오너는 2명 이상**이어야 합니다. PR 작성자 본인의 승인은 코드오너 승인으로
-#    카운트되지 않으므로, 단독 소유 경로는 그 오너 자신의 PR이 영구히 머지 불가가 됩니다
-#    (setup-github.sh의 require_code_owner_reviews=true 상태에서 발동).
-#    → 경로를 추가할 때 담당자 + 백업 리뷰어를 반드시 함께 적으세요.
+#
+# ── 왜 오너가 3명 이상인가 ────────────────────────────────────────────────
+# PR 작성자 본인의 승인은 코드오너 승인으로 카운트되지 않습니다
+# (setup-github.sh의 require_code_owner_reviews=true 상태에서 발동).
+#   · 오너 1명  → 그 사람의 PR이 영구히 머지 불가
+#   · 오너 2명  → 한 명이 작성자면 남은 1명이 **유일한 승인자**. 휴가·연휴·발표 준비로
+#                 그 1명이 자리를 비우면 해당 경로 전체가 멈춤
+#   · 오너 3명  → 작성자를 빼도 2명이 남아 단일 장애점 없음
+# 4인 팀에 3주짜리 마감이 걸려 있으므로 **3명이 최소선**입니다.
+# 새 경로를 추가할 때도 담당자 + 백업 2명을 반드시 함께 적으세요.
 #
 # 위치: 레포 루트 (ADR-0001·개발자_가이드 7절의 구조 문서가 지정한 자리).
 #       GitHub은 루트 / .github/ / docs/ 중 한 곳만 읽으므로 사본을 만들지 마세요.
 # 문법: <경로 패턴> <@계정 또는 @team-savers/팀>
-# 팀(@team-savers/<팀명>)을 쓰려면 org에 해당 팀이 있고 레포에 write 권한이 있어야 합니다.
 # ⚠️ 뒤에 오는 규칙이 앞을 덮어씁니다 — 더 좁은 경로를 아래쪽에 두세요.
-
+#     (덮어쓰기이지 누적이 아닙니다. 좁은 규칙에 안 적힌 사람은 그 경로의 오너가 아닙니다.)
+#
+# 현재 4인 핸들
+#   @eunnamahn          안은남 — 팀장 / PM · QA·Security · Infra
+#   @Yopkigom           신호정 — Tech Lead
+#   @ksw199777-hue      김소원 — AI 모델·RAG + Frontend
+#   @kimdohyuk8888-bot  김도혁 — Backend
+#
 # PM(@eunnamahn)은 전 영역 리뷰 권한 보유 — 모든 규칙에 공동 오너로 들어갑니다.
-# 담당자 부재 시 머지가 멈추지 않게 하는 최종 백업이므로, 새 경로를 추가할 때도 함께 적으세요.
 
-# 기본 소유자 — 계약·스캐폴딩을 총괄하는 Tech Lead + PM
-*                            @Yopkigom @eunnamahn
+# 기본 소유자 — Tech Lead + PM + Backend(백업)
+*                            @Yopkigom @eunnamahn @kimdohyuk8888-bot
 
 # 모듈 오너 (docs/역할_가이드/ 와 1:1) — 담당자 + Tech Lead + PM
 /apps/backend/               @kimdohyuk8888-bot @Yopkigom @eunnamahn
 /apps/ai-engine/             @ksw199777-hue @Yopkigom @eunnamahn
-/apps/frontend/              @twentycherry-gif @Yopkigom @eunnamahn
+/apps/frontend/              @ksw199777-hue @Yopkigom @eunnamahn
 /packages/contracts/         @Yopkigom @kimdohyuk8888-bot @eunnamahn
-/infra/                      @kimdohyuk8888-bot @Yopkigom @eunnamahn
-/docs/adr/                   @Yopkigom @eunnamahn
+/infra/                      @eunnamahn @kimdohyuk8888-bot @Yopkigom
+/docs/adr/                   @Yopkigom @eunnamahn @kimdohyuk8888-bot
 
-# 평가 하네스는 ai-engine 소속이지만 채점 기준은 QA와 공동 소유 (자기채점 편향 방지)
-/apps/ai-engine/eval/        @ksw199777-hue @twentycherry-gif @eunnamahn
+# 평가 하네스는 ai-engine 소속이지만 채점 기준은 QA와 공동 소유 (자기채점 편향 방지).
+/apps/ai-engine/eval/        @ksw199777-hue @eunnamahn @Yopkigom
 
-# 앱을 가로지르는 관통 테스트 — 특정 앱이 아니라 QA 소유 (+ Tech Lead·PM 백업)
-/e2e/                        @twentycherry-gif @Yopkigom @eunnamahn
+# 앱을 가로지르는 관통 테스트 — 특정 앱이 아니라 QA(PM 겸임) 소유
+/e2e/                        @eunnamahn @Yopkigom @kimdohyuk8888-bot
 
-# 파이프라인·품질 게이트 변경은 영향 범위가 넓으므로 Tech Lead + QA 동시 리뷰 (+ PM 백업)
-/.github/               @Yopkigom @twentycherry-gif @eunnamahn
-/scripts/               @Yopkigom @twentycherry-gif @eunnamahn
+# 파이프라인 · 품질 게이트 — 영향 범위가 넓어 Tech Lead 필수
+/.github/                    @Yopkigom @eunnamahn @kimdohyuk8888-bot
+/scripts/                    @Yopkigom @eunnamahn @kimdohyuk8888-bot
