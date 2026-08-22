@@ -40,10 +40,12 @@
 from __future__ import annotations
 
 import argparse
+import http.client
 import re
 import sys
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 
 # Firebase 웹앱 config 흔적. 값은 절대 출력하지 않고 형태만 본다.
 #   authDomain 은 항상 `<project>.firebaseapp.com` 이고, 브라우저 API 키는
@@ -57,8 +59,15 @@ STORAGE_RE = re.compile(r"[a-z0-9][a-z0-9-]*\.(?:appspot\.com|firebasestorage\.a
 # 웹푸시 VAPID 공개키: uncompressed P-256 점(65바이트)을 base64url 로 담아 **항상 87자**,
 # 'B' 로 시작한다. 길이를 범위로 두면 번들 안의 긴 base64url 블롭에서 `-` 뒤 경계가
 # 우연히 맞아 오탐한다(실측: 무작위 4000자 블롭 200개 중 10건). 87자로 못박는다.
-VAPID_RE = re.compile(r"\bB[A-Za-z0-9_-]{86}\b")
+# ⚠️ `\b` 를 쓰면 안 된다. base64url 의 `-` 는 비단어 문자라, 키가 `-` 로 끝나면
+#    뒤따르는 따옴표와의 사이에 단어 경계가 서지 않아 **진짜 키를 놓친다**(약 1/64).
+#    앞뒤로 base64url 문자가 아닌 것만 요구하는 lookaround 가 양방향 모두 정확하다.
+VAPID_RE = re.compile(r"(?<![A-Za-z0-9_-])B[A-Za-z0-9_-]{86}(?![A-Za-z0-9_-])")
 BUNDLE_RE = re.compile(r"/assets/[A-Za-z0-9._-]+\.js")
+
+# 웹푸시가 HTTPS 없이 허용되는 예외. 접두어 비교(`startswith("http://127.")`)로 두면
+# `http://127.evil.com` 같은 외부 호스트가 로컬로 통과한다 — 호스트명을 정확히 대조한다.
+LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 # ⚠️ Firebase JS SDK 가 번들에 **항상** 넣는 DEFAULT_VAPID_KEY 상수다.
 #    걸러내지 않으면 firebase/messaging 을 import 하는 모든 빌드가 무조건 PASS 한다 —
@@ -123,13 +132,42 @@ def fetch(url: str) -> tuple[int, dict[str, str], str, str]:
             )
     except urllib.error.HTTPError as err:
         return err.code, {k.lower(): v for k, v in err.headers.items()}, "", url
-    except (urllib.error.URLError, TimeoutError) as err:
-        return 0, {}, f"{err}", url
+    # ⚠️ URLError/TimeoutError 만 잡으면 부족하다. 응답을 받기 시작한 뒤 연결이 끊기면
+    #    resp.read() 가 ConnectionResetError·IncompleteRead·RemoteDisconnected 로 죽는데,
+    #    셋 다 URLError 가 아니라 판정이 트레이스백으로 끝난다 — 남은 검사도, 종료 코드도
+    #    사라진다. OSError(=URLError·TimeoutError·소켓 오류의 상위)와 HTTPException 을
+    #    함께 잡아 "실패는 예외가 아니라 status 0" 이라는 이 함수의 계약을 지킨다.
+    except (OSError, http.client.HTTPException) as err:
+        return 0, {}, f"{type(err).__name__}: {err}", url
 
 
-def check_reachable(report: Report, base: str) -> str | None:
-    """도달성 + HTTPS. 번들을 읽을 수 있으면 그 본문을 돌려준다."""
-    if base.startswith("http://") and not base.startswith(("http://localhost", "http://127.")):
+def is_local(url: str) -> bool:
+    """localhost 예외 판정. 접두어 비교는 `http://127.evil.com` 을 통과시킨다 — 호스트를 파싱한다."""
+    return (urlsplit(url).hostname or "").lower() in LOCAL_HOSTS
+
+
+def why(status: int, body: str) -> str:
+    """실패 사유 표기.
+
+    두 경우가 그냥 코드만 찍으면 오독된다.
+      - status 0 은 HTTP 코드가 아니라 접속 실패다. 원인을 대신 싣는다.
+      - 200 인데 본문이 비어 있으면 실패 사유가 "HTTP 200(성공)" 으로 표시된다.
+        실패 줄에 성공 코드가 찍히는 셈이라 읽는 사람이 멈춘다.
+    """
+    if status == 0:
+        return f"접속 실패: {body}"
+    if status == 200 and not body:
+        return "HTTP 200 이지만 본문이 비어 있음"
+    return f"HTTP {status}"
+
+
+def check_reachable(report: Report, base: str) -> tuple[bool, str | None]:
+    """도달성 + HTTPS. (호스트에 닿았는가, 번들 본문) 을 돌려준다.
+
+    두 값을 나누는 이유: 번들을 못 읽는 것과 호스트에 못 닿는 것은 다른 사건이다.
+    전자는 config 판정만 불가능할 뿐 서비스워커·매니페스트는 그대로 확인할 수 있다.
+    """
+    if base.startswith("http://") and not is_local(base):
         report.add(
             "https",
             "FAIL",
@@ -142,7 +180,8 @@ def check_reachable(report: Report, base: str) -> str | None:
     status, _, body, final = fetch(f"{base}/")
     if status == 0:
         report.add("reachable", "FAIL", f"배포 주소에 접속할 수 없습니다: {body}")
-        return None
+        # 호스트 자체에 못 닿았다 — /sw.js·매니페스트도 같은 결과일 뿐이라 더 묻지 않는다.
+        return False, None
     # 접근 보호(SSO)가 걸리면 로그인 페이지로 끌려간다 — 실기기에서 열 수 없다.
     if "vercel.com/login" in final or "/sso-api" in final:
         report.add(
@@ -151,10 +190,10 @@ def check_reachable(report: Report, base: str) -> str | None:
             "배포본이 접근 보호(로그인) 뒤에 있습니다 — 실기기 브라우저에서 열 수 없어 "
             "캡처가 불가능합니다. 프로덕션 배포를 쓰거나 해당 배포의 보호를 해제하세요",
         )
-        return None
+        return True, None
     if status != 200:
         report.add("reachable", "FAIL", f"배포 주소가 {status} 를 반환했습니다")
-        return None
+        return True, None
 
     match = BUNDLE_RE.search(body)
     if match is None:
@@ -164,20 +203,24 @@ def check_reachable(report: Report, base: str) -> str | None:
             "index.html 에서 번들(/assets/*.js) 참조를 찾지 못했습니다 — 빌드 산출물이 "
             "아니거나 다른 앱이 서비스되고 있습니다",
         )
-        return None
+        return True, None
 
     bundle_url = f"{base}{match.group(0)}"
     b_status, _, bundle, _ = fetch(bundle_url)
     if b_status != 200 or not bundle:
-        report.add("reachable", "FAIL", f"번들을 읽을 수 없습니다({b_status}): {match.group(0)}")
-        return None
+        report.add(
+            "reachable",
+            "FAIL",
+            f"번들을 읽을 수 없습니다({why(b_status, bundle)}): {match.group(0)}",
+        )
+        return True, None
 
     report.add(
         "reachable",
         "PASS",
         f"배포본 도달·번들 조회 성공 ({match.group(0)}, {len(bundle) // 1024}KB)",
     )
-    return bundle
+    return True, bundle
 
 
 def check_firebase_config(report: Report, bundle: str) -> None:
@@ -206,11 +249,6 @@ def check_firebase_config(report: Report, bundle: str) -> None:
         )
 
 
-def why(status: int, body: str) -> str:
-    """실패 사유 표기. status 0 은 HTTP 코드가 아니라 접속 실패이므로 원인을 대신 싣는다."""
-    return f"접속 실패: {body}" if status == 0 else f"HTTP {status}"
-
-
 def check_service_worker(report: Report, base: str) -> None:
     status, headers, body, _ = fetch(f"{base}/sw.js")
     if status != 200 or not body:
@@ -224,8 +262,10 @@ def check_service_worker(report: Report, base: str) -> None:
     notes: list[str] = []
     if headers.get("service-worker-allowed") != "/":
         notes.append("Service-Worker-Allowed 헤더가 '/' 가 아님(스코프 제한)")
+    # no-store 는 "캐시에 넣지도 말라" 로 재검증보다 강한 지시다 — 빠뜨리면 가장 안전한
+    # 설정에 대고 "낡은 워커가 남을 수 있음" 이라고 잘못 경고한다.
     cache = headers.get("cache-control", "")
-    if "max-age=0" not in cache and "no-cache" not in cache and "must-revalidate" not in cache:
+    if not any(d in cache for d in ("no-store", "no-cache", "max-age=0", "must-revalidate")):
         notes.append(f"캐시 헤더가 재검증을 강제하지 않음({cache!r}) — 낡은 워커가 남을 수 있음")
 
     if notes:
@@ -280,9 +320,18 @@ def main() -> int:
 
     print(f"── 대상: {base} ──")
     report = Report()
-    bundle = check_reachable(report, base)
+    # 항목들은 서로 독립이다. 번들을 못 읽었다고 서비스워커·매니페스트까지 침묵하면
+    # "왜 실패했는지" 가 오히려 좁아진다 — 판정 가능한 것은 끝까지 판정한다.
+    host_up, bundle = check_reachable(report, base)
     if bundle is not None:
         check_firebase_config(report, bundle)
+    else:
+        report.add(
+            "firebase-config·vapid",
+            "WARN",
+            "번들을 읽지 못해 판정하지 못했습니다 — 위 reachable 실패를 먼저 해결하세요",
+        )
+    if host_up:
         check_service_worker(report, base)
         check_manifest(report, base)
 
