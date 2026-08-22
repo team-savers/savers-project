@@ -37,3 +37,6 @@ pytest e2e -v
   [`apps/ai-engine/eval/`](../apps/ai-engine/eval/) 하네스의 몫입니다.
 - 위치 미저장 검증(로그·DB에 원본 좌표 부재)은 S1-2 점검 스크립트와 중복되지 않게,
   여기서는 **관통 시나리오 안에서의 확인**만 다룹니다.
+  그 점검이 여기가 아니라 [`scripts/check_privacy.py`](../scripts/check_privacy.py)에 있는 이유는
+  [ADR-0010](../docs/adr/0010-privacy-harness-placement.md)입니다 — 경계 규칙은 같지만,
+  그쪽은 pytest 없이 도는 단일 파일이어야 하고 산출물이 통과 여부가 아니라 증빙 JSON입니다.
