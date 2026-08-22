@@ -1,6 +1,7 @@
-# ADR-0010: M3 지표를 "위치정보 미수신"에서 "위치정보 무저장, 무로깅"으로 재정정한다
+# ADR-0011: M3 지표를 "위치정보 미수신"에서 "위치정보 무저장, 무로깅"으로 재정정한다
 
 - **상태**: 제안 (Proposed) - PR [#95](https://github.com/team-savers/savers-project/pull/95) 리뷰(신호정) 지적에 따라 작성, Tech Lead 승인 대기
+- **번호 정정**: 초안은 ADR-0010으로 작성됐으나, main에 먼저 병합된 [ADR-0010](0010-privacy-harness-placement.md)(개인정보 점검 하네스 배치, PR #76)과 번호가 겹쳐 PR #96 2차 리뷰(신호정)에서 지적되어 ADR-0011로 재번호했습니다
 - **날짜**: 2026-08-22
 - **결정자**: 안은남 (PM) 제안 / 신호정 (Tech Lead) 승인 대기
 - **관련 문서**: [정량목표_검증설계.md 3절](../공유_문서/정량목표_검증설계.md), [서비스_기획서.md](../공유_문서/서비스_기획서.md) 정정 항목 표, `packages/contracts/openapi.yaml`, `apps/backend/src/api/routes/shelters.py`
