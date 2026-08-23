@@ -31,6 +31,8 @@ info:
     > **발송은 data-only 고정이고 `notification` 블록은 금지**입니다 - SDK가 자체 표시해
     > 알림이 2건 뜨고, 그중 하나는 `data.url`이 없어 딥링크가 죽습니다.
     > 백엔드와 서비스워커 양쪽 주석에만 있던 규칙을 계약으로 올린 것입니다.
+    > 금지는 설명이 아니라 스키마가 강제합니다 - 최상위·`data` 양쪽이
+    > `additionalProperties: false`라 `notification`은 검증에서 걸립니다.
     > v0.7이 1차·2차 발송을 `role`로 갈라 놓았지만 **페이로드의 모양은 하나**이고,
     > 이 스키마가 그 하나를 정합니다.
 
@@ -2199,6 +2201,7 @@ components:
     WebPushPayload:
       type: object
       required: [data]
+      additionalProperties: false
       description: |
         **발송 페이로드의 모양.** 이 저장소가 서비스하는 경로가 아니라
         백엔드가 FCM에 넣고 서비스워커(`apps/frontend/src/sw.ts`)가 꺼내 읽는
@@ -2211,6 +2214,10 @@ components:
         더 나쁜 쪽은 클릭 동작입니다 - SDK가 표시한 알림에는 우리가 넣은 `data.url`이
         없어, 탭하면 딥링크가 아니라 origin 기본 페이지로 갑니다.
         **알림 2개 중 하나는 딥링크가 죽은 채로 뜹니다.**
+
+        그래서 최상위도 `additionalProperties: false`로 닫혀 있습니다 - 허용되는
+        최상위 키는 `data` 하나뿐이며, `notification`을 포함한 다른 키는 스키마
+        검증에서 걸립니다. 금지를 설명에만 적어 두면 새 발송부를 막지 못합니다.
 
         서비스워커가 `payload.notification`을 폴백으로 읽는 방어를 두고 있지만,
         그것은 계약 위반의 면죄부가 아니라 한 통이라도 살리기 위한 안전망입니다.
@@ -2235,8 +2242,17 @@ components:
             url:
               type: string
               description: |
-                딥링크. `{PUBLIC_BASE_URL}/a?t={세션 토큰}&s={stage}` 형태이며,
-                서비스워커의 `notificationclick`이 이 값으로 이동합니다.
+                딥링크. 서비스워커의 `notificationclick`이 이 값으로 이동합니다.
+                **받는 사람에 따라 두 형태**이고, 그 외의 경로는 없습니다.
+
+                - 본인 알림: `{PUBLIC_BASE_URL}/a?t={세션 토큰}&s={stage}`
+                - 보호자 알림(폐루프 2차 발송): `{PUBLIC_BASE_URL}/g/{보호자 토큰}`
+                  - `GET /v1/guardian/{token}`이 받는 그 토큰입니다.
+
+                ⚠️ **같은 origin이어야 합니다.** 서비스워커는 이 값을 자기 origin
+                기준으로 파싱해, 다른 origin이거나 파싱에 실패하면 `/`로 접습니다
+                (`sw.ts`의 `notificationclick`). 절대 URL을 넣더라도 `PUBLIC_BASE_URL`과
+                같은 origin이어야 딥링크가 삽니다.
               example: https://savers.example/a?t=s_9f2c8a1b4e7d&s=2
 
     RegistrationTarget:
