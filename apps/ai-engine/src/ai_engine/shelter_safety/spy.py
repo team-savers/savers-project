@@ -103,7 +103,13 @@ def default_lightgbm_scorer(
     import numpy as np
     from lightgbm import LGBMClassifier
 
-    model = LGBMClassifier(random_state=seed)
+    model = LGBMClassifier(
+        random_state=seed,
+        n_jobs=1,
+        deterministic=True,
+        force_col_wise=True,
+        verbosity=-1,
+    )
     model.fit(x_train, y_train)
     # np.asarray(): lightgbm의 타입 스텁이 predict_proba를 list로 표기해 [:, 1] 2차원
     # 슬라이싱이 mypy에서 막힌다 — 실제 런타임 반환값(ndarray)에 맞게 명시적으로 배열화.

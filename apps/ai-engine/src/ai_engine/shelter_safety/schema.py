@@ -75,6 +75,7 @@ FEATURE_COLUMNS: tuple[str, ...] = (
 # 에서만 쓰인다 — 레거시 경로(`run_pu_pipeline()`, mock fixture)는 위 상수를 그대로
 # 계속 쓰고 이 섹션의 영향을 받지 않는다.
 UNIFIED_REGISTRY_PK_COL = "pk"  # 시군구코드_법정동코드_번_지 합성키, 필지당 유일.
+UNIFIED_REGISTRY_DISTRICT_COL = "시군구코드"  # GroupKFold 공간 블록.
 UNIFIED_REGISTRY_IS_SHELTER_COL = "is_shelter"  # 0/1.
 UNIFIED_REGISTRY_GUBUN_COL = "대피소구분"  # 값: "안전"/"긴급" (is_shelter==0인 행은 NaN).
 UNIFIED_REGISTRY_SHELTER_NAME_COL = "대피소명"
@@ -98,14 +99,11 @@ UNIFIED_REGISTRY_Y_5186_COL = "Y_5186"
 # 관계가 약하고 연면적 등 기존 피처와 겹칠 가능성이 높다는 판단, 도혁님 확인 완료
 # (2026-08-05). 코드에서 안 쓰는 컬럼이라 내진능력과 같은 이유로 상수도 안 둔다.
 
-# 학습 피처. 전부 이미 숫자형(float64/int64), 결측 존재해도 LightGBM이 기본
-# 처리하므로 드롭하지 않는다. 주용도코드/구조코드는 카테고리값이라 `category`
-# dtype 캐스팅이 필요해 이번 스코프에서 제외(후속 과제) — 내진능력은 결측
-# 92.3%라 제외(2026-08-05 팀 논의로 결정, ADR 미등록 — 검토 중).
-#
-# 침수구역내/침수심등급/최근접펌프장거리_m(2026-08-05 브이월드 PNU 조인으로 추가):
-# 결측 3,464/53,939행(6.4%, 브이월드가 2026-07-19 기준이라 그 이후 신축/멸실 필지
-# 매칭 불가) — 별도 imputation 없이 NaN 그대로 둔다(LightGBM 기본 처리).
+# 최종 모델 학습 피처 13개. 기획서와 검증설계의 라벨/피처 분리 원칙에 따라
+# 서울 전용 검증 컬럼(침수구역내·침수심등급)과 그 공간 결합에서 파생된
+# 최근접펌프장거리_m은 포함하지 않는다. 내진설계적용여부도 13개 확정 목록 밖이라
+# 제외한다. 침수심등급은 최종 모델 입력이 아니라 lift baseline으로만 사용한다.
+# 전부 숫자형이며 사용승인연도 결측은 LightGBM이 기본 처리한다.
 UNIFIED_REGISTRY_FEATURE_COLUMNS: tuple[str, ...] = (
     "대지면적(㎡)",
     "건축면적(㎡)",
@@ -120,8 +118,7 @@ UNIFIED_REGISTRY_FEATURE_COLUMNS: tuple[str, ...] = (
     "지하층수",
     "승용승강기수",
     "사용승인연도",
-    "내진설계적용여부",
-    "침수구역내",
-    "침수심등급",
-    "최근접펌프장거리_m",
 )
+
+UNIFIED_REGISTRY_FLOOD_BASELINE_COL = "침수심등급"
+UNIFIED_REGISTRY_SCHOOL_FACILITY_VALUE = "학교"
