@@ -352,7 +352,7 @@ def evidence_mismatches(
                 # Treating it as a pass would let an unverifiable citation through.
                 codes.append("malformed_evidence")
             elif not logged:
-                codes.append("presence_mismatch")
+                codes.append("present_claim_mismatch")
             elif cited not in logged:
                 codes.append("time_mismatch")
         elif item.get("at") is not None:
@@ -360,7 +360,7 @@ def evidence_mismatches(
             # is confused about which direction it is asserting.
             codes.append("malformed_evidence")
         elif logged:
-            codes.append("absent_mismatch")
+            codes.append("absent_claim_mismatch")
     return codes
 
 
@@ -392,8 +392,15 @@ def guardian_violations(
         return []
     if not evidence:
         # The contract's invariant is `sources` empty -> `answer` null. An answer that
-        # arrives with no citations has already broken it, and nothing can be compared.
-        return ["no_evidence"]
+        # arrives with no citations has already broken it: every claim it makes has no
+        # corresponding `sources` item, which is ADR-0012 2절 row 4.
+        #
+        # Not `no_evidence`: that is a `GuardianAskResponse.refusalReason` enum value
+        # (openapi.yaml), what the API hands the guardian's screen, and ADR-0012 5절
+        # assigns it to the refusal path. Block reasons are the closed set of six in 4절;
+        # mixing the other field's enum into this list would split the 8/31 사유별 집계
+        # across two vocabularies.
+        return ["unsupported_claim"]
     return evidence_mismatches(evidence, events) + [
         "forbidden_phrase" for _ in forbidden_phrase_hits(answer, forbidden)
     ]

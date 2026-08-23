@@ -185,6 +185,14 @@ CITED_OPENED_NO_RESPONSE = [
 
 ANSWER_OPENED_NO_RESPONSE = "알림을 열어 보셨고, 아직 어느 쪽도 누르지 않으셨습니다."
 
+# 같은 타입이 두 번 찍힌 로그 (ADR-0012 2절의 "여러 건" 규칙).
+LOG_OPENED_TWICE = [
+    {"type": "session_opened", "at": "2026-08-24T03:13:41Z"},
+    {"type": "session_opened", "at": "2026-08-24T03:51:02Z"},
+]
+
+CITED_SECOND_OPEN = [{"type": "session_opened", "present": True, "at": "2026-08-24T03:51:02Z"}]
+
 
 class TestEvidenceMismatches:
     def test_presence_and_absence_both_hold(self) -> None:
@@ -192,11 +200,15 @@ class TestEvidenceMismatches:
 
     def test_claimed_event_is_not_in_the_log(self) -> None:
         cited = [{"type": "response_recorded", "present": True, "at": "2026-08-24T03:14:02Z"}]
-        assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == ["presence_mismatch"]
+        assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == [
+            "present_claim_mismatch"
+        ]
 
     def test_absence_claimed_for_an_event_that_happened(self) -> None:
         cited = [{"type": "session_opened", "present": False, "at": None}]
-        assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == ["absent_mismatch"]
+        assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == [
+            "absent_claim_mismatch"
+        ]
 
     def test_right_event_wrong_minute(self) -> None:
         cited = [{"type": "session_opened", "present": True, "at": "2026-08-24T03:15:41Z"}]
@@ -233,7 +245,7 @@ class TestEvidenceMismatches:
             {"type": "session_opened", "present": True, "at": "2026-08-24T03:59:00Z"},
         ]
         assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == [
-            "absent_mismatch",
+            "absent_claim_mismatch",
             "time_mismatch",
         ]
 
@@ -269,7 +281,7 @@ class TestEvidenceMismatches:
         ]
         assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == [
             "malformed_evidence",
-            "absent_mismatch",
+            "absent_claim_mismatch",
         ]
 
     def test_log_rows_without_a_usable_type_answer_nothing(self) -> None:
@@ -277,7 +289,17 @@ class TestEvidenceMismatches:
         # in for the event a citation names, or a broken log would grade as a pass.
         broken_log = [{"type": None, "at": "2026-08-24T03:13:41Z"}]
         cited = [{"type": "session_opened", "present": True, "at": "2026-08-24T03:13:41Z"}]
-        assert metrics.evidence_mismatches(cited, broken_log) == ["presence_mismatch"]
+        assert metrics.evidence_mismatches(cited, broken_log) == ["present_claim_mismatch"]
+
+    def test_one_of_several_same_type_events_is_enough(self) -> None:
+        # ADR-0012 2절: 같은 타입이 여러 건이면 그중 하나와만 맞으면 통과. Citing the
+        # second time the link was opened is as true as citing the first.
+        assert metrics.evidence_mismatches(CITED_SECOND_OPEN, LOG_OPENED_TWICE) == []
+
+    def test_a_time_matching_no_occurrence_still_fails(self) -> None:
+        # The relaxation is "any one of them", not "the type exists somewhere".
+        cited = [{"type": "session_opened", "present": True, "at": "2026-08-24T03:30:00Z"}]
+        assert metrics.evidence_mismatches(cited, LOG_OPENED_TWICE) == ["time_mismatch"]
 
 
 class TestForbiddenPhrases:
@@ -305,7 +327,7 @@ class TestGuardianViolations:
     def test_answer_without_citations_breaks_the_contract_invariant(self) -> None:
         assert metrics.guardian_violations(
             answer="열어 보셨습니다.", evidence=[], events=LOG_OPENED_NO_RESPONSE
-        ) == ["no_evidence"]
+        ) == ["unsupported_claim"]
 
     def test_refusal_is_clean_not_a_violation(self) -> None:
         assert (
