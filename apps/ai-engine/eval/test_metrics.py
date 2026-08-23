@@ -11,6 +11,8 @@ deterministic.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import metrics
 
 # Two sentences from the bundled dummy corpus, used as "retrieved source text".
@@ -235,6 +237,48 @@ class TestEvidenceMismatches:
             "time_mismatch",
         ]
 
+    def test_missing_type_or_present_is_malformed(self) -> None:
+        # Annotated because the fixtures below are deliberately off-contract, and mypy
+        # otherwise joins the mismatched literals down to `list[object]`.
+        cited: list[Mapping[str, object]] = [
+            {"present": True, "at": "2026-08-24T03:13:41Z"},
+            {"type": "session_opened", "at": "2026-08-24T03:13:41Z"},
+        ]
+        assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == [
+            "malformed_evidence",
+            "malformed_evidence",
+        ]
+
+    def test_present_must_be_a_bool_not_a_stringified_one(self) -> None:
+        # Without the type guard these fall through to the `present: false` branch and get
+        # graded as absence claims — the opposite of what the producer meant to assert.
+        cited: list[Mapping[str, object]] = [
+            {"type": "session_opened", "present": "true", "at": "2026-08-24T03:13:41Z"},
+            {"type": "session_opened", "present": 1, "at": "2026-08-24T03:13:41Z"},
+        ]
+        assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == [
+            "malformed_evidence",
+            "malformed_evidence",
+        ]
+
+    def test_a_malformed_item_does_not_stop_the_rest(self) -> None:
+        cited: list[Mapping[str, object]] = [
+            {"type": None, "present": True, "at": "2026-08-24T03:13:41Z"},
+            {"type": "session_opened", "present": True, "at": "2026-08-24T03:13:41Z"},
+            {"type": "session_opened", "present": False, "at": None},
+        ]
+        assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == [
+            "malformed_evidence",
+            "absent_mismatch",
+        ]
+
+    def test_log_rows_without_a_usable_type_answer_nothing(self) -> None:
+        # A row whose `type` is not a string is dropped from the index. It must not stand
+        # in for the event a citation names, or a broken log would grade as a pass.
+        broken_log = [{"type": None, "at": "2026-08-24T03:13:41Z"}]
+        cited = [{"type": "session_opened", "present": True, "at": "2026-08-24T03:13:41Z"}]
+        assert metrics.evidence_mismatches(cited, broken_log) == ["presence_mismatch"]
+
 
 class TestForbiddenPhrases:
     def test_safety_assertion_is_caught(self) -> None:
@@ -321,3 +365,63 @@ class TestFollowupDeliveryRate:
     def test_no_session_reached_the_timer_is_not_measurable(self) -> None:
         answered = [{"type": "response_recorded", "at": "2026-08-24T03:14:02Z"}]
         assert metrics.followup_delivery_rate([answered]) is None
+
+    def test_mixed_offset_and_z_stamps_order_by_instant(self) -> None:
+        # 12:42:07+09:00 is 03:42:07Z, two seconds *before* the send. As raw strings the
+        # Z-stamped send sorts first, and a punctual second dispatch is scored a failure
+        # on a metric whose target is 100%.
+        log = [
+            {"type": "followup_due", "at": "2026-08-24T12:42:07+09:00"},
+            {"type": "guardian_notified", "at": "2026-08-24T03:42:09Z"},
+        ]
+        assert metrics.followup_delivery_rate([log]) == 1.0
+
+    def test_arrival_order_of_the_log_does_not_change_the_score(self) -> None:
+        # Same two events, newest-first, as a query that sorted descending would return.
+        log = [
+            {"type": "guardian_notified", "at": "2026-08-24T03:42:09Z"},
+            {"type": "followup_due", "at": "2026-08-24T12:42:07+09:00"},
+        ]
+        assert metrics.followup_delivery_rate([log]) == 1.0
+
+    def test_send_seconds_before_its_timer_is_a_miss_within_one_minute(self) -> None:
+        # Ordering is on the full instant, not the minute bucket ADR-0012 §2 uses for
+        # 대조: both stamp 03:42, but the send precedes its own timer.
+        log = [
+            {"type": "followup_due", "at": "2026-08-24T03:42:07Z"},
+            {"type": "guardian_notified", "at": "2026-08-24T03:42:03Z"},
+        ]
+        assert metrics.followup_delivery_rate([log]) == 0.0
+
+    def test_an_unparsable_stamp_takes_no_position_on_the_timeline(self) -> None:
+        # It cannot be ordered, so it sorts last instead of ahead of real events — and
+        # sorting must not raise on it either.
+        log = [
+            {"type": "guardian_notified", "at": "어제"},
+            {"type": "followup_due", "at": "2026-08-24T03:42:07Z"},
+            {"type": "guardian_notified", "at": "2026-08-24T03:42:09Z"},
+        ]
+        assert metrics.followup_delivery_rate([log]) == 1.0
+
+    def test_only_some_sessions_sent(self) -> None:
+        # Two sessions re-entered the loop and one of them sent; the third never reached
+        # the timer, so the rate is 1/2 and not 1/3 — M4 measures the loop, not the run.
+        sent = [
+            {"type": "followup_due", "at": "2026-08-24T03:42:07Z"},
+            {"type": "guardian_notified", "at": "2026-08-24T03:42:09Z"},
+        ]
+        missed = [{"type": "followup_due", "at": "2026-08-24T04:10:00Z"}]
+        answered = [{"type": "response_recorded", "at": "2026-08-24T03:14:02Z"}]
+        assert metrics.followup_delivery_rate([sent, missed, answered]) == 0.5
+
+    def test_two_of_three_re_entered_sessions_sent(self) -> None:
+        first = [
+            {"type": "followup_due", "at": "2026-08-24T03:42:07Z"},
+            {"type": "guardian_notified", "at": "2026-08-24T03:42:09Z"},
+        ]
+        second = [
+            {"type": "followup_due", "at": "2026-08-24T04:02:07Z"},
+            {"type": "guardian_notified", "at": "2026-08-24T04:02:11Z"},
+        ]
+        third = [{"type": "followup_due", "at": "2026-08-24T04:22:07Z"}]
+        assert metrics.followup_delivery_rate([first, second, third]) == 2 / 3

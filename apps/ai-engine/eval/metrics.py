@@ -264,9 +264,21 @@ def mean(values: Sequence[float | None]) -> float | None:
 # follow the implementation — a verifier bug would grade itself as correct. Two
 # implementations of one written rule (ADR-0012) is the check; keep them apart.
 #
-# Time comparison is on UTC instants truncated to the minute. Display timezone is a
-# generation concern, not a scoring one: what is graded here is the machine timestamp the
-# answer cited, not how the sentence spelled it out.
+# Every time comparison here runs on the parsed UTC instant, never on the raw string:
+# "…T03:42:09Z" sorts *before* "…T12:42:07+09:00" lexicographically while being the later
+# instant, so string ordering flips events whenever the two notations meet. ADR-0012 §2
+# says the same thing for 대조 — 인스턴트로 비교한다, 표기가 아니라.
+#
+# Truncation differs by what is being asked, and the two are not interchangeable:
+#   - 대조 (evidence vs. log) truncates to the minute, per ADR-0012 §2, because a sentence
+#     read by a person says "12시 13분" and never a second.
+#   - 폐루프 ordering (M4) keeps full precision: it asks whether the send *followed* its
+#     own timer, and the two are seconds apart by design (ADR-0012 §6 records the gap as
+#     the proof the loop re-entered). Truncating would let a send that preceded its timer
+#     by a few seconds land in the same minute bucket and score as a success.
+#
+# Display timezone is a generation concern, not a scoring one: what is graded here is the
+# machine timestamp the answer cited, not how the sentence spelled it out.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ADR-0012 §3. Not exhaustive by design — the ADR says so, and a bypass phrase
@@ -280,8 +292,17 @@ SAFETY_ASSERTIONS = (
 )
 
 
-def _instant_minute(value: object) -> str | None:
-    """RFC3339 timestamp -> UTC minute key. `None` when absent or unparsable."""
+# Sort position for an event whose `at` could not be parsed. It has no place on the
+# timeline, so it goes last rather than ahead of real events; see `followup_delivery_rate`.
+_UNDATED = datetime.min.replace(tzinfo=UTC)
+
+
+def _instant(value: object) -> datetime | None:
+    """RFC3339 timestamp -> aware UTC instant. `None` when absent, naive or unparsable.
+
+    Naive input is rejected rather than assumed UTC: a stamp with no offset could equally
+    be KST, and guessing turns a 9-hour error into a silent one.
+    """
     if not isinstance(value, str):
         return None
     try:
@@ -290,7 +311,13 @@ def _instant_minute(value: object) -> str | None:
         return None
     if parsed.tzinfo is None:
         return None
-    return parsed.astimezone(UTC).strftime("%Y-%m-%dT%H:%M")
+    return parsed.astimezone(UTC)
+
+
+def _instant_minute(value: object) -> str | None:
+    """RFC3339 timestamp -> UTC minute key (ADR-0012 §2). `None` when it will not parse."""
+    instant = _instant(value)
+    return None if instant is None else instant.strftime("%Y-%m-%dT%H:%M")
 
 
 def evidence_mismatches(
@@ -397,11 +424,17 @@ def followup_delivery_rate(
     due_count = 0
     sent_count = 0
     for events in session_logs:
-        due_at: str | None = None
+        due_at: datetime | None = None
         sent = False
-        for event in sorted(events, key=lambda e: str(e.get("at", ""))):
+        # Ordered by instant, not by the raw stamp — a KST-stamped `followup_due` and a
+        # Z-stamped `guardian_notified` seconds later sort backwards as strings, which
+        # would read a punctual second dispatch as having preceded its own timer.
+        ordered = sorted(
+            ((_instant(event.get("at")), event) for event in events),
+            key=lambda pair: (pair[0] is None, pair[0] if pair[0] is not None else _UNDATED),
+        )
+        for at, event in ordered:
             event_type = event.get("type")
-            at = _instant_minute(event.get("at"))
             if event_type == "followup_due" and due_at is None:
                 due_at = at
             elif (
