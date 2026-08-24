@@ -63,6 +63,11 @@ FCM 으로 닿으려면 **보호자 기기가 이미 구독돼 있어야 한다.
    `followup_due` 와 배타이고 세션당 1회다.
    이것으로 시스템 이벤트가 4종에서 5종이 된다.
    빼는 것을 로그에서 지우는 대신 다른 이름으로 남기는 쪽을 택한 이유는 위 6번 절에 있다.
+8. **보호자가 아예 없는 사람(`Profile.guardian: null`)은 폐루프 2단계에 들어가지 않는다.**
+   보낼 대상이 정의되지 않은 루프이므로 재진입이 성립하지 않고, 관측에서 끝난다.
+   그래서 `followup_unreachable` 은 "보호자는 있는데 구독이 없다" 하나만 뜻한다.
+   섞으면 그 수를 보고할 때 설계상 정상인 경우와 메울 수 있는 운영 공백이 한 숫자가 된다.
+   보호자가 없는 사람의 수는 등록 정보에서 세면 되고 로그가 답할 질문이 아니다.
 
 근거는 넷이다.
 
@@ -138,17 +143,31 @@ M4 가 폐루프 신뢰성이 아니라 **보호자 가입률 지표**가 되기
 (분모 소속은 2단계 진입 시점에 고정되고 이후 이벤트가 바꾸지 못한다는 불변식이 이 경우를 덮는다).
 계약 쪽에서 이 순서를 만들 수 있는 경로가 `DELETE /v1/guardian/{token}/device` 라는 것만 여기 적어 둔다.
 
+## 계약 리뷰에서 나온 지적과 처리
+
+리뷰는 PR 코멘트가 아니라 팀 메신저로 왔다 - 커밋 작성자와 리뷰어가 같은 계정이라
+자기 PR 에 자기가 리뷰를 다는 모양이 되기 때문이다.
+그래서 지적과 처리가 저장소에 남는 자리가 여기뿐이고, 스쿼시 머지 뒤에는 커밋 목록도 남지 않는다.
+
+| 지적 | 처리 |
+|---|---|
+| 변경 이력이 "머지 순서는 자유"라고 적었으나, 보호자 Q&A 계약이 근거 타입을 17종에 맞추면서 이제 이 계약을 필요로 한다 | 변경 이력을 "머지는 이 계약이 먼저"로 고쳤다. PR 본문에만 적으면 6개월 뒤 이 파일을 여는 사람은 못 본다 |
+| `DELETE /v1/devices` 가 `role` 을 필수로 받는데, 틀렸을 때의 동작이 계약에 없다. 이 경로는 없는 토큰의 해제도 200 이므로 조용히 실패한다 | **해제 본문에서 `role` 을 뺐다**(선택지 셋 중 첫째). `DeviceUnregisterRequest` 를 신설해 `registrationToken` 과 `fcmToken` 만 받는다. "받되 무시"는 계약에 쓸모없는 필드를 남기고, 400 은 호출자가 알 필요 없는 값을 맞추게 한다. FCM 토큰이 기기마다 유일하므로 역할 없이 대상이 정해진다 |
+| `pushEnabled` 의 주어가 값 정의(피보호자)와 화면 질문(브라우저)에서 갈린다. 다른 보호자 폰이 구독돼 있으면 `true` 가 내려와 그 브라우저는 영영 구독하지 못한다 | 단위를 피보호자로 고정하고, 화면이 자기 구독 여부를 판단하는 근거는 브라우저 쪽 상태(알림 권한과 그 기기의 FCM 토큰)라는 것을 경고로 갈랐다 |
+| `followup_unreachable` 이 `Profile.guardian: null`(설계상 정상)과 구독 없음(운영 공백)을 한 숫자로 섞는다 | **모집단 분리를 채택했다.** 보호자가 없는 사람은 2단계에 들어가지 않고 관측에서 끝난다(위 결정 8번). 이 이벤트는 구독 없음 하나만 뜻한다. 폐루프 진입 조건이 바뀌므로 [ADR-0012](0012-verifier-rules-and-closed-loop.md) 7-a절도 함께 움직인다 |
+| "갱신 경로이지 최초 진입로가 아니다"가 규범인데 구현자가 거부 조건으로 읽을 수 있다 | "어느 자리가 정상 경로인지에 대한 설명이지 거부 조건이 아니다"를 명시했다. 복지관, 지자체 대리등록 보호자에게는 이 경로밖에 없다 |
+
 ## 후속 조치
 
 | 항목 | 소관 | 상태 |
 |---|---|---|
 | 계약 v0.7 (`role`, `/v1/guardian/{token}/device`, `pushEnabled`) | Tech Lead | 완료, 이 PR |
-| `Resident.devices` 를 역할별로 분리하고 1차 발송을 `ward` 로 한정. 실제 편집 지점 다섯 - `backend_core/models.py` 250행 `DeviceRegisterRequest`, `backend_core/registry.py` 36행 `Resident.devices`(지금 `list[str]` 이라 자료구조부터 바뀐다)와 70행 `register_device`, 76행 `unregister_device`, `api/routes/devices.py` 24행과 36행, `backend_core/pipeline.py` 231행 `skipped_no_device` 판정과 249행 `for token in resident.devices` (**231행을 함께 고치지 않으면 발송 0건 실행이 252행에서 `Delivery` 로 기록되어 M1 지연 표본에 섞인다.** 실제 발송이 없어 빠르기까지 하므로 p95 가 좋아지는 방향으로 오염된다), `tests/api/test_main.py` 122행 payload. **`pipeline.py` 를 빠뜨리면 계약이 `role` 을 나눠도 실제 발송은 전과 같이 전원에게 나간다.** `tests/api/test_cors.py` 는 본문 없는 OPTIONS 프리플라이트라 해당 없다 | Backend | 대기 (8/25 슬롯) |
+| `Resident.devices` 를 역할별로 분리하고 1차 발송을 `ward` 로 한정. 실제 편집 지점 다섯 - `backend_core/models.py` 250행 `DeviceRegisterRequest` 와 `DeviceUnregisterRequest` 신설, `backend_core/registry.py` 36행 `Resident.devices`(지금 `list[str]` 이라 자료구조부터 바뀐다)와 70행 `register_device`, 76행 `unregister_device`, `api/routes/devices.py` 24행과 36행(해제 핸들러는 `DeviceUnregisterRequest` 를 받는다 - `role` 없음), `backend_core/pipeline.py` 231행 `skipped_no_device` 판정과 249행 `for token in resident.devices` (**231행을 함께 고치지 않으면 발송 0건 실행이 252행에서 `Delivery` 로 기록되어 M1 지연 표본에 섞인다.** 실제 발송이 없어 빠르기까지 하므로 p95 가 좋아지는 방향으로 오염된다), `tests/api/test_main.py` 122행 payload. **`pipeline.py` 를 빠뜨리면 계약이 `role` 을 나눠도 실제 발송은 전과 같이 전원에게 나간다.** `tests/api/test_cors.py` 는 본문 없는 OPTIONS 프리플라이트라 해당 없다 | Backend | 대기 (8/25 슬롯) |
 | `/register` 완료 화면의 보호자 구독, `/g/` 랜딩의 구독과 해제. `api/types.ts` 의 `DeviceRegisterRequest` 와 `api/mock.ts` 에 `role` 추가 | AI/RAG/프론트엔드 | 대기 |
 | 계약에 `followup_unreachable` 신설, 시스템 이벤트 4종 표기를 5종으로 (`SessionEvent` oneOf/discriminator, 세션당 1회 목록, `POST /v1/session/{token}/events`, `RecordedUserActionEvent`) | Tech Lead | 완료, 이 PR |
 | `GuardianEvidenceType` 에 `followup_unreachable` 추가, 열거 16종을 17종으로. 3질문 매핑표에는 넣지 않고 "어느 질문의 근거도 아닌 이벤트" 목록을 셋에서 넷으로 늘린다 - 이번 구간의 질문 셋이 폐루프 계측을 묻지 않기 때문이며, 검증기가 문장을 막는 것이 아니다. **두 스키마는 이 브랜치에 없고 보호자 Q&A 계약(PR 104)이 소유한다** - 이 브랜치는 건드리지 않는다 | Tech Lead (PR 104) | 완료 |
 | **머지 순서: 이 PR 이 PR 104 보다 먼저 간다.** 뒤집히면 main 에 `GuardianEvidenceType` 17종과 `SessionEvent` 16종이 잠시 공존하고, 존재하지 않는 이벤트를 가리키는 근거 타입이 생긴다 | Tech Lead | 대기 |
-| [ADR-0012](0012-verifier-rules-and-closed-loop.md) 7-a절에 분모 소속 고정 불변식, `followup_unreachable` 세션당 1회, 별도 계상 단위, 소급 발송 at-least-once. 종료 조건에 `guardian_notified` 1건 | Tech Lead | 완료 ([PR 120](https://github.com/team-savers/savers-project/pull/120), 제안) |
+| [ADR-0012](0012-verifier-rules-and-closed-loop.md) 7-a절에 **보호자가 없는 세션은 2단계에 들어가지 않는다**(위 결정 8번, 리뷰 반영으로 신설), 분모 소속 고정 불변식, `followup_unreachable` 세션당 1회, 별도 계상 단위, 소급 발송 at-least-once. 종료 조건에 `guardian_notified` 1건 | Tech Lead | 완료 ([PR 120](https://github.com/team-savers/savers-project/pull/120), 제안) |
 | 등록 토큰의 TTL, 1인당 발급 매수, 분실 시 재발급이 계약에 "미정"으로 남아 있다(`DeviceRegisterRequest.registrationToken`). 보호자 기기가 이 토큰에 매이므로 2차 발송 신뢰성에 걸린다. 갱신 경로(`/g/`)가 있어 완전 차단은 아니다 | Tech Lead | 대기 |
 | [정량목표_검증설계.md](../공유_문서/정량목표_검증설계.md) M4 행에 분모 제외 조건과 그 보고 방식 | PM | 대기 |
 | [워킹_스켈레톤_설명.md](../공통_가이드/워킹_스켈레톤_설명.md) API 표에 새 경로 두 줄 | Tech Lead | 대기 |
