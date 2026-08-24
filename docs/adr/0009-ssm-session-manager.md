@@ -1,8 +1,8 @@
 # ADR-0009: 서버 셸 접근은 SSM Session Manager로 하고, 셸 권한은 2인으로 제한한다
 
-- **상태**: 제안 (Proposed) — PR [#75](https://github.com/team-savers/savers-project/pull/75) 리뷰 지적에 따라 작성, PM·Backend/Infra 승인 대기
-- **날짜**: 2026-08-07
-- **결정자**: 신호정 (Tech Lead) 제안 / 김도혁 (Backend/Infra), 안은남 (PM) 승인 대기
+- **상태**: 승인 (Accepted) — PR [#75](https://github.com/team-savers/savers-project/pull/75) 리뷰 지적에 따라 작성, 2026-08-24 PM·Backend 승인. 승인 심사 중 김도혁 리뷰([PR #113](https://github.com/team-savers/savers-project/pull/113))로 정정(아래 「2026-08-24 정정」 참고)
+- **날짜**: 2026-08-07 / 2026-08-24 (승인 · 결정자 라벨 정정)
+- **결정자**: 신호정 (Tech Lead) 제안 / 김도혁 (Backend), 안은남 (PM) 승인
 - **관련 문서**: [ADR-0003](0003-single-vm-seoul.md) (단일 VM), [ADR-0008](0008-frontend-static-hosting.md) (프론트는 VM 밖), [서버_운영.md](../공통_가이드/서버_운영.md), [AWS_계정_발급_가이드.md](../공통_가이드/AWS_계정_발급_가이드.md), [배포_절차.md](../공통_가이드/배포_절차.md), 이슈 [#25](https://github.com/team-savers/savers-project/issues/25)
 
 ## 배경 (Context)
@@ -33,6 +33,17 @@
 ## 결정 (Decision)
 
 **셸 접근은 AWS Systems Manager Session Manager로만 하고, 셸 권한은 김도혁·신호정 2인으로 제한합니다.**
+
+> **정정 (2026-08-24, 승인과 동시 반영).** 이 PR은 애초 상태를 승인으로 전환하며 셸 권한 2인을
+> 「김도혁·신호정」에서 「안은남·김도혁」으로 바꾸는 안을 실었다 — 인프라를 인수한 PM(안은남)이
+> 명단에 없다는 것이 근거였다. [PR #113](https://github.com/team-savers/savers-project/pull/113) 리뷰에서
+> 김도혁이 두 가지를 지적했다.
+> ① 셸 접근 기준은 인프라 **소유**가 아니라 8/29 데모 배포·9/2 본선 서버를 **실제로 대응할 수 있는 사람**이어야
+> 하고, 그 기준으로는 배포·SSM 설정 경험이 이미 있는(2026-08-08 확인) 신호정을 빼면 비상 대응 인원이 1인으로
+> 줄어든다. ② 같은 정정본이 김도혁을 여전히 「Backend/Infra」로 표기해, "인프라가 PM으로 넘어갔다"는 교체
+> 근거와 스스로 모순된다.
+> 두 지적을 반영해 셸 권한 2인은 원안대로 「김도혁·신호정」을 유지하고, 김도혁의 라벨은 「Backend」로
+> 정정한다(인프라 소유는 PM 단독). 이하 본문·표의 「김도혁·신호정」·「Backend」 표기는 이 정정을 반영한 것이다.
 
 - **SSH 인바운드(22번)를 닫습니다.** 보안그룹에 남는 것은 80·443뿐입니다.
 - **`.pem` 키페어를 팀에 공유하지 않습니다.** 배포 담당자 외에는 인스턴스 키를 보유하지 않습니다.
@@ -143,14 +154,14 @@ IAM에서 권한은 Allow의 합집합이므로
 ⚠️ **생성과 부착은 서로 다른 사람 몫입니다.** `PowerUserAccess`는 IAM 조작을 막으므로
 (자기 권한을 스스로 올리지 못하게 하려는 것이라 이 제한 자체는 옳습니다),
 역할·정책을 **만드는** 작업은 계정 관리자만 할 수 있습니다.
-표를 소관별로 갈라 두지 않으면 Backend/Infra가 콘솔에서 `AccessDenied`를 만난 뒤에야 알게 됩니다.
+표를 소관별로 갈라 두지 않으면 Backend가 콘솔에서 `AccessDenied`를 만난 뒤에야 알게 됩니다.
 
 | 항목 | 소관 | 상태 |
 |---|---|---|
-| IAM 역할 `savers-ec2-ssm` **생성** | **계정 관리자(PM)** | ⬜ 미처리 — `PowerUserAccess`는 `iam:CreateRole`을 막습니다 |
-| 김도혁·신호정 IAM 사용자에 정책 **부여** | **계정 관리자(PM)** | ⬜ 미처리 — `iam:AttachUserPolicy` 불가 |
-| 인스턴스에 역할 **부착** (EC2 > IAM 역할 수정) | Backend/Infra | ⬜ 미처리 — 별도로 `iam:PassRole`이 필요합니다 |
-| **2인이 각자** SSM 접속 성공을 확인한 뒤 22번 인바운드 삭제 | Backend/Infra | ⬜ 미처리 |
+| IAM 역할 `savers-ec2-ssm` **생성** | **계정 관리자(PM)** | ✅ 완료 (2026-08-24) |
+| 김도혁·신호정 IAM 사용자에 정책 **부여** | **계정 관리자(PM)** | ✅ 완료 (2026-08-24) |
+| 인스턴스에 역할 **부착** (EC2 > IAM 역할 수정) | Backend | ⬜ 미처리 — 별도로 `iam:PassRole`이 필요합니다 |
+| **2인이 각자** SSM 접속 성공을 확인한 뒤 22번 인바운드 삭제 | Backend | ⬜ 미처리 |
 | [서버_운영.md](../공통_가이드/서버_운영.md)에 이 ADR 근거 표기 | Tech Lead | ✅ #75 |
 | [AWS_계정_발급_가이드.md](../공통_가이드/AWS_계정_발급_가이드.md) 작성 (PM 실행 절차) | Tech Lead | ✅ 이 PR |
 | [개인정보_체크리스트.md](../공통_가이드/개인정보_체크리스트.md) 접근통제 항목 연동 | QA/보안 | ✅ [PR #78](https://github.com/team-savers/savers-project/pull/78) — §2에 S6(셸 접근) 신설. 이 ADR이 제안 상태이고 위 IAM 3건이 미처리라 항목의 현재 결과는 PASS가 아니라 "검사되지 않음"으로 적었습니다 |
