@@ -111,6 +111,25 @@ FCM 으로 닿으려면 **보호자 기기가 이미 구독돼 있어야 한다.
 `/g/` 링크가 웹푸시로만 가므로, 최초 구독이 없는 세션은 소급 구독 경로도 함께 닫힌다.
 등록 토큰 링크를 보호자에게 어떻게 전달할지는 대리등록자의 절차이고 이 계약의 범위가 아니다.
 
+**최초 구독 UI 는 본선 범위 밖이다**(Tech Lead 판단, 2026-08-25).
+시연 경로는 데모 시드의 보호자 기기 1건으로 세우며,
+Backend 의 8/25 `registry.py` 편집(`Resident.devices` 를 역할 보유 구조로 바꾸는 작업)에 포함된다.
+`p001` 은 시드에 이미 보호자(김미영, 딸)를 갖고 있으므로 기기 한 건을 `role: guardian` 으로 함께 심으면 되고,
+자료구조를 어차피 손대는 편집이라 한계비용이 거의 없다.
+`p002` 는 `guardian` 이 `null` 이라 결정 8번대로 2단계에 들어가지 않으므로 시드에 손댈 것이 없다.
+
+**주의 - 심는 토큰은 실제 FCM 등록 토큰이어야 한다.**
+지금 시드의 `fcm_demo_device_p001` 은 가공값이고, `RecordingDispatcher` 아래에서는 문제가 없지만
+8/25 이후 실제 발송으로 바뀌면 접수 단계에서 실패해 `guardian_notified` 가 남지 않는다.
+그러면 그 세션은 분모에 든 채 분자를 못 채워 **M4 가 0퍼센트로 찍힌다.**
+취득 경로는 하나 있다 - 리허설(8/31 ~ 9/1) 때 보호자 폰으로 `/g/` 링크에 한 번 들어가
+`POST /v1/guardian/{token}/device` 로 구독해 두면 된다.
+그 등록은 세션이 아니라 보호자 레코드에 붙으므로(위 결정 4번) 본 시연의 첫 재난에서 그대로 쓰인다.
+갱신 경로가 첫 구독도 거부하지 않게 해 둔 것이 여기서 쓰인다.
+
+**최초 구독 UI 가 없으므로 실사용에서는 보호자가 대리등록 자리에 함께 있어야 2차 발송이 닿는다.**
+이 제약은 위 운영 전제와 같은 성질이며, 본선 이후 `/register` 구독 화면으로 해소한다.
+
 이 공백은 지표를 왜곡하지 않는다.
 그런 세션은 `followup_unreachable` 로 남아 분모 밖에 있으므로 M4 는 흔들리지 않고,
 별도 계상(`unreachable=Y`)이 정확히 이 운영 공백의 크기를 세는 숫자가 된다.
@@ -164,7 +183,7 @@ M4 가 폐루프 신뢰성이 아니라 **보호자 가입률 지표**가 되기
 | 계약 v0.7 (`role`, `/v1/guardian/{token}/device`, `pushEnabled`) | Tech Lead | 완료, 이 PR |
 | `Resident.devices` 를 역할별로 분리하고 1차 발송을 `ward` 로 한정. 실제 편집 지점 다섯 - `backend_core/models.py` 250행 `DeviceRegisterRequest` 와 `DeviceUnregisterRequest` 신설, `backend_core/registry.py` 36행 `Resident.devices`(지금 `list[str]` 이라 자료구조부터 바뀐다)와 70행 `register_device`, 76행 `unregister_device`, `api/routes/devices.py` 24행과 36행(해제 핸들러는 `DeviceUnregisterRequest` 를 받는다 - `role` 없음), `backend_core/pipeline.py` 231행 `skipped_no_device` 판정과 249행 `for token in resident.devices` (**231행을 함께 고치지 않으면 발송 0건 실행이 252행에서 `Delivery` 로 기록되어 M1 지연 표본에 섞인다.** 실제 발송이 없어 빠르기까지 하므로 p95 가 좋아지는 방향으로 오염된다), `tests/api/test_main.py` 122행 payload. **`pipeline.py` 를 빠뜨리면 계약이 `role` 을 나눠도 실제 발송은 전과 같이 전원에게 나간다.** `tests/api/test_cors.py` 는 본문 없는 OPTIONS 프리플라이트라 해당 없다 | Backend | 대기 (8/25 슬롯) |
 | `/g/` 랜딩의 구독과 해제. `api/types.ts` 의 `DeviceRegisterRequest`(+`DeviceUnregisterRequest`)와 `api/mock.ts` 에 `role` 추가 | AI/RAG/프론트엔드 | 대기 (8/28 보호자 화면 칸) |
-| **`/register` 완료 화면의 보호자 구독 - [역할_일정/03](../역할_일정/03-AI-RAG-프론트엔드.md)에 슬롯이 없다.** 8/28 칸은 "보호자 화면 + Q&A UI 7h"이고 그 견적은 이 계약 이전에 잡힌 것이며, `/register` 는 보호자 화면이 아니다. **최초 구독 경로가 이것뿐이므로 빠지면 첫 재난의 2차 발송이 닿지 않는다**(M4 직결). 슬롯 배정이 필요하다 | PM / Tech Lead | 대기 |
+| **`/register` 완료 화면의 보호자 구독 - 본선 후 과제로 내린다**(Tech Lead 판단, 2026-08-25). [역할_일정/03](../역할_일정/03-AI-RAG-프론트엔드.md)에 슬롯이 없고, 8/28 칸의 "보호자 화면 + Q&A UI 7h"는 이 계약 이전 견적이라 여기에 얹으면 조건부인 SHAP 이 아니라 P1 인 보호자 화면이 밀린다. 슬롯을 배정하지 **않기로** 정한 것이지 미결이 아니다. 시연 경로는 아래 문단의 시드로 세운다 | AI/RAG/프론트엔드 | 본선 후 |
 | 계약에 `followup_unreachable` 신설, 시스템 이벤트 4종 표기를 5종으로 (`SessionEvent` oneOf/discriminator, 세션당 1회 목록, `POST /v1/session/{token}/events`, `RecordedUserActionEvent`) | Tech Lead | 완료, 이 PR |
 | `GuardianEvidenceType` 에 `followup_unreachable` 추가, 열거 16종을 17종으로. 3질문 매핑표에는 넣지 않고 "어느 질문의 근거도 아닌 이벤트" 목록을 셋에서 넷으로 늘린다 - 이번 구간의 질문 셋이 폐루프 계측을 묻지 않기 때문이며, 검증기가 문장을 막는 것이 아니다. **두 스키마는 이 브랜치에 없고 보호자 Q&A 계약(PR 104)이 소유한다** - 이 브랜치는 건드리지 않는다 | Tech Lead (PR 104) | 완료 |
 | **머지 순서: 이 PR 이 PR 104 보다 먼저 간다.** 뒤집히면 main 에 `GuardianEvidenceType` 17종과 `SessionEvent` 16종이 잠시 공존하고, 존재하지 않는 이벤트를 가리키는 근거 타입이 생긴다 | Tech Lead | 대기 |
