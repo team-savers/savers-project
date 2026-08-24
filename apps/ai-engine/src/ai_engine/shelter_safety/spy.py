@@ -17,18 +17,43 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ai_engine.shelter_safety import schema
 
 if TYPE_CHECKING:
     import pandas as pd
+    from lightgbm import LGBMClassifier
 
 # 학습/스코어링 풀 내부에서만 쓰는 부기(bookkeeping) 컬럼 — 원본 데이터 스키마가
 # 아니라 이 파이프라인이 붙이는 임시 표시라 schema.py가 아니라 여기 둔다.
 _IS_SPY_COL = "_is_spy"
 
 Scorer = Callable[["pd.DataFrame", "pd.Series", "pd.DataFrame", int], Sequence[float]]
+
+
+@dataclass(frozen=True)
+class LightGBMReproducibilityConfig:
+    """Spy와 최종 LightGBM이 공유하는 결정론 설정."""
+
+    seed: int
+    n_jobs: int = 1
+    deterministic: bool = True
+    force_col_wise: bool = True
+
+
+def new_reproducible_lightgbm(seed: int, **model_params: Any) -> LGBMClassifier:
+    """모든 shelter PU/최종 모델에 동일한 LightGBM 결정론 설정을 적용한다."""
+    from lightgbm import LGBMClassifier
+
+    reproducibility = LightGBMReproducibilityConfig(seed)
+    return LGBMClassifier(
+        random_state=reproducibility.seed,
+        n_jobs=reproducibility.n_jobs,
+        deterministic=reproducibility.deterministic,
+        force_col_wise=reproducibility.force_col_wise,
+        **model_params,
+    )
 
 
 class NoSpiesError(ValueError):
@@ -101,9 +126,8 @@ def default_lightgbm_scorer(
     """`Scorer` 기본 구현. P(라벨=1일 확률)를 점수로 쓴다 — 스파이는 실제로는 P라
     이 확률이 높게 나오는 경향이 있고, 진짜 negative는 낮게 나오는 게 기법의 전제."""
     import numpy as np
-    from lightgbm import LGBMClassifier
 
-    model = LGBMClassifier(random_state=seed)
+    model = new_reproducible_lightgbm(seed, verbosity=-1)
     model.fit(x_train, y_train)
     # np.asarray(): lightgbm의 타입 스텁이 predict_proba를 list로 표기해 [:, 1] 2차원
     # 슬라이싱이 mypy에서 막힌다 — 실제 런타임 반환값(ndarray)에 맞게 명시적으로 배열화.
@@ -187,3 +211,49 @@ def confirm_reliable_negatives(
         non_spy[non_spy_scores >= threshold].drop(columns=[_IS_SPY_COL]).reset_index(drop=True)
     )
     return reliable_negative, held_out
+
+
+@dataclass(frozen=True)
+class ReliableNegativeSelection:
+    positive: pd.DataFrame
+    reliable_negative: pd.DataFrame
+    held_out: pd.DataFrame
+    threshold: float
+    counts: dict[str, int]
+
+
+def select_reliable_negatives(
+    positive: pd.DataFrame,
+    unlabeled: pd.DataFrame,
+    config: SpyPipelineConfig,
+    *,
+    feature_columns: Sequence[str],
+    scorer: Scorer = default_lightgbm_scorer,
+) -> ReliableNegativeSelection:
+    """P/U에서 spy 배정부터 RN 확정까지의 공통 5단계를 한 번만 정의한다."""
+    train_positive, spies = assign_spies(positive, config)
+    unlabeled_sample = build_unlabeled_pool(unlabeled, len(positive), config)
+    pool, scores = score_pool(
+        train_positive,
+        unlabeled_sample,
+        spies,
+        feature_columns=feature_columns,
+        scorer=scorer,
+        seed=config.seed,
+    )
+    threshold = compute_spy_threshold(pool, scores, config)
+    reliable_negative, held_out = confirm_reliable_negatives(pool, scores, threshold)
+    return ReliableNegativeSelection(
+        positive=positive,
+        reliable_negative=reliable_negative,
+        held_out=held_out,
+        threshold=threshold,
+        counts={
+            "positive": len(positive),
+            "unlabeled": len(unlabeled),
+            "spies": len(spies),
+            "unlabeled_subsampled": len(unlabeled_sample),
+            "reliable_negative": len(reliable_negative),
+            "held_out": len(held_out),
+        },
+    )
