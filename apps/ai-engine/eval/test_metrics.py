@@ -194,6 +194,8 @@ CITED_OPENED_NO_RESPONSE = [
 
 ANSWER_OPENED_NO_RESPONSE = "상황 확인 화면까지 보셨고, 아직 어느 쪽도 누르지 않으셨습니다."
 
+OPENED_AT = "2026-08-24T03:13:41Z"  # `situation_check_selected` in the log above
+
 # 같은 타입이 두 번 찍힌 로그 (ADR-0012 2절의 "여러 건" 규칙).
 # `choice_screen_viewed`는 계약이 「반복 가능」으로 분류한 행동이라 두 건이 정상이다.
 LOG_OPENED_TWICE = [
@@ -354,6 +356,48 @@ class TestGuardianViolations:
             metrics.guardian_violations(answer=None, evidence=[], events=LOG_OPENED_NO_RESPONSE)
             == []
         )
+
+    def test_a_sentence_beyond_the_citations_is_unsupported(self) -> None:
+        # The grounded half quotes the log correctly and the invented half rides along:
+        # 「현재 대피소로 이동 중입니다」 has no `sources` item and is not a phrase on the
+        # 3절 list, so nothing else in this module would catch it. ADR-0012 2절 row 4.
+        cited = [{"type": "situation_check_selected", "present": True, "at": OPENED_AT}]
+        answer = "12시 13분에 상황 확인 버튼을 누른 기록이 있습니다. 현재 대피소로 이동 중입니다."
+        assert metrics.guardian_violations(
+            answer=answer, evidence=cited, events=LOG_OPENED_NO_RESPONSE
+        ) == ["unsupported_claim"]
+
+    def test_saying_exactly_what_was_cited_stays_clean(self) -> None:
+        cited = [{"type": "situation_check_selected", "present": True, "at": OPENED_AT}]
+        assert (
+            metrics.guardian_violations(
+                answer="12시 13분에 상황 확인 버튼을 누른 기록이 있습니다.",
+                evidence=cited,
+                events=LOG_OPENED_NO_RESPONSE,
+            )
+            == []
+        )
+
+    def test_one_sentence_may_lean_on_several_citations(self) -> None:
+        # The count check must not punish a sentence that bundles four triplets — which is
+        # what the grounded fixture does — or every well-formed answer would be blocked.
+        assert len(metrics.sentences(ANSWER_OPENED_NO_RESPONSE)) < len(CITED_OPENED_NO_RESPONSE)
+        assert (
+            metrics.guardian_violations(
+                answer=ANSWER_OPENED_NO_RESPONSE,
+                evidence=CITED_OPENED_NO_RESPONSE,
+                events=LOG_OPENED_NO_RESPONSE,
+            )
+            == []
+        )
+
+    def test_every_uncited_sentence_gets_its_own_code(self) -> None:
+        # 사유별 집계 counts codes, so two invented sentences must not collapse into one.
+        cited = [{"type": "situation_check_selected", "present": True, "at": OPENED_AT}]
+        answer = "상황 확인 버튼을 누르셨습니다. 대피소로 이동 중입니다. 곧 도착하십니다."
+        assert metrics.guardian_violations(
+            answer=answer, evidence=cited, events=LOG_OPENED_NO_RESPONSE
+        ) == ["unsupported_claim", "unsupported_claim"]
 
     def test_forbidden_phrase_is_reported_even_with_no_citations(self) -> None:
         # ADR-0012 3절: 금지 표현은 대조 결과와 무관하게 차단한다. Returning only the

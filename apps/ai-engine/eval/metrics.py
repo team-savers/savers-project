@@ -411,6 +411,11 @@ def guardian_violations(
 ) -> list[str]:
     """Every ADR-0012 block reason for one guardian answer. Empty list = deliverable.
 
+    Three independent checks, because ADR-0012 blocks for three different reasons:
+    the citations are checked against the log (2절), the answer is checked for sentences
+    that no citation covers (2절 row 4), and the wording is checked for forbidden phrases
+    (3절). An answer passes only when all three hold.
+
     A refusal (`answer is None`) has nothing to check and yields no violations — it is the
     designed path, not a failure. Whether refusing *too often* is a problem is a different
     number (거절률), deliberately not folded in here: mixing them would let an engine that
@@ -419,24 +424,47 @@ def guardian_violations(
     if answer is None:
         return []
 
+    # ADR-0012 1절: 답변을 문장으로 쪼개고 각 문장을 삼중항으로 정규화한다. Sentences with
+    # no Hangul or digits claim nothing (see `support_ratio`) and are not counted.
+    claims = [sentence for sentence in sentences(answer) if bigrams(sentence)]
+
     # ADR-0012 3절: 금지 표현은 대조 결과와 *무관하게* 차단한다. It is computed before the
     # evidence branch for exactly that reason — an answer that cites nothing is still an
     # answer that said 「괜찮습니다」, and returning only the citation code would drop the
     # more serious reason from the 8/31 사유별 집계.
-    codes = ["forbidden_phrase" for _ in forbidden_phrase_hits(answer, forbidden)]
+    forbidden_codes = ["forbidden_phrase" for _ in forbidden_phrase_hits(answer, forbidden)]
 
     if not evidence:
         # The contract's invariant is `sources` empty -> `answer` null. An answer that
-        # arrives with no citations has already broken it: every claim it makes has no
-        # corresponding `sources` item, which is ADR-0012 2절 row 4.
+        # arrives with no citations has already broken it: every sentence it makes is a
+        # claim with no corresponding `sources` item, which is ADR-0012 2절 row 4. One code
+        # per claim, and at least one even for an answer that parses into no sentence at
+        # all — the invariant is broken by the answer existing.
         #
         # Not `no_evidence`: that is a `GuardianAskResponse.refusalReason` enum value
         # (openapi.yaml), what the API hands the guardian's screen, and ADR-0012 5절
         # assigns it to the refusal path. Block reasons are the closed set of six in 4절;
         # mixing the other field's enum into this list would split the 8/31 사유별 집계
         # across two vocabularies.
-        return ["unsupported_claim", *codes]
-    return evidence_mismatches(evidence, events) + codes
+        return ["unsupported_claim"] * max(len(claims), 1) + forbidden_codes
+
+    # ADR-0012 2절 row 4: 대응하는 `sources` 항목이 없는 주장은 통과할 수 없다.
+    #
+    # `evidence_mismatches` only grades the citations that *are* there; it cannot see a
+    # sentence that cited nothing. So an answer may quote the log correctly and then add
+    # 「현재 대피소로 이동 중입니다」 — grounded first half, invented second half — and
+    # score clean, which is precisely the failure M2 exists to count.
+    #
+    # The check is by count, and it is a *necessary* condition rather than a mapping: one
+    # sentence needs at least one triplet (1절), so more sentences than cited items proves
+    # by pigeonhole that some sentence has none. It deliberately does not try to decide
+    # *which* sentence maps to *which* item — that needs the claim extraction the verifier
+    # does, and reimplementing it here would make this file the verifier's mirror instead
+    # of its independent check. A sentence that cites the *wrong* item is caught by
+    # `evidence_mismatches`; a sentence that cites nothing is caught here.
+    uncited = max(len(claims) - len(evidence), 0)
+
+    return evidence_mismatches(evidence, events) + ["unsupported_claim"] * uncited + forbidden_codes
 
 
 def guardian_accuracy(case_violations: Sequence[Sequence[str]]) -> float | None:
