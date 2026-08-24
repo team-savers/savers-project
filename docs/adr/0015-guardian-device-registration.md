@@ -135,7 +135,8 @@ M4 가 폐루프 신뢰성이 아니라 **보호자 가입률 지표**가 되기
 | `Resident.devices` 를 역할별로 분리하고 1차 발송을 `ward` 로 한정 | Backend | 대기 (8/25 슬롯) |
 | `/register` 완료 화면의 보호자 구독, `/g/` 랜딩의 구독과 해제 | AI/RAG/프론트엔드 | 대기 |
 | 계약에 `followup_unreachable` 신설, 시스템 이벤트 4종 표기를 5종으로 (`SessionEvent` oneOf/discriminator, 세션당 1회 목록, `POST /v1/session/{token}/events`, `RecordedUserActionEvent`) | Tech Lead | 완료, 이 PR |
-| `GuardianEvidenceType` 과 `GuardianQuestionId` 3질문 매핑표에 `followup_unreachable` 반영(`evacuation_progress` 에 배분). **두 스키마는 이 브랜치에 없고 보호자 Q&A 계약(PR 104)이 소유하므로 그쪽에서 넣는다** - 이 브랜치는 건드리지 않는다 | Tech Lead (PR 104) | 확정 |
+| `GuardianEvidenceType` 에 `followup_unreachable` 추가, 열거 16종을 17종으로. 3질문 매핑표에는 넣지 않고 "어느 질문의 근거도 아닌 이벤트" 목록을 셋에서 넷으로 늘린다 - 이번 구간의 질문 셋이 폐루프 계측을 묻지 않기 때문이며, 검증기가 문장을 막는 것이 아니다. **두 스키마는 이 브랜치에 없고 보호자 Q&A 계약(PR 104)이 소유한다** - 이 브랜치는 건드리지 않는다 | Tech Lead (PR 104) | 완료 |
+| **머지 순서: 이 PR 이 PR 104 보다 먼저 간다.** 뒤집히면 main 에 `GuardianEvidenceType` 17종과 `SessionEvent` 16종이 잠시 공존하고, 존재하지 않는 이벤트를 가리키는 근거 타입이 생긴다 | Tech Lead | 대기 |
 | [ADR-0012](0012-verifier-rules-and-closed-loop.md) 7-a절에 분모 소속 고정 불변식, `followup_unreachable` 세션당 1회, 별도 계상 단위, 소급 발송 at-least-once. 종료 조건에 `guardian_notified` 1건 | Tech Lead | 완료 ([PR 120](https://github.com/team-savers/savers-project/pull/120), 제안) |
 | 등록 토큰의 TTL, 1인당 발급 매수, 분실 시 재발급이 계약에 "미정"으로 남아 있다(`DeviceRegisterRequest.registrationToken`). 보호자 기기가 이 토큰에 매이므로 2차 발송 신뢰성에 걸린다. 갱신 경로(`/g/`)가 있어 완전 차단은 아니다 | Tech Lead | 대기 |
 | [정량목표_검증설계.md](../공유_문서/정량목표_검증설계.md) M4 행에 분모 제외 조건과 그 보고 방식 | PM | 대기 |
