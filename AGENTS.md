@@ -92,9 +92,15 @@ The team's differentiation strategy is that quality is proven by **reproducible 
 - **보호자 응답 정확도** — **zero statements not grounded in the log.** Scored against a 40-case guardian golden set (30 recommended questions + 10 free-form "기타"). When in doubt the system must refuse: under-refusal (answering something absent from the log) breaks the metric directly, over-refusal only costs coverage.
 - **위치정보 무저장·무로깅 (coordinates are stored or logged nowhere)** — target is **zero points where a coordinate is written to a session, event log, DB, or file**. The proof is `scripts/check_privacy.py` scanning the tree for storage/logging sites — **the script is merged and wired into CI**, running as part of the [`e2e.yml`](.github/workflows/e2e.yml) end-to-end job and publishing a `privacy-check-report` artifact (details in [docs/공통_가이드/개인정보_체크리스트.md](docs/공통_가이드/개인정보_체크리스트.md) §4). Reworded twice: from 「위치정보 즉시 파기 준수율 100%」 to 「미수신」 on **2026-08-21** (`SessionStore` has no delete/purge method, so "purged" cannot be proven), then to 「무저장·무로깅」 on **2026-08-22** because `/v1/shelters/search` does receive `lat`/`lng`, so 「미수신」 was refutable from `openapi.yaml` alone. Decision record: [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) (**Proposed**, Tech Lead 승인 대기 — 검토 중 until accepted); working rationale in [docs/공유_문서/정량목표_검증설계.md](docs/공유_문서/정량목표_검증설계.md) §3.
 - **폐루프 2차 발송 성공률** — 100%. 30 minutes of no response must produce a guardian escalation that actually lands.
-  **The escalation goes out on the same web push (FCM) path as the first dispatch — there is no second-dispatch-only channel, and SMS is adopted for neither** (same channel, different recipient device: first dispatch to the ward's, escalation to the guardian's, split by a role value in the contract)
-  ([ADR-0014](docs/adr/0014-closed-loop-second-dispatch-channel.md) **Proposed** — 결정자 확인 대기, 검토 중 until accepted), and the metric is measured from that path's `guardian_notified` event.
-  기획서 2장 [그림 5]·5장의 「보호자 SMS(예정)」 is the stale wording that says otherwise; it is answered in the 정정 항목 표, not by adding a channel.
+  **The escalation goes out on the same web push (FCM) path as the first dispatch —
+  there is no second-dispatch-only channel, and SMS is adopted for neither**
+  (same channel, different recipient device: first dispatch to the ward's,
+  escalation to the guardian's, split by a role value in the contract)
+  ([ADR-0014](docs/adr/0014-closed-loop-second-dispatch-channel.md) **Proposed** —
+  결정자 확인 대기, 검토 중 until accepted),
+  and the metric is measured from that path's `guardian_notified` event.
+  기획서 2장 [그림 5]·5장의 「보호자 SMS(예정)」 is the stale wording that says otherwise;
+  it is answered in the 정정 항목 표, not by adding a channel.
 
 The shelter-suitability model is scored separately by the **3-fold validation** described above. Its third-stage (model) numbers are **not yet measured** — 기획서 [표3] currently carries target ranges quoted from comparable PU-learning studies, and they must be replaced with the team's own measurements before the finals. **If the model does not beat the rule-based second stage, that is recorded as a failure case** rather than dressed up; not packaging a rule-based result as a model is the line this team holds.
 
