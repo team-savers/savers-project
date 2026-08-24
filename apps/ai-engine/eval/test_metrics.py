@@ -394,18 +394,30 @@ class TestFollowupDeliveryRate:
         assert metrics.followup_delivery_rate([log]) == 0.0
 
     def test_sessions_that_never_re_entered_are_excluded(self) -> None:
-        answered = [
+        # ADR-0012 7절: 종결은 도착 확인이지 반응 1건이 아니다. A session that ended is
+        # one that reported it ended, so the excluded fixture must be a real 종결.
+        closed = [
             {"type": "alert_dispatched", "at": "2026-08-24T03:12:00Z"},
-            {"type": "direct_evacuation_selected", "at": "2026-08-24T03:14:02Z"},
+            {"type": "arrival_confirmed_by_user", "at": "2026-08-24T03:14:02Z"},
         ]
         due = [
             {"type": "followup_due", "at": "2026-08-24T03:42:07Z"},
             {"type": "guardian_notified", "at": "2026-08-24T03:42:09Z"},
         ]
-        assert metrics.followup_delivery_rate([answered, due]) == 1.0
+        assert metrics.followup_delivery_rate([closed, due]) == 1.0
+
+    def test_a_mid_flow_reaction_does_not_take_a_session_out(self) -> None:
+        # ADR-0012 7절 again, from the other side: 상황 확인만 누르고 멈춘 사람은 종결이
+        # 아니므로 타이머가 계속 돌고, 그 세션은 M4 분모에 남는다. Reading a single
+        # reaction as an exit would quietly shrink the denominator and inflate the rate.
+        reacted_then_stalled = [
+            {"type": "situation_check_selected", "at": "2026-08-24T03:13:41Z"},
+            {"type": "followup_due", "at": "2026-08-24T03:43:41Z"},
+        ]
+        assert metrics.followup_delivery_rate([reacted_then_stalled]) == 0.0
 
     def test_no_session_reached_the_timer_is_not_measurable(self) -> None:
-        answered = [{"type": "direct_evacuation_selected", "at": "2026-08-24T03:14:02Z"}]
+        answered = [{"type": "arrival_confirmed_by_user", "at": "2026-08-24T03:14:02Z"}]
         assert metrics.followup_delivery_rate([answered]) is None
 
     def test_mixed_offset_and_z_stamps_order_by_instant(self) -> None:
@@ -453,7 +465,7 @@ class TestFollowupDeliveryRate:
             {"type": "guardian_notified", "at": "2026-08-24T03:42:09Z"},
         ]
         missed = [{"type": "followup_due", "at": "2026-08-24T04:10:00Z"}]
-        answered = [{"type": "direct_evacuation_selected", "at": "2026-08-24T03:14:02Z"}]
+        answered = [{"type": "arrival_confirmed_by_user", "at": "2026-08-24T03:14:02Z"}]
         assert metrics.followup_delivery_rate([sent, missed, answered]) == 0.5
 
     def test_two_of_three_re_entered_sessions_sent(self) -> None:
