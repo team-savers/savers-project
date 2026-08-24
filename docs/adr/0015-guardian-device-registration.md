@@ -150,6 +150,14 @@ Backend 의 8/25 `registry.py` 편집(`Resident.devices` 를 역할 보유 구�
 그 폰을 본선까지 고정, 본선 당일 아침 갱신.
 이 목록은 PM 시연 대본과 Backend 현장 점검 항목으로도 간다.
 
+넷 중 **셋째만 성질이 다르다.** 나머지는 시점이 있는 동작이라 체크리스트가 잡지만,
+폰 고정은 리허설(8/31)부터 본선(9/2)까지 사흘짜리 지속 조건이고 깨져도 그 순간에는 신호가 없다.
+값싼 방어가 하나 있다 - **넷째를 누를 때 화면의 알림 상태(`GuardianStatus.pushEnabled`)가
+켜짐인지 눈으로 확인한다.** 그 화면이 이미 그 값을 갖고 있으므로 별도 도구가 필요 없고,
+셋째가 깨졌다면 그 자리에서 드러난다. 시연 대본 문구는 "갱신을 누른다"가 아니라
+"갱신을 누르고 알림 상태가 켜짐인지 확인한다"로 적는다.
+같은 내용이 [후속_과제.md](../공통_가이드/후속_과제.md) P1 15번에도 있다.
+
 **최초 구독 UI 가 없으므로 실사용에서는 보호자가 대리등록 자리에 함께 있어야 2차 발송이 닿는다.**
 이 제약은 위 운영 전제와 같은 성질이며, 본선 이후 `/register` 구독 화면으로 해소한다.
 
@@ -206,12 +214,12 @@ M4 가 폐루프 신뢰성이 아니라 **보호자 가입률 지표**가 되기
 | 계약 v0.7 (`role`, `/v1/guardian/{token}/device`, `pushEnabled`) | Tech Lead | 완료, 이 PR |
 | `Resident.devices` 를 역할별로 분리하고 1차 발송을 `ward` 로 한정. 실제 편집 지점 다섯 - `backend_core/models.py` 250행 `DeviceRegisterRequest` 와 `DeviceUnregisterRequest` 신설, `backend_core/registry.py` 36행 `Resident.devices`(지금 `list[str]` 이라 자료구조부터 바뀐다)와 70행 `register_device`, 76행 `unregister_device`, `api/routes/devices.py` 24행과 36행(해제 핸들러는 `DeviceUnregisterRequest` 를 받는다 - `role` 없음), `backend_core/pipeline.py` 231행 `skipped_no_device` 판정과 249행 `for token in resident.devices` (**231행을 함께 고치지 않으면 발송 0건 실행이 252행에서 `Delivery` 로 기록되어 M1 지연 표본에 섞인다.** 실제 발송이 없어 빠르기까지 하므로 p95 가 좋아지는 방향으로 오염된다), `tests/api/test_main.py` 122행 payload. **`pipeline.py` 를 빠뜨리면 계약이 `role` 을 나눠도 실제 발송은 전과 같이 전원에게 나간다.** `tests/api/test_cors.py` 는 본문 없는 OPTIONS 프리플라이트라 해당 없다 | Backend | 대기 (8/25 슬롯) |
 | `/g/` 랜딩의 구독과 해제. `api/types.ts` 의 `DeviceRegisterRequest`(+`DeviceUnregisterRequest`)와 `api/mock.ts` 에 `role` 추가 | AI/RAG/프론트엔드 | 대기 (8/28 보호자 화면 칸) |
-| **`/register` 완료 화면의 보호자 구독 - 본선 후 과제로 내린다**(Tech Lead 판단, 2026-08-25). [역할_일정/03](../역할_일정/03-AI-RAG-프론트엔드.md)에 슬롯이 없고, 8/28 칸의 "보호자 화면 + Q&A UI 7h"는 이 계약 이전 견적이라 여기에 얹으면 조건부인 SHAP 이 아니라 P1 인 보호자 화면이 밀린다. 슬롯을 배정하지 **않기로** 정한 것이지 미결이 아니다. 시연 경로는 아래 문단의 시드로 세운다 | AI/RAG/프론트엔드 | 본선 후 |
+| **`/register` 완료 화면의 보호자 구독 - 본선 후 과제로 내린다**(Tech Lead 판단, 2026-08-25). [역할_일정/03](../역할_일정/03-AI-RAG-프론트엔드.md)에 슬롯이 없고, 8/28 칸의 "보호자 화면 + Q&A UI 7h"는 이 계약 이전 견적이라 여기에 얹으면 조건부인 SHAP 이 아니라 P1 인 보호자 화면이 밀린다. 슬롯을 배정하지 **않기로** 정한 것이지 미결이 아니다. 시연 경로는 아래 문단의 시드로 세운다. [후속_과제.md](../공통_가이드/후속_과제.md) P1 15번에 등재([PR 126](https://github.com/team-savers/savers-project/pull/126)) | AI/RAG/프론트엔드 | 본선 후 |
 | 계약에 `followup_unreachable` 신설, 시스템 이벤트 4종 표기를 5종으로 (`SessionEvent` oneOf/discriminator, 세션당 1회 목록, `POST /v1/session/{token}/events`, `RecordedUserActionEvent`) | Tech Lead | 완료, 이 PR |
 | `GuardianEvidenceType` 에 `followup_unreachable` 추가, 열거 16종을 17종으로. 3질문 매핑표에는 넣지 않고 "어느 질문의 근거도 아닌 이벤트" 목록을 셋에서 넷으로 늘린다 - 이번 구간의 질문 셋이 폐루프 계측을 묻지 않기 때문이며, 검증기가 문장을 막는 것이 아니다. **두 스키마는 이 브랜치에 없고 보호자 Q&A 계약(PR 104)이 소유한다** - 이 브랜치는 건드리지 않는다 | Tech Lead (PR 104) | 완료 |
 | **머지 순서: 이 PR 이 PR 104 보다 먼저 간다.** 뒤집히면 main 에 `GuardianEvidenceType` 17종과 `SessionEvent` 16종이 잠시 공존하고, 존재하지 않는 이벤트를 가리키는 근거 타입이 생긴다 | Tech Lead | 대기 |
 | [ADR-0012](0012-verifier-rules-and-closed-loop.md) 7-a절에 **보호자가 없는 세션은 2단계에 들어가지 않는다**(위 결정 8번, 리뷰 반영으로 신설), 분모 소속 고정 불변식, `followup_unreachable` 세션당 1회, 별도 계상 단위, 소급 발송 at-least-once. 종료 조건에 `guardian_notified` 1건 | Tech Lead | 완료 ([PR 120](https://github.com/team-savers/savers-project/pull/120), 제안) |
-| 등록 토큰의 TTL, 1인당 발급 매수, 분실 시 재발급이 계약에 "미정"으로 남아 있다(`DeviceRegisterRequest.registrationToken`). 보호자 기기가 이 토큰에 매이므로 2차 발송 신뢰성에 걸린다. 갱신 경로(`/g/`)가 있어 완전 차단은 아니다 | Tech Lead | 대기 |
+| [후속_과제.md](../공통_가이드/후속_과제.md) 팀 결정 대기 행에 등재됨([PR 126](https://github.com/team-savers/savers-project/pull/126)). 등록 토큰의 TTL, 1인당 발급 매수, 분실 시 재발급이 계약에 "미정"으로 남아 있다(`DeviceRegisterRequest.registrationToken`). 보호자 기기가 이 토큰에 매이므로 2차 발송 신뢰성에 걸린다. 갱신 경로(`/g/`)가 있어 완전 차단은 아니다 | Tech Lead | 대기 |
 | [정량목표_검증설계.md](../공유_문서/정량목표_검증설계.md) M4 행에 분모 제외 조건과 그 보고 방식 | PM | 대기 |
 | [워킹_스켈레톤_설명.md](../공통_가이드/워킹_스켈레톤_설명.md) API 표에 새 경로 두 줄 | Tech Lead | 대기 |
 | 결정자 확인 후 상태를 승인으로 변경 | Tech Lead | 대기 |
