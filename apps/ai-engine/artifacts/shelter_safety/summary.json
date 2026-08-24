@@ -11,6 +11,11 @@
         "flood_baseline_expected_recall_at_top_20_percent": 0.2570739064856712,
         "fold": 1,
         "lift_over_flood_baseline": 3.889931940858953,
+        "model_top_20_boundary_expected_positive_hits": 0.0,
+        "model_top_20_boundary_tie_positive": 0,
+        "model_top_20_boundary_tie_size": 1,
+        "model_top_20_boundary_tie_slots": 1,
+        "model_top_20_fractional_tie_applied": false,
         "non_school_recall_at_top_20_percent": 1.0,
         "precision": 0.011229646266142616,
         "pu_counts": {
@@ -39,6 +44,11 @@
         "flood_baseline_expected_recall_at_top_20_percent": 0.2609018095520617,
         "fold": 2,
         "lift_over_flood_baseline": 2.4390924595586334,
+        "model_top_20_boundary_expected_positive_hits": 0.0,
+        "model_top_20_boundary_tie_positive": 0,
+        "model_top_20_boundary_tie_size": 148,
+        "model_top_20_boundary_tie_slots": 104,
+        "model_top_20_fractional_tie_applied": true,
         "non_school_recall_at_top_20_percent": 0.6363636363636364,
         "precision": 0.060897435897435896,
         "pu_counts": {
@@ -67,6 +77,11 @@
         "flood_baseline_expected_recall_at_top_20_percent": 0.2385132058287796,
         "fold": 3,
         "lift_over_flood_baseline": 1.5722399885446996,
+        "model_top_20_boundary_expected_positive_hits": 0.0,
+        "model_top_20_boundary_tie_positive": 0,
+        "model_top_20_boundary_tie_size": 1,
+        "model_top_20_boundary_tie_slots": 1,
+        "model_top_20_fractional_tie_applied": false,
         "non_school_recall_at_top_20_percent": 0.375,
         "precision": 0.00778688524590164,
         "pu_counts": {
@@ -106,10 +121,20 @@
     "min_lift_over_flood_baseline": 1.5722399885446996,
     "min_non_school_recall_at_top_20_percent": 0.375,
     "spatial_leakage_check": true,
+    "spatial_leakage_details": {
+      "checked_fold_count": 3,
+      "train_validation_overlap_count": 0,
+      "validation_groups": [
+        "11680",
+        "11740",
+        "11650"
+      ]
+    },
     "std_lift_over_flood_baseline": 0.9561534275316674,
     "std_non_school_recall_at_top_20_percent": 0.2562913609702617,
     "valid_lift_folds": 3,
-    "valid_non_school_recall_at_20_folds": 3
+    "valid_non_school_recall_at_20_folds": 3,
+    "valid_roc_auc_folds": 3
   },
   "data": {
     "columns": 46,
@@ -180,7 +205,7 @@
     "subsample_freq": 1,
     "top_fraction": 0.2
   },
-  "generated_at": "2026-08-24T00:43:41.158697+00:00",
+  "generated_at": "2026-08-24T01:59:11.896892+00:00",
   "lift_definition": {
     "baseline": "expected non-school Positive recall among top 20% ranked by ascending flood-depth grade; boundary ties use expected recall",
     "formula": "model recall@top20 / flood-depth baseline expected recall@top20",

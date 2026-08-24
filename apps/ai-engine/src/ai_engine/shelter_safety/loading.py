@@ -31,6 +31,37 @@ class UnparseableAreaError(ValueError):
     schema.py의 포맷 가정이 실제 데이터와 다르다는 신호."""
 
 
+def designated_shelter_keys(frame: pd.DataFrame, *, address_col: str, shelter_col: str) -> set[str]:
+    """지정 대피소 라벨을 가진 필지 키를 검증 후 반환한다."""
+    missing = {address_col, shelter_col} - set(frame.columns)
+    if missing:
+        raise ValueError(f"대피소 보존 필수 컬럼 누락: {sorted(missing)!r}")
+    if frame[address_col].isna().any():
+        raise ValueError(f"대피소 보존 필지 키에 결측이 있음: {address_col}")
+    shelter_values = frame[shelter_col]
+    if shelter_values.isna().any() or not shelter_values.isin([0, 1]).all():
+        raise ValueError(f"대피소 보존 기준은 결측 없는 0/1이어야 함: {shelter_col}")
+    return set(frame.loc[shelter_values.eq(1), address_col].astype(str))
+
+
+def assert_shelter_keys_preserved(
+    before: pd.DataFrame,
+    after: pd.DataFrame,
+    *,
+    address_col: str,
+    shelter_col: str,
+) -> None:
+    """대표행 선정이 지정 대피소 필지를 조용히 U로 바꾸지 않았는지 검사한다."""
+    lost_keys = designated_shelter_keys(
+        before, address_col=address_col, shelter_col=shelter_col
+    ) - designated_shelter_keys(after, address_col=address_col, shelter_col=shelter_col)
+    if lost_keys:
+        raise ValueError(
+            f"주건축물 선정에서 대피소 필지 {len(lost_keys)}건의 라벨이 탈락 "
+            f"(예: {sorted(lost_keys)[:5]}) - 라벨이 조용히 U로 흡수되므로 여기서 멈춘다"
+        )
+
+
 def _clean_area_values(area_series: pd.Series) -> pd.Series:
     """연면적 문자열에서 천단위 콤마와 흔한 단위 접미사(㎡/m²/m2)를 제거한다.
 
@@ -124,6 +155,15 @@ def select_primary_building(
     """
     import pandas as pd
 
+    required = {address_col, area_col}
+    if shelter_col is not None:
+        required.add(shelter_col)
+    missing = required - set(registry_df.columns)
+    if missing:
+        raise ValueError(f"주건축물 선정 필수 컬럼 누락: {sorted(missing)!r}")
+    if shelter_col is not None:
+        designated_shelter_keys(registry_df, address_col=address_col, shelter_col=shelter_col)
+
     working = registry_df.copy()
     original_na_count = working[area_col].isna().sum()
 
@@ -147,8 +187,6 @@ def select_primary_building(
     sort_columns = [area_col]
     ascending = [False]
     if shelter_col is not None:
-        if shelter_col not in working.columns:
-            raise ValueError(f"대피소 보존 기준 컬럼 누락: {shelter_col}")
         sort_columns.insert(0, shelter_col)
         ascending.insert(0, False)
     sorted_df = working.sort_values(sort_columns, ascending=ascending, na_position="last")

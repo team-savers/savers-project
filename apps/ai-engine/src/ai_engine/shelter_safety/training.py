@@ -35,12 +35,9 @@ class FinalModelConfig:
 
 
 def _new_model(config: FinalModelConfig) -> LGBMClassifier:
-    from lightgbm import LGBMClassifier
-
-    reproducibility = spy.LightGBMReproducibilityConfig(config.seed)
-    return LGBMClassifier(
+    return spy.new_reproducible_lightgbm(
+        config.seed,
         objective="binary",
-        random_state=reproducibility.seed,
         n_estimators=config.n_estimators,
         learning_rate=config.learning_rate,
         num_leaves=config.num_leaves,
@@ -49,9 +46,6 @@ def _new_model(config: FinalModelConfig) -> LGBMClassifier:
         subsample_freq=config.subsample_freq,
         colsample_bytree=config.colsample_bytree,
         reg_lambda=config.reg_lambda,
-        n_jobs=reproducibility.n_jobs,
-        deterministic=reproducibility.deterministic,
-        force_col_wise=reproducibility.force_col_wise,
         verbosity=-1,
     )
 
@@ -79,6 +73,32 @@ def _prepare_registry(path: str | Path) -> pd.DataFrame:
         address_col=schema.UNIFIED_REGISTRY_PK_COL,
         shelter_col=schema.UNIFIED_REGISTRY_IS_SHELTER_COL,
     )
+    loading.assert_shelter_keys_preserved(
+        registry,
+        primary,
+        address_col=schema.UNIFIED_REGISTRY_PK_COL,
+        shelter_col=schema.UNIFIED_REGISTRY_IS_SHELTER_COL,
+    )
+    safe_before = set(
+        registry.loc[
+            registry[schema.UNIFIED_REGISTRY_IS_SHELTER_COL].eq(1)
+            & registry[schema.UNIFIED_REGISTRY_GUBUN_COL].eq(schema.GUBUN_SAFE),
+            schema.UNIFIED_REGISTRY_PK_COL,
+        ].astype(str)
+    )
+    safe_after = set(
+        primary.loc[
+            primary[schema.UNIFIED_REGISTRY_IS_SHELTER_COL].eq(1)
+            & primary[schema.UNIFIED_REGISTRY_GUBUN_COL].eq(schema.GUBUN_SAFE),
+            schema.UNIFIED_REGISTRY_PK_COL,
+        ].astype(str)
+    )
+    lost_safe = safe_before - safe_after
+    if lost_safe:
+        raise ValueError(
+            f"주건축물 선정에서 안전 Positive 필지 {len(lost_safe)}건이 탈락 "
+            f"(예: {sorted(lost_safe)[:5]})"
+        )
     numeric = primary[list(schema.UNIFIED_REGISTRY_FEATURE_COLUMNS)]
     if np.isinf(numeric.to_numpy(dtype=float)).any():
         raise ValueError("학습 피처에 inf/-inf 값이 있음")
@@ -99,26 +119,18 @@ def _select_reliable_negatives(
     frame: pd.DataFrame, pu_config: spy.SpyPipelineConfig
 ) -> tuple[pd.DataFrame, pd.DataFrame, float, dict[str, int]]:
     positive, unlabeled = _split_positive_unlabeled(frame)
-    train_positive, spies = spy.assign_spies(positive, pu_config)
-    unlabeled_sample = spy.build_unlabeled_pool(unlabeled, len(positive), pu_config)
-    pool, scores = spy.score_pool(
-        train_positive,
-        unlabeled_sample,
-        spies,
+    selection = spy.select_reliable_negatives(
+        positive,
+        unlabeled,
+        pu_config,
         feature_columns=schema.UNIFIED_REGISTRY_FEATURE_COLUMNS,
-        seed=pu_config.seed,
     )
-    threshold = spy.compute_spy_threshold(pool, scores, pu_config)
-    reliable_negative, held_out = spy.confirm_reliable_negatives(pool, scores, threshold)
-    counts = {
-        "positive": len(positive),
-        "unlabeled": len(unlabeled),
-        "spies": len(spies),
-        "unlabeled_subsampled": len(unlabeled_sample),
-        "reliable_negative": len(reliable_negative),
-        "held_out": len(held_out),
-    }
-    return positive, reliable_negative, threshold, counts
+    return (
+        selection.positive,
+        selection.reliable_negative,
+        selection.threshold,
+        selection.counts,
+    )
 
 
 def _fit_final_model(
@@ -139,20 +151,14 @@ def _fit_final_model(
 
 
 def recall_at_top_fraction(labels_: pd.Series, scores: pd.Series, *, fraction: float) -> float:
-    import numpy as np
-
-    positives = int(labels_.sum())
-    if positives == 0:
-        raise ValueError("recall@top 계산 대상에 Positive가 없음")
-    k = max(1, int(np.ceil(len(scores) * fraction)))
-    selected = scores.sort_values(ascending=False, kind="mergesort").head(k).index
-    return float(labels_.loc[selected].sum() / positives)
+    """경계 동점군을 기대 hit로 배분하는 label-independent recall@top."""
+    return expected_tied_recall_at_top_fraction(labels_, scores, fraction=fraction)
 
 
 def expected_tied_recall_at_top_fraction(
     labels_: pd.Series, scores: pd.Series, *, fraction: float
 ) -> float:
-    """동점이 많은 침수심 baseline의 경계 동점은 기대 recall로 계산한다."""
+    """top-k 경계 동점군의 남은 slot 비율만큼 Positive 기대 hit를 계산한다."""
     import numpy as np
     import pandas as pd
 
@@ -173,6 +179,35 @@ def expected_tied_recall_at_top_fraction(
     return expected_hits / positives
 
 
+def _top_fraction_tie_diagnostics(
+    labels_: pd.Series, scores: pd.Series, *, fraction: float
+) -> dict[str, int | float | bool]:
+    import numpy as np
+
+    if scores.empty:
+        return {
+            "model_top_20_boundary_tie_size": 0,
+            "model_top_20_boundary_tie_slots": 0,
+            "model_top_20_boundary_tie_positive": 0,
+            "model_top_20_boundary_expected_positive_hits": 0.0,
+            "model_top_20_fractional_tie_applied": False,
+        }
+    k = max(1, int(np.ceil(len(scores) * fraction)))
+    ordered = scores.sort_values(ascending=False, kind="mergesort")
+    boundary_score = ordered.iloc[k - 1]
+    above_count = int(scores.gt(boundary_score).sum())
+    tie_size = int(scores.eq(boundary_score).sum())
+    boundary_slots = k - above_count
+    tie_positive = int(labels_.loc[scores.eq(boundary_score)].sum())
+    return {
+        "model_top_20_boundary_tie_size": tie_size,
+        "model_top_20_boundary_tie_slots": boundary_slots,
+        "model_top_20_boundary_tie_positive": tie_positive,
+        "model_top_20_boundary_expected_positive_hits": (tie_positive * boundary_slots / tie_size),
+        "model_top_20_fractional_tie_applied": tie_size > boundary_slots,
+    }
+
+
 def _distribution_summary(values: list[float], metric_name: str) -> dict[str, float | None]:
     import numpy as np
 
@@ -187,6 +222,21 @@ def _distribution_summary(values: list[float], metric_name: str) -> dict[str, fl
         f"min_{metric_name}": min(values),
         f"max_{metric_name}": max(values),
     }
+
+
+def _aggregate_fold_metrics(
+    folds: list[dict[str, Any]], metric_keys: tuple[str, ...]
+) -> tuple[dict[str, list[float]], dict[str, float | None]]:
+    import numpy as np
+
+    values_by_metric = {
+        key: [float(fold[key]) for fold in folds if fold[key] is not None] for key in metric_keys
+    }
+    means = {
+        f"mean_{key}": float(np.mean(values)) if values else None
+        for key, values in values_by_metric.items()
+    }
+    return values_by_metric, means
 
 
 def _evaluate_fold(
@@ -229,6 +279,9 @@ def _evaluate_fold(
     flood_depth = evaluation.loc[non_school_mask, schema.UNIFIED_REGISTRY_FLOOD_BASELINE_COL]
     baseline_scores = -flood_depth.fillna(np.inf)
     non_school_positive = int(non_school_labels.sum())
+    tie_diagnostics = _top_fraction_tie_diagnostics(
+        non_school_labels, non_school_scores, fraction=model_config.top_fraction
+    )
     if non_school_positive > 0:
         model_recall_top = recall_at_top_fraction(
             non_school_labels, non_school_scores, fraction=model_config.top_fraction
@@ -241,6 +294,12 @@ def _evaluate_fold(
         model_recall_top = None
         baseline_recall_top = None
         lift = None
+
+    roc_auc = (
+        float(roc_auc_score(labels_observed, probabilities))
+        if labels_observed.nunique() == 2
+        else None
+    )
 
     return {
         "fold": fold,
@@ -255,10 +314,11 @@ def _evaluate_fold(
         "recall": float(recall_score(labels_observed, predicted, zero_division=0)),
         "precision": float(precision_score(labels_observed, predicted, zero_division=0)),
         "f1": float(f1_score(labels_observed, predicted, zero_division=0)),
-        "roc_auc": float(roc_auc_score(labels_observed, probabilities)),
+        "roc_auc": roc_auc,
         "non_school_recall_at_top_20_percent": model_recall_top,
         "flood_baseline_expected_recall_at_top_20_percent": baseline_recall_top,
         "lift_over_flood_baseline": lift,
+        **tie_diagnostics,
     }
 
 
@@ -268,7 +328,6 @@ def train_and_evaluate(
     pu_config: spy.SpyPipelineConfig | None = None,
     model_config: FinalModelConfig | None = None,
 ) -> tuple[LGBMClassifier, dict[str, Any]]:
-    import numpy as np
     from sklearn.model_selection import GroupKFold
 
     pu_config = pu_config or spy.SpyPipelineConfig()
@@ -327,13 +386,7 @@ def train_and_evaluate(
         "flood_baseline_expected_recall_at_top_20_percent",
         "lift_over_flood_baseline",
     )
-    metric_values = {
-        key: [float(fold[key]) for fold in folds if fold[key] is not None] for key in metric_keys
-    }
-    means = {
-        f"mean_{key}": float(np.mean(values)) if values else None
-        for key, values in metric_values.items()
-    }
+    metric_values, means = _aggregate_fold_metrics(folds, metric_keys)
     distribution_keys = (
         "non_school_recall_at_top_20_percent",
         "lift_over_flood_baseline",
@@ -386,6 +439,14 @@ def train_and_evaluate(
             "group_column": schema.UNIFIED_REGISTRY_DISTRICT_COL,
             "folds": 3,
             "spatial_leakage_check": all(group_isolation_checks) and len(folds) == 3,
+            "spatial_leakage_details": {
+                "checked_fold_count": len(group_isolation_checks),
+                "train_validation_overlap_count": sum(
+                    not passed for passed in group_isolation_checks
+                ),
+                "validation_groups": [fold["validation_group"] for fold in folds],
+            },
+            "valid_roc_auc_folds": len(metric_values["roc_auc"]),
             "valid_non_school_recall_at_20_folds": len(
                 metric_values["non_school_recall_at_top_20_percent"]
             ),

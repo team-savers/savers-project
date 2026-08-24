@@ -47,16 +47,31 @@ def test_baseline_recall_uses_expected_hits_at_boundary_tie() -> None:
     )
 
 
+def test_model_recall_boundary_tie_is_independent_of_label_order() -> None:
+    scores = pd.Series([0.8, 0.8, 0.8, 0.8])
+    positive_first = pd.Series([1, 1, 0, 0])
+    negative_first = pd.Series([0, 0, 1, 1])
+
+    assert recall_at_top_fraction(positive_first, scores, fraction=0.5) == pytest.approx(0.5)
+    assert recall_at_top_fraction(negative_first, scores, fraction=0.5) == pytest.approx(0.5)
+
+
 def _write_synthetic_registry(
-    path: Path, *, non_school_positive_districts: set[str] | None = None
+    path: Path,
+    *,
+    non_school_positive_districts: set[str] | None = None,
+    safe_positive_districts: set[str] | None = None,
 ) -> None:
     rows = []
     district_markers = {"10001": 101.0, "10002": 202.0, "10003": 303.0}
     if non_school_positive_districts is None:
         non_school_positive_districts = set(district_markers)
+    if safe_positive_districts is None:
+        safe_positive_districts = set(district_markers)
     row_number = 0
     for district, marker in district_markers.items():
-        for kind, count in (("safe", 6), ("urgent", 2), ("unlabeled", 30)):
+        safe_count = 6 if district in safe_positive_districts else 0
+        for kind, count in (("safe", safe_count), ("urgent", 2), ("unlabeled", 30)):
             for local_index in range(count):
                 row_number += 1
                 is_shelter = int(kind != "unlabeled")
@@ -168,6 +183,12 @@ def test_train_and_evaluate_isolates_every_validation_district(
     assert summary["features"]["count"] == 13
     assert summary["cv"]["folds"] == 3
     assert summary["cv"]["spatial_leakage_check"] is True
+    assert summary["cv"]["spatial_leakage_details"] == {
+        "checked_fold_count": 3,
+        "train_validation_overlap_count": 0,
+        "validation_groups": [fold["validation_group"] for fold in folds],
+    }
+    assert summary["cv"]["valid_roc_auc_folds"] == 3
     assert summary["cv"]["valid_non_school_recall_at_20_folds"] == 3
     assert summary["cv"]["valid_lift_folds"] == 3
     for field in (
@@ -210,6 +231,33 @@ def test_fold_without_non_school_positive_keeps_other_metrics(tmp_path: Path) ->
     assert folds["10001"]["non_school_recall_at_top_20_percent"] is not None
     assert folds["10002"]["non_school_recall_at_top_20_percent"] is not None
     assert summary["cv"]["valid_non_school_recall_at_20_folds"] == 2
+
+
+def test_fold_without_safe_positive_has_only_roc_auc_undefined(tmp_path: Path) -> None:
+    csv_path = tmp_path / "one_zero_positive_district.csv"
+    _write_synthetic_registry(csv_path, safe_positive_districts={"10001", "10002"})
+
+    _, summary = train_and_evaluate(csv_path, model_config=_small_model_config())
+
+    folds = {fold["validation_group"]: fold for fold in summary["cv"]["fold_metrics"]}
+    undefined = folds["10003"]
+    assert undefined["validation_positive"] == 0
+    assert undefined["roc_auc"] is None
+    assert undefined["recall"] is not None
+    assert undefined["precision"] is not None
+    assert undefined["f1"] is not None
+    assert folds["10001"]["roc_auc"] is not None
+    assert folds["10002"]["roc_auc"] is not None
+    assert summary["cv"]["valid_roc_auc_folds"] == 2
+
+
+def test_all_undefined_roc_auc_aggregate_is_null() -> None:
+    folds = [{"roc_auc": None}, {"roc_auc": None}, {"roc_auc": None}]
+
+    values, means = training._aggregate_fold_metrics(folds, ("roc_auc",))
+
+    assert values["roc_auc"] == []
+    assert means["mean_roc_auc"] is None
 
 
 def test_all_undefined_non_school_metrics_have_null_aggregates(tmp_path: Path) -> None:
@@ -269,3 +317,48 @@ def test_spatial_leakage_check_fails_on_overlapping_groups(
 
     with pytest.raises(ValueError, match="train/validation 자치구가 겹침"):
         train_and_evaluate(csv_path, model_config=_small_model_config())
+
+
+def test_final_training_path_preserves_small_shelter_over_larger_non_shelter(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "duplicate_shelter.csv"
+    _write_synthetic_registry(csv_path)
+    frame = pd.read_csv(csv_path, encoding="utf-8-sig")
+    shelter = frame.iloc[0].copy()
+    shelter[schema.UNIFIED_REGISTRY_PK_COL] = "duplicate_safe"
+    shelter[schema.UNIFIED_REGISTRY_TOTAL_FLOOR_AREA_COL] = 60.0
+    non_shelter = shelter.copy()
+    non_shelter[schema.UNIFIED_REGISTRY_IS_SHELTER_COL] = 0
+    non_shelter[schema.UNIFIED_REGISTRY_GUBUN_COL] = None
+    non_shelter[schema.UNIFIED_REGISTRY_SHELTER_FACILITY_TYPE_COL] = None
+    non_shelter[schema.UNIFIED_REGISTRY_TOTAL_FLOOR_AREA_COL] = 9998.0
+    pd.concat([frame, pd.DataFrame([shelter, non_shelter])], ignore_index=True).to_csv(
+        csv_path, index=False, encoding="utf-8-sig"
+    )
+
+    prepared = training._prepare_registry(csv_path)
+    preserved = prepared[prepared[schema.UNIFIED_REGISTRY_PK_COL].eq("duplicate_safe")]
+    assert len(preserved) == 1
+    assert preserved.iloc[0][schema.UNIFIED_REGISTRY_IS_SHELTER_COL] == 1
+    assert preserved.iloc[0][schema.UNIFIED_REGISTRY_TOTAL_FLOOR_AREA_COL] == 60.0
+
+
+def test_final_training_path_fails_if_safe_positive_is_lost_to_urgent_row(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "safe_urgent_duplicate.csv"
+    _write_synthetic_registry(csv_path)
+    frame = pd.read_csv(csv_path, encoding="utf-8-sig")
+    safe = frame.iloc[0].copy()
+    safe[schema.UNIFIED_REGISTRY_PK_COL] = "mixed_shelter"
+    safe[schema.UNIFIED_REGISTRY_TOTAL_FLOOR_AREA_COL] = 60.0
+    urgent = safe.copy()
+    urgent[schema.UNIFIED_REGISTRY_GUBUN_COL] = schema.GUBUN_URGENT
+    urgent[schema.UNIFIED_REGISTRY_TOTAL_FLOOR_AREA_COL] = 9998.0
+    pd.concat([frame, pd.DataFrame([safe, urgent])], ignore_index=True).to_csv(
+        csv_path, index=False, encoding="utf-8-sig"
+    )
+
+    with pytest.raises(ValueError, match="안전 Positive 필지"):
+        training._prepare_registry(csv_path)
