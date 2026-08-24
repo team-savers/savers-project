@@ -204,6 +204,60 @@ def test_select_primary_building_on_already_deduped_unified_registry_is_idempote
     assert set(twice[schema.UNIFIED_REGISTRY_PK_COL]) == set(once[schema.UNIFIED_REGISTRY_PK_COL])
 
 
+def test_shelter_column_is_required_even_without_duplicate_keys() -> None:
+    frame = pd.DataFrame(
+        {
+            schema.UNIFIED_REGISTRY_PK_COL: ["unique_1"],
+            schema.UNIFIED_REGISTRY_TOTAL_FLOOR_AREA_COL: [100.0],
+        }
+    )
+
+    with pytest.raises(ValueError, match="주건축물 선정 필수 컬럼 누락"):
+        loading.select_primary_building(
+            frame,
+            area_col=schema.UNIFIED_REGISTRY_TOTAL_FLOOR_AREA_COL,
+            address_col=schema.UNIFIED_REGISTRY_PK_COL,
+            shelter_col=schema.UNIFIED_REGISTRY_IS_SHELTER_COL,
+        )
+
+
+def test_valid_shelter_column_without_duplicate_keys_passes() -> None:
+    frame = pd.DataFrame(
+        {
+            schema.UNIFIED_REGISTRY_PK_COL: ["unique_1"],
+            schema.UNIFIED_REGISTRY_TOTAL_FLOOR_AREA_COL: [100.0],
+            schema.UNIFIED_REGISTRY_IS_SHELTER_COL: [1],
+        }
+    )
+
+    selected = loading.select_primary_building(
+        frame,
+        area_col=schema.UNIFIED_REGISTRY_TOTAL_FLOOR_AREA_COL,
+        address_col=schema.UNIFIED_REGISTRY_PK_COL,
+        shelter_col=schema.UNIFIED_REGISTRY_IS_SHELTER_COL,
+    )
+
+    assert len(selected) == 1
+
+
+def test_invalid_shelter_value_without_duplicate_keys_fails() -> None:
+    frame = pd.DataFrame(
+        {
+            schema.UNIFIED_REGISTRY_PK_COL: ["unique_1"],
+            schema.UNIFIED_REGISTRY_TOTAL_FLOOR_AREA_COL: [100.0],
+            schema.UNIFIED_REGISTRY_IS_SHELTER_COL: [2],
+        }
+    )
+
+    with pytest.raises(ValueError, match="결측 없는 0/1"):
+        loading.select_primary_building(
+            frame,
+            area_col=schema.UNIFIED_REGISTRY_TOTAL_FLOOR_AREA_COL,
+            address_col=schema.UNIFIED_REGISTRY_PK_COL,
+            shelter_col=schema.UNIFIED_REGISTRY_IS_SHELTER_COL,
+        )
+
+
 def test_select_primary_building_does_not_raise_on_preexisting_missing_area() -> None:
     """원래부터 결측(NaN)이던 연면적은 "새로 생긴 파싱 실패"가 아니므로 에러
     대상이 아니다 — 결측이 아닌 행(다른 주소) 중 최대값이 정상적으로 선택된다."""
