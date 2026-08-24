@@ -240,15 +240,22 @@ def run_alert(
         link = deep_link(public_base_url, session.token, stage)
         notified = 0
         for token in resident.devices:
-            accepted = dispatcher.send(
-                PushPayload(
-                    device_token=token,
-                    title=message.title,
-                    # Verbatim. No slot substitution layer exists (ADR-0005/0006).
-                    body=message.body,
-                    link=link,
-                )
+            payload = PushPayload(
+                device_token=token,
+                title=message.title,
+                # Verbatim. No slot substitution layer exists (ADR-0005/0006).
+                body=message.body,
+                link=link,
             )
+            try:
+                accepted = dispatcher.send(payload)
+            except Exception:
+                # The Dispatcher contract signals failure with False; this guard is for an
+                # adapter that raises instead (real FCM: network error, bad token). One
+                # recipient's failure must never silence everyone still waiting — the same
+                # no-silent-stop principle as the offline fallbacks. Treated as not accepted:
+                # no `push_accepted`, and the absence itself is the recorded fact.
+                accepted = False
             if accepted:
                 if notified == 0:
                     # First device the push service accepted. Recorded once — no device or an

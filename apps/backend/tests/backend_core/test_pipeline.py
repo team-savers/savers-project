@@ -9,7 +9,7 @@ from typing import get_args
 
 from conftest import GROUNDED_BODY, FakeAiEngine
 
-from backend_core.dispatch import RecordingDispatcher
+from backend_core.dispatch import PushPayload, RecordingDispatcher
 from backend_core.fallback import OFFICIAL_FALLBACK_BODY
 from backend_core.models import Availability, DisasterEvent, ServiceMode, ShelterList
 from backend_core.pipeline import AlertRun, build_context, percentile, run_alert, severity_for
@@ -418,3 +418,47 @@ def test_availability_maps_to_service_mode(
         )
         context = build_context(event, resident.profile, shelters)
         assert context.service_mode == mode, f"{availability} -> {mode} 여야 한다"
+
+
+class _RaiseOnFirstSendDispatcher:
+    """실어댑터가 계약(False 반환) 대신 예외를 던지는 상황의 재현용 — 첫 발송만 터진다."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def send(self, payload: PushPayload) -> bool:
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("simulated FCM adapter failure")
+        return True
+
+
+def test_one_raising_send_does_not_stop_the_run(
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+) -> None:
+    """발송 어댑터가 예외를 던져도 나머지 수신자는 계속 받는다 — 한 명의 실패가 전체를 멈추지 않는다.
+
+    터진 세션은 push_accepted 없이 alert_dispatched만 남고, 그 부재 자체가 기록된 사실이다.
+    """
+    flaky = _RaiseOnFirstSendDispatcher()
+    run = run_alert(
+        event,
+        registry=registry,
+        sessions=sessions,
+        ai=ai,
+        dispatcher=flaky,
+        shelters=shelter_repository,
+        public_base_url=BASE_URL,
+    )
+
+    assert flaky.calls == 2, "첫 발송이 터져도 두 번째 수신자 발송까지 진행돼야 한다"
+    assert len(run.deliveries) == 2
+    event_types = sorted(
+        tuple(e.type for e in sessions.events_of(sessions.get(d.session_token)))
+        for d in run.deliveries
+    )
+    assert event_types == [("alert_dispatched",), ("alert_dispatched", "push_accepted")]

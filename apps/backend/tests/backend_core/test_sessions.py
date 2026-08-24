@@ -1,5 +1,7 @@
 """Session lifetime, and the privacy properties that live in this layer."""
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import fields
 from datetime import UTC, datetime, timedelta
 
@@ -213,6 +215,47 @@ def test_system_event_is_deduped_keeping_the_first_at(
     assert len(record.events) == 1
     assert again is first
     assert again.at == first.at
+
+
+def test_once_per_session_holds_under_concurrent_requests(
+    sessions: SessionStore, event: DisasterEvent
+) -> None:
+    """거의 동시에 들어온 연타, 재시도가 확인과 기록 사이에 끼어들어도 세션당 1건이 유지된다.
+
+    FastAPI는 동기 라우터를 스레드풀에서 돌리므로 이 경쟁은 실제로 가능하다. 다만 GIL이
+    마이크로초 임계 구간을 대부분 가려 결함의 결정적 재현은 아니며, 이 테스트의 역할은
+    락이 지워지는 회귀를 막는 불변식 고정이다.
+    """
+    record = _create(sessions, event)
+    barrier = threading.Barrier(16)
+
+    def tap(i: int) -> None:
+        barrier.wait()  # 16개 요청을 같은 순간에 몰아넣는다
+        sessions.append_user_event(
+            record, key=f"evt_race_{i:016d}", create=_user_event("arrival_confirmed_by_user")
+        )
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        list(pool.map(tap, range(16)))
+
+    assert len([e for e in record.events if e.type == "arrival_confirmed_by_user"]) == 1
+
+
+def test_system_event_dedup_holds_under_concurrent_writes(
+    sessions: SessionStore, event: DisasterEvent
+) -> None:
+    """시스템 이벤트도 동시 기록 경쟁에서 최초 1건만 남는다 — M4 분모가 중복으로 부풀지 않는다."""
+    record = _create(sessions, event)
+    barrier = threading.Barrier(16)
+
+    def fire(_: int) -> None:
+        barrier.wait()
+        sessions.append_system_event(record, "followup_due")
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        list(pool.map(fire, range(16)))
+
+    assert len([e for e in record.events if e.type == "followup_due"]) == 1
 
 
 def test_events_of_sorts_ascending_by_at(sessions: SessionStore, event: DisasterEvent) -> None:

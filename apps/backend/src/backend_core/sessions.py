@@ -16,6 +16,7 @@ live links; the replacement (Redis/DB) is Backend's S1-2 work.
 from __future__ import annotations
 
 import secrets
+import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
@@ -91,6 +92,12 @@ class SessionStore:
         self._ttl = timedelta(seconds=ttl_s)
         self._by_token: dict[str, SessionRecord] = {}
         self._by_guardian_token: dict[str, SessionRecord] = {}
+        # FastAPI runs sync routes on a threadpool, so two near-simultaneous requests can
+        # interleave between a "does it exist?" check and its write. Every first-write-wins
+        # mutation below (idempotency, once-per-session, first-open) runs under this lock;
+        # the in-memory ops are microseconds, so contention is negligible. The SQLite stage
+        # replaces this with a DB UNIQUE(token, idem_key) constraint (설계 문서 2단계).
+        self._lock = threading.Lock()
 
     def create(
         self,
@@ -141,8 +148,10 @@ class SessionStore:
 
     def mark_opened(self, record: SessionRecord, *, now: datetime | None = None) -> None:
         """First read wins — `openedAt` means "when it was first seen", not "last seen"."""
-        if record.opened_at is None:
-            record.opened_at = now or _now()
+        # Same check-then-act shape as the event dedup above, so it takes the same lock.
+        with self._lock:
+            if record.opened_at is None:
+                record.opened_at = now or _now()
 
     def record_response(
         self, record: SessionRecord, choice: ResponseChoice, *, now: datetime | None = None
@@ -177,34 +186,36 @@ class SessionStore:
             request's, so a later retry of that key is judged a retry in (a).
         (c) Otherwise append, record the key, and return the new event.
         """
-        existing = record.idempotency.get(key)
-        if existing is not None:
-            if existing.type == create.type and existing.payload == create.payload:
-                return existing
-            raise IdempotencyKeyConflictError(key)
+        with self._lock:
+            existing = record.idempotency.get(key)
+            if existing is not None:
+                if existing.type == create.type and existing.payload == create.payload:
+                    return existing
+                raise IdempotencyKeyConflictError(key)
 
-        if create.type in ONCE_PER_SESSION:
-            for event in record.events:
-                if event.type == create.type:
-                    record.idempotency[key] = event
-                    return event
+            if create.type in ONCE_PER_SESSION:
+                for event in record.events:
+                    if event.type == create.type:
+                        record.idempotency[key] = event
+                        return event
 
-        event = SessionEvent(type=create.type, at=now or _now(), payload=create.payload)
-        record.events.append(event)
-        record.idempotency[key] = event
-        return event
+            event = SessionEvent(type=create.type, at=now or _now(), payload=create.payload)
+            record.events.append(event)
+            record.idempotency[key] = event
+            return event
 
     def append_system_event(
         self, record: SessionRecord, type: SystemEventType, *, now: datetime | None = None
     ) -> SessionEvent:
         """Append one system event. All four are once-per-session: if the type already exists,
         the first event is returned unchanged so its `at` is preserved."""
-        for event in record.events:
-            if event.type == type:
-                return event
-        event = SessionEvent(type=type, at=now or _now(), payload={})
-        record.events.append(event)
-        return event
+        with self._lock:
+            for event in record.events:
+                if event.type == type:
+                    return event
+            event = SessionEvent(type=type, at=now or _now(), payload={})
+            record.events.append(event)
+            return event
 
     def events_of(self, record: SessionRecord) -> list[SessionEvent]:
         """All events for this session, `at` ascending. Ties keep insertion order — a stable
