@@ -304,6 +304,21 @@ class TestEvidenceMismatches:
             "absent_claim_mismatch",
         ]
 
+    def test_a_broken_log_stamp_is_not_blamed_on_the_answer(self) -> None:
+        # The log row's own `at` is unreadable, so no time claim about it can be checked.
+        # `time_mismatch` would say the answer cited the wrong minute, which is a charge
+        # against the generator for a defect in the log.
+        broken_log = [{"type": "situation_check_selected", "at": "2026-08-24 03:13"}]
+        cited = [{"type": "situation_check_selected", "present": True, "at": OPENED_AT}]
+        assert metrics.evidence_mismatches(cited, broken_log) == ["malformed_evidence"]
+
+    def test_a_broken_log_stamp_still_refutes_an_absence_claim(self) -> None:
+        # The event happened — that much the row proves even with an unusable time — so
+        # 「없었습니다」 is still wrong about it.
+        broken_log = [{"type": "situation_check_selected", "at": "2026-08-24 03:13"}]
+        cited = [{"type": "situation_check_selected", "present": False, "at": None}]
+        assert metrics.evidence_mismatches(cited, broken_log) == ["absent_claim_mismatch"]
+
     def test_log_rows_without_a_usable_type_answer_nothing(self) -> None:
         # A row whose `type` is not a string is dropped from the index. It must not stand
         # in for the event a citation names, or a broken log would grade as a pass.
@@ -333,6 +348,23 @@ class TestForbiddenPhrases:
 
     def test_plain_report_is_clean(self) -> None:
         assert metrics.forbidden_phrase_hits(ANSWER_OPENED_NO_RESPONSE) == []
+
+    def test_speculation_is_caught(self) -> None:
+        # ADR-0012 3절 상태 추정. No phrase list anticipates every guess a model makes, so
+        # the 추측 grammar is what gets matched.
+        assert metrics.forbidden_phrase_hits("자고 있는 것 같습니다.")
+        assert metrics.forbidden_phrase_hits("이동 중인 것 같습니다.")
+
+    def test_instruction_is_caught(self) -> None:
+        # ADR-0012 3절 행동 지시. 보호자 답변은 무엇을 하라고 말하는 자리가 아니다.
+        assert metrics.forbidden_phrase_hits("지금 가 보세요.")
+        assert metrics.forbidden_phrase_hits("119에 신고하세요.")
+        assert metrics.forbidden_phrase_hits("대피소로 이동하십시오.")
+
+    def test_a_log_restatement_carries_none_of_the_three(self) -> None:
+        # The guard must not fire on the shape a correct answer actually has.
+        assert metrics.forbidden_phrase_hits("12시 13분에 상황 확인 버튼을 누르셨습니다.") == []
+        assert metrics.forbidden_phrase_hits("아직 어느 쪽도 누르지 않으셨습니다.") == []
 
 
 class TestGuardianViolations:
@@ -391,13 +423,39 @@ class TestGuardianViolations:
             == []
         )
 
-    def test_every_uncited_sentence_gets_its_own_code(self) -> None:
-        # 사유별 집계 counts codes, so two invented sentences must not collapse into one.
+    def test_each_reason_is_reported_once(self) -> None:
+        # 4절 asks 「왜 차단됐는가」, so two invented sentences are still one reason. Counting
+        # occurrences would inflate the 사유별 집계 with a number that reads as answer counts.
         cited = [{"type": "situation_check_selected", "present": True, "at": OPENED_AT}]
-        answer = "상황 확인 버튼을 누르셨습니다. 대피소로 이동 중입니다. 곧 도착하십니다."
+        answer = "상황 확인 버튼을 누르셨습니다. 대피소로 이동 중입니다. 곧 도착합니다."
         assert metrics.guardian_violations(
             answer=answer, evidence=cited, events=LOG_OPENED_NO_RESPONSE
-        ) == ["unsupported_claim", "unsupported_claim"]
+        ) == ["unsupported_claim"]
+
+    def test_two_forbidden_phrases_are_one_reason(self) -> None:
+        cited = [{"type": "situation_check_selected", "present": True, "at": OPENED_AT}]
+        assert (
+            metrics.guardian_violations(
+                answer="안전합니다. 괜찮습니다.", evidence=cited, events=LOG_OPENED_NO_RESPONSE
+            ).count("forbidden_phrase")
+            == 1
+        )
+
+    def test_repeated_citation_failures_are_one_reason(self) -> None:
+        cited = [
+            {"type": "help_request_selected", "present": True, "at": OPENED_AT},
+            {"type": "arrival_confirmed_by_user", "present": True, "at": OPENED_AT},
+        ]
+        # Both citations fail the same way; `evidence_mismatches` still reports both.
+        assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == [
+            "present_claim_mismatch",
+            "present_claim_mismatch",
+        ]
+        assert metrics.guardian_violations(
+            answer="도움 요청과 도착 확인이 있었습니다.",
+            evidence=cited,
+            events=LOG_OPENED_NO_RESPONSE,
+        ) == ["present_claim_mismatch"]
 
     def test_forbidden_phrase_is_reported_even_with_no_citations(self) -> None:
         # ADR-0012 3절: 금지 표현은 대조 결과와 무관하게 차단한다. Returning only the
@@ -579,6 +637,21 @@ class TestUnscoreableLoopSessions:
         summary = metrics.followup_summary([SENT_SESSION, missed])
         assert (summary.due, summary.sent, summary.unscoreable) == (2, 1, 0)
         assert summary.rate == 0.5
+
+    def test_the_same_instant_scores_the_same_whichever_row_came_first(self) -> None:
+        # Two events stamped the same second must not score 1.0 or 0.0 by insertion order.
+        # 5절 puts 전달 after 계획, so a send stamped at its own timer followed it.
+        same = "2026-08-24T03:42:07Z"
+        due_first = [
+            {"type": "followup_due", "at": same},
+            {"type": "guardian_notified", "at": same},
+        ]
+        notified_first = [
+            {"type": "guardian_notified", "at": same},
+            {"type": "followup_due", "at": same},
+        ]
+        assert metrics.followup_delivery_rate([due_first]) == 1.0
+        assert metrics.followup_delivery_rate([notified_first]) == 1.0
 
     def test_a_session_that_never_re_entered_is_not_unscoreable(self) -> None:
         # No `followup_due` means the loop never came back, which is an answered person,

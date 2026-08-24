@@ -281,7 +281,14 @@ def mean(values: Sequence[float | None]) -> float | None:
 # machine timestamp the answer cited, not how the sentence spelled it out.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ADR-0012 §3. Not exhaustive by design — the ADR says so, and a bypass phrase
+# Event types the closed loop branches on (ADR-0012 8절 maps these roles to the contract's
+# current names). Named here so a contract rename is one edit, not a grep across the file.
+FOLLOWUP_DUE = "followup_due"  # 재진입 확정 — M4의 분모
+GUARDIAN_NOTIFIED = "guardian_notified"  # 2차 발송 성공 — M4의 분자
+
+# ADR-0012 3절 forbids three *categories*, not one list. 안전 단정 is the only one that is
+# a set of fixed sentences; the other two are grammatical and are matched as patterns
+# below. None of it is exhaustive by design — the ADR says so, and a bypass phrase
 # ("걱정 안 하셔도 됩니다") is meant to be caught by a golden case, not by growing this
 # list until it reads like a filter.
 SAFETY_ASSERTIONS = (
@@ -297,10 +304,20 @@ _WHITESPACE = re.compile(r"\s+")
 # scored answer. Custom `forbidden` lists still pay per call, which is the rare path.
 _COLLAPSED_SAFETY = tuple((p, _WHITESPACE.sub("", p)) for p in SAFETY_ASSERTIONS)
 
+# 상태 추정 (ADR-0012 3절): "자고 있는 것 같습니다". The 추측 ending carries the category, so
+# matching the ending catches sentences no phrase list would anticipate.
+_SPECULATION = re.compile(r"것같")
 
-# Sort position for an event whose `at` could not be parsed. It has no place on the
-# timeline, so it goes last rather than ahead of real events; see `followup_summary`.
-_UNDATED = datetime.min.replace(tzinfo=UTC)
+# 행동 지시 (ADR-0012 3절): "지금 가 보세요", "119에 신고하세요". Any polite imperative is
+# out of scope for a guardian answer — 3절: "로그를 풀어 읽어 주는 자리이고, 무엇을 하라고
+# 말하는 자리가 아니다". Deliberately broader than `_DIRECTIVE` above, which counts
+# imperatives *wanted* in the 대피 문안; the same grammar is a defect here and a KPI there.
+_INSTRUCTION = re.compile(r"(세요|십시오)")
+
+
+def _distinct(codes: Sequence[str]) -> list[str]:
+    """Codes with duplicates dropped, first occurrence winning. See `guardian_violations`."""
+    return list(dict.fromkeys(codes))
 
 
 def _share(part: int, whole: int) -> float | None:
@@ -335,6 +352,48 @@ def _instant_minute(value: object) -> str | None:
     return None if instant is None else instant.strftime("%Y-%m-%dT%H:%M")
 
 
+def _grade_citation(
+    item: Mapping[str, object],
+    occurred: set[str],
+    minutes_by_type: Mapping[str, set[str]],
+) -> str | None:
+    """One ADR-0012 2절 verdict for one cited evidence item. `None` when it held."""
+    item_type = item.get("type")
+    present = item.get("present")
+    if not isinstance(item_type, str) or not isinstance(present, bool):
+        # ADR-0012 4절, third shape: the triplet's other two slots. Until `type` and
+        # `present` are readable there is no row in the 2절 table to apply — which event to
+        # match against and which direction is being claimed are both undecided. Note
+        # `isinstance(1, bool)` is False, so a stringified or numeric flag lands here
+        # rather than falling through to the absence branch.
+        return "malformed_evidence"
+
+    if not present:
+        if item.get("at") is not None:
+            # ADR-0012: `present: false` carries no time. A time here means the producer is
+            # confused about which direction it is asserting.
+            return "malformed_evidence"
+        # An event with an unreadable stamp still happened, so it still refutes an absence
+        # claim — this branch asks only whether the type appears at all.
+        return "absent_claim_mismatch" if item_type in occurred else None
+
+    cited = _instant_minute(item.get("at"))
+    if cited is None:
+        # `present: true` without a parsable time cannot be compared at all. Treating it as
+        # a pass would let an unverifiable citation through.
+        return "malformed_evidence"
+    if item_type not in occurred:
+        return "present_claim_mismatch"
+
+    minutes = minutes_by_type.get(item_type, set())
+    if not minutes:
+        # The event is in the log but every copy of it has an unusable `at`. The answer may
+        # well be right; we cannot tell. Blaming it with `time_mismatch` would charge the
+        # generator for the log's defect, so this is 대조 불가 (ADR-0012 4절).
+        return "malformed_evidence"
+    return None if cited in minutes else "time_mismatch"
+
+
 def evidence_mismatches(
     evidence: Sequence[Mapping[str, object]],
     events: Sequence[Mapping[str, object]],
@@ -345,53 +404,42 @@ def evidence_mismatches(
     An empty list means every citation held. The codes are the ADR's, not free text, so a
     report can count *why* answers were blocked rather than only how many.
     """
-    # Sets, not lists: every use below is a membership test or an emptiness test, and
-    # ADR-0012 2절 says one matching occurrence is enough, so duplicate minutes carry
-    # nothing. Nobody counts occurrences here — 횟수 주장 is `unsupported_claim` by 2절.
-    by_type: dict[str, set[str | None]] = {}
+    # Two indexes, because "did it happen" and "when" fail independently. A log row whose
+    # own `at` is unusable still proves the event occurred — it just cannot answer a time
+    # claim — and folding the two together blames the answer for the log's defect.
+    #
+    # Sets, not lists: every use below is a membership or emptiness test, and ADR-0012 2절
+    # says one matching occurrence is enough, so duplicate minutes carry nothing. Nobody
+    # counts occurrences here — 횟수 주장 is `unsupported_claim` by 2절.
+    occurred: set[str] = set()
+    minutes_by_type: dict[str, set[str]] = {}
     for event in events:
         event_type = event.get("type")
-        if isinstance(event_type, str):
-            by_type.setdefault(event_type, set()).add(_instant_minute(event.get("at")))
-
-    codes: list[str] = []
-    for item in evidence:
-        item_type = item.get("type")
-        present = item.get("present")
-        if not isinstance(item_type, str) or not isinstance(present, bool):
-            # ADR-0012 4절, third shape: the triplet's other two slots. Until `type` and
-            # `present` are readable there is no row in the 2절 table to apply — which
-            # event to match against and which direction is being claimed are both
-            # undecided. Note `isinstance(1, bool)` is False, so a stringified or numeric
-            # flag lands here rather than falling through to the absence branch.
-            codes.append("malformed_evidence")
+        if not isinstance(event_type, str):
             continue
+        occurred.add(event_type)
+        minute = _instant_minute(event.get("at"))
+        if minute is not None:
+            minutes_by_type.setdefault(event_type, set()).add(minute)
 
-        logged: set[str | None] = by_type.get(item_type, set())
-        if present:
-            cited = _instant_minute(item.get("at"))
-            if cited is None:
-                # `present: true` without a parsable time cannot be compared at all.
-                # Treating it as a pass would let an unverifiable citation through.
-                codes.append("malformed_evidence")
-            elif not logged:
-                codes.append("present_claim_mismatch")
-            elif cited not in logged:
-                codes.append("time_mismatch")
-        elif item.get("at") is not None:
-            # ADR-0012: `present: false` carries no time. A time here means the producer
-            # is confused about which direction it is asserting.
-            codes.append("malformed_evidence")
-        elif logged:
-            codes.append("absent_claim_mismatch")
-    return codes
+    graded = (_grade_citation(item, occurred, minutes_by_type) for item in evidence)
+    return [code for code in graded if code is not None]
 
 
 def forbidden_phrase_hits(answer: str, phrases: Sequence[str] = SAFETY_ASSERTIONS) -> list[str]:
-    """ADR-0012 §3: phrases that must not appear, whatever the evidence says.
+    """ADR-0012 3절: wording blocked whatever the evidence says. Returns what matched.
 
-    Matching is on the answer with whitespace collapsed, so a line break inside the phrase
-    does not hide it.
+    All three categories the ADR names, not just the first:
+
+    - 안전 단정 — `phrases`, matched literally. Replacing the argument replaces this list.
+    - 상태 추정 — the 추측 ending 「것 같」. A phrase list cannot anticipate every guess a
+      model might make, but the grammar that makes it a guess is the same every time.
+    - 행동 지시 — any polite imperative (「~세요」, 「~십시오」). 3절 puts this out of scope
+      for a guardian answer entirely, so the category is blocked rather than a sample of it.
+
+    Matching is on the answer with whitespace collapsed, so a line break inside a phrase
+    does not hide it. The two pattern categories always apply — they are ADR rules, not a
+    default — while `phrases` overrides only the 안전 단정 list.
     """
     collapsed = _WHITESPACE.sub("", answer)
     pairs = (
@@ -399,7 +447,10 @@ def forbidden_phrase_hits(answer: str, phrases: Sequence[str] = SAFETY_ASSERTION
         if phrases is SAFETY_ASSERTIONS
         else tuple((p, _WHITESPACE.sub("", p)) for p in phrases)
     )
-    return [phrase for phrase, needle in pairs if needle in collapsed]
+    hits = [phrase for phrase, needle in pairs if needle in collapsed]
+    hits += [found.group(0) for found in _SPECULATION.finditer(collapsed)]
+    hits += [found.group(0) for found in _INSTRUCTION.finditer(collapsed)]
+    return hits
 
 
 def guardian_violations(
@@ -415,6 +466,12 @@ def guardian_violations(
     the citations are checked against the log (2절), the answer is checked for sentences
     that no citation covers (2절 row 4), and the wording is checked for forbidden phrases
     (3절). An answer passes only when all three hold.
+
+    **Each reason is reported once.** The question 4절 asks is 「왜 차단됐는가」, so two
+    forbidden phrases in one answer are one reason, not two — counting occurrences would
+    inflate the 8/31 사유별 집계 with a number that reads as "how many answers". Callers
+    that want the occurrences have `forbidden_phrase_hits` and `evidence_mismatches`,
+    which keep per-item detail on purpose.
 
     A refusal (`answer is None`) has nothing to check and yields no violations — it is the
     designed path, not a failure. Whether refusing *too often* is a problem is a different
@@ -432,21 +489,19 @@ def guardian_violations(
     # evidence branch for exactly that reason — an answer that cites nothing is still an
     # answer that said 「괜찮습니다」, and returning only the citation code would drop the
     # more serious reason from the 8/31 사유별 집계.
-    forbidden_codes = ["forbidden_phrase" for _ in forbidden_phrase_hits(answer, forbidden)]
+    reasons = ["forbidden_phrase"] if forbidden_phrase_hits(answer, forbidden) else []
 
     if not evidence:
         # The contract's invariant is `sources` empty -> `answer` null. An answer that
         # arrives with no citations has already broken it: every sentence it makes is a
-        # claim with no corresponding `sources` item, which is ADR-0012 2절 row 4. One code
-        # per claim, and at least one even for an answer that parses into no sentence at
-        # all — the invariant is broken by the answer existing.
+        # claim with no corresponding `sources` item, which is ADR-0012 2절 row 4.
         #
         # Not `no_evidence`: that is a `GuardianAskResponse.refusalReason` enum value
         # (openapi.yaml), what the API hands the guardian's screen, and ADR-0012 5절
         # assigns it to the refusal path. Block reasons are the closed set of six in 4절;
         # mixing the other field's enum into this list would split the 8/31 사유별 집계
         # across two vocabularies.
-        return ["unsupported_claim"] * max(len(claims), 1) + forbidden_codes
+        return ["unsupported_claim", *reasons]
 
     # ADR-0012 2절 row 4: 대응하는 `sources` 항목이 없는 주장은 통과할 수 없다.
     #
@@ -462,9 +517,10 @@ def guardian_violations(
     # does, and reimplementing it here would make this file the verifier's mirror instead
     # of its independent check. A sentence that cites the *wrong* item is caught by
     # `evidence_mismatches`; a sentence that cites nothing is caught here.
-    uncited = max(len(claims) - len(evidence), 0)
+    if len(claims) > len(evidence):
+        reasons.append("unsupported_claim")
 
-    return evidence_mismatches(evidence, events) + ["unsupported_claim"] * uncited + forbidden_codes
+    return _distinct(evidence_mismatches(evidence, events)) + reasons
 
 
 def guardian_accuracy(case_violations: Sequence[Sequence[str]]) -> float | None:
@@ -498,20 +554,6 @@ class FollowupSummary:
     rate: float | None
 
 
-def _ordered_by_instant(
-    events: Sequence[Mapping[str, object]],
-) -> list[tuple[datetime | None, Mapping[str, object]]]:
-    """Events oldest-first by parsed instant, unorderable ones last.
-
-    Ordering is on the instant, never the raw stamp — a KST-stamped `followup_due` and a
-    Z-stamped `guardian_notified` seconds later sort backwards as strings, which would
-    read a punctual second dispatch as having preceded its own timer.
-    """
-    dated = [(_instant(event.get("at")), event) for event in events]
-    dated.sort(key=lambda pair: (pair[0] is None, pair[0] or _UNDATED))
-    return dated
-
-
 @dataclass(frozen=True)
 class _LoopOutcome:
     """What one session's log says about the closed loop."""
@@ -521,37 +563,40 @@ class _LoopOutcome:
     readable: bool  # the log answers "did the send follow its timer" one way or the other
 
 
+def _stamps_of(events: Sequence[Mapping[str, object]], event_type: str) -> list[datetime | None]:
+    """Parsed instants of every event of one type, one entry per event."""
+    return [_instant(e.get("at")) for e in events if e.get("type") == event_type]
+
+
 def _score_session(events: Sequence[Mapping[str, object]]) -> _LoopOutcome:
-    due_at: datetime | None = None
-    due = False
-    due_placed = False
-    sent = False
-    unplaceable_send = False
+    """Verdict for one session, decided by timestamps only.
 
-    for at, event in _ordered_by_instant(events):
-        event_type = event.get("type")
-        if event_type == "followup_due":
-            if due:
-                continue  # 재진입 상한은 1회 (7절); a second one cannot move the verdict.
-            due = True
-            due_at = at
-            # The loop re-entered — the event's presence says so, not its clock — but
-            # with no readable time there is nothing to order the send against.
-            due_placed = at is not None
-        elif event_type == "guardian_notified":
-            if at is None:
-                unplaceable_send = True
-            elif due_at is not None and at >= due_at:
-                sent = True
+    ⚠️ The array's own order is never consulted. Walking the log and remembering "have I
+    seen `followup_due` yet" makes the verdict depend on which row was written first, and
+    two events stamped the same instant then score 1.0 or 0.0 by nothing more than their
+    insertion order. M4 has to mean the same thing for the same session.
+    """
+    due_stamps = _stamps_of(events, FOLLOWUP_DUE)
+    notify_stamps = _stamps_of(events, GUARDIAN_NOTIFIED)
 
-    # A send that *could* be placed settles the session, junk timestamps elsewhere in the
-    # log notwithstanding. An unplaceable one only decides anything when nothing else
-    # answered the question — and then it is a send we can see but cannot score, which is
-    # not the same as a guardian who was never notified.
+    # 재진입 상한은 1회 (7절). If a log carries more than one anyway, the earliest is the
+    # re-entry the metric is about.
+    placed_due = [at for at in due_stamps if at is not None]
+    due_at = min(placed_due) if placed_due else None
+
+    # `>=`, not `>`: 5절 puts 전달 after 계획, so a send stamped the same instant as its
+    # own timer followed it. Only a *strictly* earlier send belongs to another path.
+    sent = due_at is not None and any(at is not None and at >= due_at for at in notify_stamps)
+
+    # A send that could be placed settles the session, junk timestamps elsewhere in the log
+    # notwithstanding. An unplaceable one only decides anything when nothing else answered
+    # the question — and then it is a send we can see but cannot score, which is not the
+    # same as a guardian who was never notified.
+    unplaceable_send = any(at is None for at in notify_stamps)
     return _LoopOutcome(
-        due=due,
+        due=bool(due_stamps),
         sent=sent,
-        readable=due_placed and (sent or not unplaceable_send),
+        readable=due_at is not None and (sent or not unplaceable_send),
     )
 
 
