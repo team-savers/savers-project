@@ -31,6 +31,7 @@ class IdempotencyKeyConflictError(ValueError):
     second, either of which would corrupt the fact log the verifier reads.
     """
 
+
 # 사용자 행동 12종. 서비스가 직접 관측한 화면 진입·버튼 선택이다. FE만 기록을 요청하며,
 # 이 목록을 늘리는 것은 챗봇이 사실로 인용할 수 있는 범위를 늘리는 일이라 계약 변경으로만 한다.
 UserActionEventType = Literal[

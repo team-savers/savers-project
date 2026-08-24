@@ -31,7 +31,9 @@ def session_expired() -> NoReturn:
 
 
 def idempotency_conflict() -> NoReturn:
-    raise ApiError(409, "IDEMPOTENCY_KEY_CONFLICT", "이미 다른 요청에 사용된 Idempotency-Key입니다.")
+    raise ApiError(
+        409, "IDEMPOTENCY_KEY_CONFLICT", "이미 다른 요청에 사용된 Idempotency-Key입니다."
+    )
 
 
 async def api_error_handler(request: Request, exc: Exception) -> JSONResponse:

@@ -19,6 +19,7 @@ from backend_core.sessions import (
 def _user_event(type_: str, payload: dict | None = None) -> UserActionEventCreate:
     return UserActionEventCreate(type=type_, payload=payload or {})
 
+
 MESSAGE = AlertMessage(
     title="[세이버스] 서원동 호우경보",
     body="지금 바로 안전한 곳으로 이동할 준비를 하세요.",
