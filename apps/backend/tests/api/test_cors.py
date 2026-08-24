@@ -97,6 +97,21 @@ class TestBrowserBehaviour:
         assert response.status_code == 200
         assert response.headers["access-control-allow-origin"] == DEPLOYED_ORIGIN
 
+    def test_preflight_allows_idempotency_key(self) -> None:
+        # The event-record POST carries Idempotency-Key; if the allow-list omits it the
+        # browser drops the request in preflight and event logging fails only once deployed.
+        client = TestClient(_app([DEPLOYED_ORIGIN]))
+        response = client.options(
+            "/probe",
+            headers={
+                "Origin": DEPLOYED_ORIGIN,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "Idempotency-Key",
+            },
+        )
+        assert response.status_code == 200
+        assert "idempotency-key" in response.headers["access-control-allow-headers"].lower()
+
     def test_delete_preflight_is_allowed(self) -> None:
         # DELETE /v1/devices unregisters a lost/shared handset, so the PWA calls it from a
         # cross-origin page. DELETE is never a CORS "simple method", so it is always
