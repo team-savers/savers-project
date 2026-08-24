@@ -47,7 +47,11 @@ def test_profile_projection_drops_identity(registry: ResidentRegistry) -> None:
 
 
 def test_seed_covers_both_demo_personas(registry: ResidentRegistry) -> None:
-    """반지하 고령자 + 외국인 근로자 — 출력이 달라지는 축을 모두 건드리는 2인(S2-E1)."""
-    assert len(registry) == 2
+    """반지하 고령자 + 외국인 근로자 — 출력이 달라지는 축을 모두 건드리는 2인(S2-E1).
+
+    시드 전체는 3인이다: 서원동 데모 2인 + all_excluded 관통용 지하-only 행정동 주민 1인.
+    페르소나 검증은 서원동으로 한정해 그 두 명만 본다.
+    """
+    assert len(registry) == 3
     languages = {r.profile.language for r in registry.by_dong_codes(["1162064500"])}
     assert languages == {"ko", "vi"}

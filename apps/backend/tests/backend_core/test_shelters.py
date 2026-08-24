@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from backend_core.registry import UNDERGROUND_ONLY_DONG_CODE
 from backend_core.shelters import (
     CachedShelterSource,
     ShelterRecord,
@@ -129,6 +130,26 @@ def test_all_excluded_is_distinct_from_no_data() -> None:
     assert result.availability == "all_excluded"
     assert result.items == []
     assert result.excluded[0].count == 1
+
+
+def test_underground_only_seed_dong_is_all_excluded_from_the_fixture() -> None:
+    """지하 대피소만 있는 시드 행정동 — 안전필터가 후보를 전부 빼 all_excluded를 관통한다.
+
+    LiveSource를 조립하는 test_all_excluded_is_distinct_from_no_data와 달리, 배포되는
+    픽스처(shelters.jsonl)만으로 이 경로가 성립하는지 고정한다 — e2e가 이 시드를 이어받는다.
+    """
+    repository = ShelterRepository(UnavailableShelterSource(), CachedShelterSource.from_jsonl())
+    result = repository.search(
+        dong_code=UNDERGROUND_ONLY_DONG_CODE,
+        disaster_type="flood",
+        hazard="inside",
+        stairs_ok=True,
+        limit=10,
+    )
+    assert result.availability == "all_excluded"
+    assert result.items == []
+    assert [e.reason for e in result.excluded] == ["underground"]
+    assert result.excluded[0].count == 2
 
 
 def test_basis_reports_which_origin_was_used(shelter_repository: ShelterRepository) -> None:

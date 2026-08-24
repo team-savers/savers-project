@@ -96,9 +96,23 @@ class ResidentRegistry:
 DEMO_DONG_CODE = "1162064500"
 DEMO_DONG_NAME = "서원동"
 
+# all_excluded 관통 경로 재현용 시드 행정동. 이 동의 대피소는 픽스처상 전부 지하라, 호우
+# 안전필터가 후보를 전부 제외해 availability="all_excluded"가 된다 — 후보가 아예 없는
+# upstream_unavailable과 다른 경로다. 발송→세션→검색이 이어지려면 이 동에도 주민이 있어야
+# 하므로 p003을 둔다(e2e가 이 시드를 이어받는다).
+# ⚠️ dongCode는 실재 10자리 행정동 코드를 오프라인에서 확정하지 못해 가공값을 쓴다(관악구
+#    11620 접두만 실제, 뒤 4자리 미검증). 실 코드 매칭 테이블(Backend S1-1)이 들어오면 교체한다.
+UNDERGROUND_ONLY_DONG_CODE = "1162066500"
+UNDERGROUND_ONLY_DONG_NAME = "신림동"
+
 
 def seed_registry() -> ResidentRegistry:
-    """Two residents in the same 행정동, differing in every axis that changes the output."""
+    """Demo personas plus one all_excluded probe resident.
+
+    p001·p002 are the killer-demo two in 서원동; p003 lives in a 행정동 whose only shelters
+    are underground, so the flood safety filter empties the list — the all_excluded path the
+    other two never exercise.
+    """
     return ResidentRegistry(
         [
             Resident(
@@ -143,6 +157,27 @@ def seed_registry() -> ResidentRegistry:
                 ),
                 registration_token="r_demo_resident_p002",  # noqa: S106 - 가공 데모 값
                 devices=["fcm_demo_device_p002"],
+            ),
+            Resident(
+                profile=Profile(
+                    user_id="p003",
+                    name="이철수",
+                    dong_code=UNDERGROUND_ONLY_DONG_CODE,
+                    dong_name=UNDERGROUND_ONLY_DONG_NAME,
+                    housing="normal",
+                    mobility="ok",
+                    stairs_ok=True,
+                    easy_text=True,
+                    vision="ok",
+                    hearing="ok",
+                    language="ko",
+                    lives_alone=False,
+                    care=None,
+                    guardian=None,
+                    registered_by="welfare_center",
+                ),
+                registration_token="r_demo_resident_p003",  # noqa: S106 - 가공 데모 값
+                devices=["fcm_demo_device_p003"],
             ),
         ]
     )
