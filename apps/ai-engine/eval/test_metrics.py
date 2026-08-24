@@ -170,28 +170,40 @@ class TestStripFrame:
 # The fixtures below are the six shapes ADR-0012 names. The 40-case golden set is a
 # separate deliverable (PM); these exist so the *scoring rule* has regression cover
 # before that data lands.
+#
+# Event types are the 16 in the merged contract (openapi.yaml, PR #108: 사용자 행동 12종
+# + 시스템 4종). Fixtures carry `payload` because `SessionEvent` requires it, even though
+# the metric functions read only `type` and `at` — a fixture that could not pass schema
+# validation is not evidence that the rule works on real logs.
 
 LOG_OPENED_NO_RESPONSE = [
-    {"type": "alert_dispatched", "at": "2026-08-24T03:12:00Z"},
-    {"type": "push_delivered", "at": "2026-08-24T03:12:07Z"},
-    {"type": "session_opened", "at": "2026-08-24T03:13:41Z"},
+    {"type": "alert_dispatched", "at": "2026-08-24T03:12:00Z", "payload": {}},
+    {"type": "push_accepted", "at": "2026-08-24T03:12:07Z", "payload": {}},
+    {"type": "situation_check_selected", "at": "2026-08-24T03:13:41Z", "payload": {}},
+    {"type": "choice_screen_viewed", "at": "2026-08-24T03:14:05Z", "payload": {}},
 ]
 
+# 「선택 화면까지 갔으나 어느 쪽도 고르지 않았다」를 존재 둘 + 부재 둘로 적은 근거.
+# 분기 선택이 둘(help/direct)이므로 부재도 둘을 각각 주장해야 문장이 성립한다.
 CITED_OPENED_NO_RESPONSE = [
-    {"type": "alert_dispatched", "present": True, "at": "2026-08-24T03:12:00Z"},
-    {"type": "session_opened", "present": True, "at": "2026-08-24T03:13:41Z"},
-    {"type": "response_recorded", "present": False, "at": None},
+    {"type": "situation_check_selected", "present": True, "at": "2026-08-24T03:13:41Z"},
+    {"type": "choice_screen_viewed", "present": True, "at": "2026-08-24T03:14:05Z"},
+    {"type": "help_request_selected", "present": False, "at": None},
+    {"type": "direct_evacuation_selected", "present": False, "at": None},
 ]
 
-ANSWER_OPENED_NO_RESPONSE = "알림을 열어 보셨고, 아직 어느 쪽도 누르지 않으셨습니다."
+ANSWER_OPENED_NO_RESPONSE = "상황 확인 화면까지 보셨고, 아직 어느 쪽도 누르지 않으셨습니다."
 
 # 같은 타입이 두 번 찍힌 로그 (ADR-0012 2절의 "여러 건" 규칙).
+# `choice_screen_viewed`는 계약이 「반복 가능」으로 분류한 행동이라 두 건이 정상이다.
 LOG_OPENED_TWICE = [
-    {"type": "session_opened", "at": "2026-08-24T03:13:41Z"},
-    {"type": "session_opened", "at": "2026-08-24T03:51:02Z"},
+    {"type": "choice_screen_viewed", "at": "2026-08-24T03:13:41Z", "payload": {}},
+    {"type": "choice_screen_viewed", "at": "2026-08-24T03:51:02Z", "payload": {}},
 ]
 
-CITED_SECOND_OPEN = [{"type": "session_opened", "present": True, "at": "2026-08-24T03:51:02Z"}]
+CITED_SECOND_OPEN = [
+    {"type": "choice_screen_viewed", "present": True, "at": "2026-08-24T03:51:02Z"}
+]
 
 
 class TestEvidenceMismatches:
@@ -199,36 +211,42 @@ class TestEvidenceMismatches:
         assert metrics.evidence_mismatches(CITED_OPENED_NO_RESPONSE, LOG_OPENED_NO_RESPONSE) == []
 
     def test_claimed_event_is_not_in_the_log(self) -> None:
-        cited = [{"type": "response_recorded", "present": True, "at": "2026-08-24T03:14:02Z"}]
+        cited = [{"type": "help_request_selected", "present": True, "at": "2026-08-24T03:14:02Z"}]
         assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == [
             "present_claim_mismatch"
         ]
 
     def test_absence_claimed_for_an_event_that_happened(self) -> None:
-        cited = [{"type": "session_opened", "present": False, "at": None}]
+        cited = [{"type": "situation_check_selected", "present": False, "at": None}]
         assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == [
             "absent_claim_mismatch"
         ]
 
     def test_right_event_wrong_minute(self) -> None:
-        cited = [{"type": "session_opened", "present": True, "at": "2026-08-24T03:15:41Z"}]
+        cited = [
+            {"type": "situation_check_selected", "present": True, "at": "2026-08-24T03:15:41Z"}
+        ]
         assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == ["time_mismatch"]
 
     def test_seconds_are_truncated_not_compared(self) -> None:
         # ADR-0012 §2: comparison is minute-level. Same minute, different second, passes.
-        cited = [{"type": "session_opened", "present": True, "at": "2026-08-24T03:13:02Z"}]
+        cited = [
+            {"type": "situation_check_selected", "present": True, "at": "2026-08-24T03:13:02Z"}
+        ]
         assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == []
 
     def test_offset_timestamps_compare_as_instants(self) -> None:
         # 12:13:41+09:00 is the same instant as 03:13:41Z — a KST-stamped citation of the
         # same event must not read as a mismatch.
-        cited = [{"type": "session_opened", "present": True, "at": "2026-08-24T12:13:41+09:00"}]
+        cited = [
+            {"type": "situation_check_selected", "present": True, "at": "2026-08-24T12:13:41+09:00"}
+        ]
         assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == []
 
     def test_unparsable_or_naive_time_is_not_silently_passed(self) -> None:
         cited = [
-            {"type": "session_opened", "present": True, "at": "2026-08-24 03:13"},
-            {"type": "session_opened", "present": True, "at": "어제"},
+            {"type": "situation_check_selected", "present": True, "at": "2026-08-24 03:13"},
+            {"type": "situation_check_selected", "present": True, "at": "어제"},
         ]
         assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == [
             "malformed_evidence",
@@ -236,13 +254,13 @@ class TestEvidenceMismatches:
         ]
 
     def test_absence_must_not_carry_a_time(self) -> None:
-        cited = [{"type": "response_recorded", "present": False, "at": "2026-08-24T03:14:02Z"}]
+        cited = [{"type": "help_request_selected", "present": False, "at": "2026-08-24T03:14:02Z"}]
         assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == ["malformed_evidence"]
 
     def test_codes_come_back_in_citation_order(self) -> None:
         cited = [
-            {"type": "session_opened", "present": False, "at": None},
-            {"type": "session_opened", "present": True, "at": "2026-08-24T03:59:00Z"},
+            {"type": "situation_check_selected", "present": False, "at": None},
+            {"type": "situation_check_selected", "present": True, "at": "2026-08-24T03:59:00Z"},
         ]
         assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == [
             "absent_claim_mismatch",
@@ -254,7 +272,7 @@ class TestEvidenceMismatches:
         # otherwise joins the mismatched literals down to `list[object]`.
         cited: list[Mapping[str, object]] = [
             {"present": True, "at": "2026-08-24T03:13:41Z"},
-            {"type": "session_opened", "at": "2026-08-24T03:13:41Z"},
+            {"type": "situation_check_selected", "at": "2026-08-24T03:13:41Z"},
         ]
         assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == [
             "malformed_evidence",
@@ -265,8 +283,8 @@ class TestEvidenceMismatches:
         # Without the type guard these fall through to the `present: false` branch and get
         # graded as absence claims — the opposite of what the producer meant to assert.
         cited: list[Mapping[str, object]] = [
-            {"type": "session_opened", "present": "true", "at": "2026-08-24T03:13:41Z"},
-            {"type": "session_opened", "present": 1, "at": "2026-08-24T03:13:41Z"},
+            {"type": "situation_check_selected", "present": "true", "at": "2026-08-24T03:13:41Z"},
+            {"type": "situation_check_selected", "present": 1, "at": "2026-08-24T03:13:41Z"},
         ]
         assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == [
             "malformed_evidence",
@@ -276,8 +294,8 @@ class TestEvidenceMismatches:
     def test_a_malformed_item_does_not_stop_the_rest(self) -> None:
         cited: list[Mapping[str, object]] = [
             {"type": None, "present": True, "at": "2026-08-24T03:13:41Z"},
-            {"type": "session_opened", "present": True, "at": "2026-08-24T03:13:41Z"},
-            {"type": "session_opened", "present": False, "at": None},
+            {"type": "situation_check_selected", "present": True, "at": "2026-08-24T03:13:41Z"},
+            {"type": "situation_check_selected", "present": False, "at": None},
         ]
         assert metrics.evidence_mismatches(cited, LOG_OPENED_NO_RESPONSE) == [
             "malformed_evidence",
@@ -288,17 +306,19 @@ class TestEvidenceMismatches:
         # A row whose `type` is not a string is dropped from the index. It must not stand
         # in for the event a citation names, or a broken log would grade as a pass.
         broken_log = [{"type": None, "at": "2026-08-24T03:13:41Z"}]
-        cited = [{"type": "session_opened", "present": True, "at": "2026-08-24T03:13:41Z"}]
+        cited = [
+            {"type": "situation_check_selected", "present": True, "at": "2026-08-24T03:13:41Z"}
+        ]
         assert metrics.evidence_mismatches(cited, broken_log) == ["present_claim_mismatch"]
 
     def test_one_of_several_same_type_events_is_enough(self) -> None:
         # ADR-0012 2절: 같은 타입이 여러 건이면 그중 하나와만 맞으면 통과. Citing the
-        # second time the link was opened is as true as citing the first.
+        # second time the choice screen was reached is as true as citing the first.
         assert metrics.evidence_mismatches(CITED_SECOND_OPEN, LOG_OPENED_TWICE) == []
 
     def test_a_time_matching_no_occurrence_still_fails(self) -> None:
         # The relaxation is "any one of them", not "the type exists somewhere".
-        cited = [{"type": "session_opened", "present": True, "at": "2026-08-24T03:30:00Z"}]
+        cited = [{"type": "choice_screen_viewed", "present": True, "at": "2026-08-24T03:30:00Z"}]
         assert metrics.evidence_mismatches(cited, LOG_OPENED_TWICE) == ["time_mismatch"]
 
 
@@ -376,7 +396,7 @@ class TestFollowupDeliveryRate:
     def test_sessions_that_never_re_entered_are_excluded(self) -> None:
         answered = [
             {"type": "alert_dispatched", "at": "2026-08-24T03:12:00Z"},
-            {"type": "response_recorded", "at": "2026-08-24T03:14:02Z"},
+            {"type": "direct_evacuation_selected", "at": "2026-08-24T03:14:02Z"},
         ]
         due = [
             {"type": "followup_due", "at": "2026-08-24T03:42:07Z"},
@@ -385,7 +405,7 @@ class TestFollowupDeliveryRate:
         assert metrics.followup_delivery_rate([answered, due]) == 1.0
 
     def test_no_session_reached_the_timer_is_not_measurable(self) -> None:
-        answered = [{"type": "response_recorded", "at": "2026-08-24T03:14:02Z"}]
+        answered = [{"type": "direct_evacuation_selected", "at": "2026-08-24T03:14:02Z"}]
         assert metrics.followup_delivery_rate([answered]) is None
 
     def test_mixed_offset_and_z_stamps_order_by_instant(self) -> None:
@@ -433,7 +453,7 @@ class TestFollowupDeliveryRate:
             {"type": "guardian_notified", "at": "2026-08-24T03:42:09Z"},
         ]
         missed = [{"type": "followup_due", "at": "2026-08-24T04:10:00Z"}]
-        answered = [{"type": "response_recorded", "at": "2026-08-24T03:14:02Z"}]
+        answered = [{"type": "direct_evacuation_selected", "at": "2026-08-24T03:14:02Z"}]
         assert metrics.followup_delivery_rate([sent, missed, answered]) == 0.5
 
     def test_two_of_three_re_entered_sessions_sent(self) -> None:
