@@ -314,6 +314,43 @@ _SPECULATION = re.compile(r"것같")
 # imperatives *wanted* in the 대피 문안; the same grammar is a defect here and a KPI there.
 _INSTRUCTION = re.compile(r"(세요|십시오)")
 
+# 나열·대조 연결어미 — the joins that put two facts in one sentence. ADR-0012's claim unit
+# is the fact, not the sentence: 1절 normalizes 「각 문장이 말하는 사실」, plural, and 2절
+# works through 「한 문장이 세 가지를 말하고」. The contract's own example answer
+# (`GuardianAnswer`, openapi.yaml) carries three claims in one sentence, so counting
+# sentences lets an invented clause ride into a sentence for free.
+#
+# The ending must be followed by a comma, whitespace or the end of the sentence, which is
+# what keeps 「이동 중입니다」 and the like from matching. 「-고 있/계시/싶」 is one fact in
+# two words and is excluded — first syllable only, since 「계시」 contracts to 「계십니다」.
+#
+# Deliberately not exhaustive. 「-어서/아서」 is left out because separating it from
+# 「혼자서」 (a button label) needs a morphological analyzer, and a noun ending in 고 before
+# a space (「참고 사항」) over-counts by one. Neither shape occurs in a sentence that
+# restates session events.
+_CLAUSE_BREAK = re.compile(r"(?:고(?!\s*[있계싶])|며|면서|지만|으나|는데|은데)(?=[,\s]|$)")
+
+_CLAUSE_MARK = "\x00"
+
+
+def _claim_units(answer: str) -> list[str]:
+    """Answer -> the units a `sources` item has to cover, one claim each (ADR-0012 1절).
+
+    Sentence split first, then the 나열·대조 연결어미 inside each sentence. Units carrying
+    no Hangul or digits claim nothing (see `support_ratio`) and are dropped.
+
+    Used for counting only — see `guardian_violations`, which asks how many claims the
+    answer makes, never which citation covers which one.
+    """
+    marked = _CLAUSE_BREAK.sub(lambda m: m.group(0) + _CLAUSE_MARK, answer)
+    return [
+        unit
+        for sentence in sentences(marked)
+        for raw in sentence.split(_CLAUSE_MARK)
+        # The 연결어미 keeps its own comma, so the next unit starts with the leftover one.
+        if (unit := raw.strip().lstrip(", ")) and bigrams(unit)
+    ]
+
 
 def _distinct(codes: Sequence[str]) -> list[str]:
     """Codes with duplicates dropped, first occurrence winning. See `guardian_violations`."""
@@ -463,9 +500,9 @@ def guardian_violations(
     """Every ADR-0012 block reason for one guardian answer. Empty list = deliverable.
 
     Three independent checks, because ADR-0012 blocks for three different reasons:
-    the citations are checked against the log (2절), the answer is checked for sentences
-    that no citation covers (2절 row 4), and the wording is checked for forbidden phrases
-    (3절). An answer passes only when all three hold.
+    the citations are checked against the log (2절), the answer is checked for claims that
+    no citation covers (2절 row 4), and the wording is checked for forbidden phrases (3절).
+    An answer passes only when all three hold.
 
     **Each reason is reported once.** The question 4절 asks is 「왜 차단됐는가」, so two
     forbidden phrases in one answer are one reason, not two — counting occurrences would
@@ -481,9 +518,9 @@ def guardian_violations(
     if answer is None:
         return []
 
-    # ADR-0012 1절: 답변을 문장으로 쪼개고 각 문장을 삼중항으로 정규화한다. Sentences with
-    # no Hangul or digits claim nothing (see `support_ratio`) and are not counted.
-    claims = [sentence for sentence in sentences(answer) if bigrams(sentence)]
+    # ADR-0012 1절: one fact the answer states is one triplet. The unit is the clause, not
+    # the sentence — see `_claim_units`.
+    claims = _claim_units(answer)
 
     # ADR-0012 3절: 금지 표현은 대조 결과와 *무관하게* 차단한다. It is computed before the
     # evidence branch for exactly that reason — an answer that cites nothing is still an
@@ -506,17 +543,21 @@ def guardian_violations(
     # ADR-0012 2절 row 4: 대응하는 `sources` 항목이 없는 주장은 통과할 수 없다.
     #
     # `evidence_mismatches` only grades the citations that *are* there; it cannot see a
-    # sentence that cited nothing. So an answer may quote the log correctly and then add
+    # claim that cited nothing. So an answer may quote the log correctly and then add
     # 「현재 대피소로 이동 중입니다」 — grounded first half, invented second half — and
     # score clean, which is precisely the failure M2 exists to count.
     #
     # The check is by count, and it is a *necessary* condition rather than a mapping: one
-    # sentence needs at least one triplet (1절), so more sentences than cited items proves
-    # by pigeonhole that some sentence has none. It deliberately does not try to decide
-    # *which* sentence maps to *which* item — that needs the claim extraction the verifier
-    # does, and reimplementing it here would make this file the verifier's mirror instead
-    # of its independent check. A sentence that cites the *wrong* item is caught by
-    # `evidence_mismatches`; a sentence that cites nothing is caught here.
+    # claim needs at least one triplet (1절), so more claims than cited items proves by
+    # pigeonhole that some claim has none. It deliberately does not try to decide *which*
+    # claim maps to *which* item — that needs the claim extraction the verifier does, and
+    # reimplementing it here would make this file the verifier's mirror instead of its
+    # independent check. A claim that cites the *wrong* item is caught by
+    # `evidence_mismatches`; a claim that cites nothing is caught here.
+    #
+    # Counting sentences instead of clauses would leave the join open: 「눌렀고 현재
+    # 대피소로 이동 중입니다」 is one sentence with one citation, so the invented half rides
+    # in free. `_claim_units` splits at the 연결어미 for that reason.
     if len(claims) > len(evidence):
         reasons.append("unsupported_claim")
 

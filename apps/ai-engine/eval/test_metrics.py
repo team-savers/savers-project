@@ -423,6 +423,46 @@ class TestGuardianViolations:
             == []
         )
 
+    def test_a_second_claim_joined_into_one_sentence_is_unsupported(self) -> None:
+        # The same invention as above, moved across the sentence boundary with 「-고」. Two
+        # facts, one citation — counting sentences would score this clean, which is the
+        # hole the clause split closes.
+        cited = [{"type": "situation_check_selected", "present": True, "at": OPENED_AT}]
+        answer = "12시 13분에 상황 확인 버튼을 눌렀고 현재 대피소로 이동 중입니다."
+        assert metrics.guardian_violations(
+            answer=answer, evidence=cited, events=LOG_OPENED_NO_RESPONSE
+        ) == ["unsupported_claim"]
+
+    def test_the_contract_example_answer_stays_clean(self) -> None:
+        # `GuardianAnswer`'s own example (openapi.yaml, 진행_상태_중간_이탈): three clauses
+        # over four citations. The clause split has to leave the shape the contract ships.
+        answer = (
+            "12시 3분에 [상황 확인하기]를 누르고 12시 5분에 선택 화면까지 보셨고, "
+            "아직 [도움이 필요해요]·[혼자서 대피할게요] 어느 쪽도 누르지 않으셨습니다."
+        )
+        assert len(metrics.sentences(answer)) == 1
+        assert (
+            metrics.guardian_violations(
+                answer=answer,
+                evidence=CITED_OPENED_NO_RESPONSE,
+                events=LOG_OPENED_NO_RESPONSE,
+            )
+            == []
+        )
+
+    def test_an_auxiliary_verb_is_one_claim_not_two(self) -> None:
+        # 「-고 있/계시/싶」 is one fact in two words. Splitting there would invent a claim
+        # and block an answer that cited everything it said.
+        cited = [{"type": "choice_screen_viewed", "present": True, "at": "2026-08-24T03:14:05Z"}]
+        assert (
+            metrics.guardian_violations(
+                answer="12시 14분부터 선택 화면을 보고 계십니다.",
+                evidence=cited,
+                events=LOG_OPENED_NO_RESPONSE,
+            )
+            == []
+        )
+
     def test_each_reason_is_reported_once(self) -> None:
         # 4절 asks 「왜 차단됐는가」, so two invented sentences are still one reason. Counting
         # occurrences would inflate the 사유별 집계 with a number that reads as answer counts.
