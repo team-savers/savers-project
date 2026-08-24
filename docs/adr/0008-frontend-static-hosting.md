@@ -1,8 +1,8 @@
 # ADR-0008: 프론트엔드는 정적 호스팅으로 분리하고, 단일 VM에는 백엔드·AI 엔진만 올린다
 
-- **상태**: 제안 (Proposed) — PR [#34](https://github.com/team-savers/savers-project/pull/34) 리뷰 합의에 따라 작성, PM·Backend/Infra 승인 대기
-- **날짜**: 2026-08-01 / 2026-08-22 (후속 조치 표 링크 갱신 — [ADR-0005 사후편집 예외 (3)](0005-webpush-primary-channel.md), 역할_가이드 4포지션 재편에 따른 경로 변경, 결정 본문은 불변)
-- **결정자**: 신호정 (Tech Lead) 제안 / 안은남 (PM), 김도혁 (Backend/Infra) 승인 대기
+- **상태**: 승인 (Accepted) — PR [#34](https://github.com/team-savers/savers-project/pull/34) 리뷰 합의에 따라 작성, 2026-08-24 PM·Backend/Infra 승인
+- **날짜**: 2026-08-01 / 2026-08-22 (후속 조치 표 링크 갱신 — [ADR-0005 사후편집 예외 (3)](0005-webpush-primary-channel.md), 역할_가이드 4포지션 재편에 따른 경로 변경, 결정 본문은 불변) / 2026-08-24 (승인)
+- **결정자**: 신호정 (Tech Lead) 제안 / 안은남 (PM), 김도혁 (Backend/Infra) 승인
 - **관련 문서**: [ADR-0003](0003-single-vm-seoul.md) (**범위 부분 대체**), [ADR-0004](0004-pwa-over-native.md) (PWA 단일 형태), [ADR-0005](0005-webpush-primary-channel.md) (웹푸시 1차 = HTTPS 강제), [infra/README.md](../../infra/README.md), [후속_과제.md](../공통_가이드/후속_과제.md) 11번
 - **대체 관계**: [ADR-0003](0003-single-vm-seoul.md)의 **"docker-compose로 전체 스택을 그 VM 위에 올려 운영한다"** 중 **프론트엔드 부분만** 대체한다. 서울 리전 고정·CPU 전용·관리형 이중화 유보는 **그대로 유효**하다.
 
