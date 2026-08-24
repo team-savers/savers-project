@@ -22,9 +22,27 @@ openapi: 3.1.0
 
 info:
   title: SAVERS API
-  version: 0.5.0-draft
+  version: 0.7.0-draft
   description: |
     재난 취약계층 대상 무설치 대피 안내 서비스의 모듈 간 계약 초안입니다.
+
+    > **변경 이력(v0.7)**: 보호자 기기 등록 신설
+    > (`DeviceRegisterRequest.role`, `POST`·`DELETE /v1/guardian/{token}/device`,
+    > `GuardianStatus.pushEnabled`).
+    > 2차 발송 채널이 1차와 같은 웹푸시 하나뿐이므로(ADR-0014, 제안 — PR 119),
+    > **보호자 기기가 먼저 구독돼 있지 않으면 2차 발송이 닿을 자리가 없습니다.**
+    > 그런데 기존 `POST /v1/devices`에는 피보호자 기기와 보호자 기기를 구분할 칸이
+    > 없어, 보호자 기기를 붙이는 순간 1차 알림까지 보호자에게 나갔습니다.
+    > 등록 경로를 수명이 다른 둘로 나눕니다 — **최초 구독은 사전등록 시점의 등록
+    > 토큰**(`POST /v1/devices` + `role: guardian`), **갱신은 `/g/` 진입 시의 보호자
+    > 토큰**(`POST /v1/guardian/{token}/device`)입니다. 보호자 토큰은 세션마다 새로
+    > 발급되므로 그것만 두면 첫 재난에서 링크를 받을 방법이 없습니다.
+    > **1차 발송은 `role: ward` 기기에만, 2차 발송은 `role: guardian` 기기에만**
+    > 나갑니다.
+    >
+    > **v0.6은 보호자 Q&A 계약(`POST /v1/guardian/{token}/ask`, PR 104)이 쓰고 있어
+    > 이 변경을 v0.7로 잡습니다.** 두 계약은 서로를 필요로 하지 않으므로 머지 순서는
+    > 자유이며, 이 브랜치가 먼저 들어가면 버전이 0.5에서 0.7로 건너뜁니다.
 
     > **변경 이력(v0.5)**: 사용자 행동 기반 보호자 상태 확인을 위한
     > 기존 세션의 `events` 배열과 `SessionEvent` 계약, 사용자 행동 기록용
@@ -84,9 +102,11 @@ tags:
   - name: chat
     description: Interactive Care 챗봇 (1·2단계 전용)
   - name: device
-    description: 웹푸시 토큰 등록·해제
+    description: |
+      웹푸시 토큰 등록·해제. 피보호자 기기와 보호자 기기를 `role`로 구분하며,
+      1차 발송은 `ward`에게만, 2차 발송은 `guardian`에게만 갑니다.
   - name: guardian
-    description: 보호자 상태 페이지
+    description: 보호자 상태 페이지와 보호자 기기 갱신
   - name: session-log
     description: |
       사용자 브라우저의 행동 기록과 Backend·Guardian Q&A·Verifier의 내부 조회 계약.
@@ -609,6 +629,22 @@ paths:
         알림 권한은 사용자 제스처에서만 요청하므로, 이 호출도 그 흐름에서만 발생합니다.
         위치 정보는 포함하지 않습니다.
 
+        **피보호자 기기와 보호자 기기를 `role`로 구분한다.** 둘은 같은 등록 토큰을
+        쓰지만 받는 알림이 다르다 — 1차 재난 알림은 `ward`에게만 가고, 30분 무응답
+        뒤의 2차 발송은 `guardian`에게만 간다. 이 칸이 없으면 보호자 기기를 붙이는
+        순간 1차 알림이 보호자에게도 그대로 나가고, 그것은 「보호자에게 알린다」가
+        아니라 「같은 알림을 두 사람이 받는다」이다.
+
+        **보호자 기기의 최초 구독 자리가 여기다.** 보호자는 대리등록 화면에서 이미
+        자기 기기를 쓰고 있고 등록 토큰을 손에 들고 있다. 2차 발송 채널이 웹푸시
+        하나뿐이므로(ADR-0014, 제안), 보호자가 그 전에 구독해 두지 않으면 2차 발송을 받을
+        링크 자체를 받을 방법이 없다 — `POST /v1/guardian/{token}/device`는 이미
+        구독한 보호자의 **갱신** 경로이지 최초 진입로가 아니다.
+
+        `role: guardian`은 그 등록 토큰의 프로필에 보호자가 있을 때만 받는다.
+        `Profile.guardian`이 `null`인 사람에게 보호자 기기가 붙으면 그 기기가 누구
+        대신 받는 것인지 계약이 답할 수 없다 — 400 `INVALID_REQUEST`.
+
         **순환 의존 해소**: 이전 초안에서 FCM 토큰 등록에 세션 토큰을 요구했으나,
         세션 토큰은 발송 시점에 발급되므로 "첫 푸시를 받으려면 이미 푸시를 받았어야
         하는" 순환이 생겼다. 이에 토큰을 두 종류로 분리한다:
@@ -665,7 +701,10 @@ paths:
 
         이 해제가 일어나지 않으면 분실·폐기된 기기로 재난 알림이 계속 도달하여
         대상자·보호자 모두에게 혼란을 준다. `POST /v1/devices`와 같은 본문 키를 쓴다
-        (`registrationToken`, `fcmToken`) — 등록과 해제가 같은 좌표 공간에서 일어난다.
+        (`registrationToken`, `fcmToken`, `role`) — 등록과 해제가 같은 좌표 공간에서
+        일어난다. `role`까지 같이 보내야 어느 쪽 기기를 떼는지가 정해진다. 위 목록의
+        「보호자 변경」이 정확히 `role: guardian` 해제이며, 보호자 기기가 없어지면
+        그 세션은 2차 발송 대상에서 빠진다(`GuardianStatus.pushEnabled: false`).
       operationId: unregisterDevice
       requestBody:
         required: true
@@ -788,6 +827,140 @@ paths:
                 $ref: '#/components/schemas/Error'
         '410':
           description: 토큰 만료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/guardian/{token}/device:
+    post:
+      tags: [guardian, device]
+      summary: 보호자 기기 웹푸시 토큰 갱신
+      description: |
+        보호자가 `/g/{token}`에 처음 들어와 푸시 권한을 허용했을 때, 그 기기의 FCM
+        토큰을 올립니다. 위치 정보는 포함하지 않습니다.
+
+        ⚠️ **최초 구독 경로가 아니라 갱신 경로입니다.** 최초 구독은 사전등록 시점의
+        `POST /v1/devices`(`role: guardian`)이고, 이 경로는 그 뒤에 기기를 바꿨거나
+        FCM 토큰이 로테이션된 보호자가 상태 페이지를 연 김에 다시 붙이는 자리입니다.
+
+        둘로 나눈 이유는 인증에 쓰는 토큰의 수명이 다르기 때문입니다.
+        보호자 토큰(`g_…`)은 **세션마다 새로 발급되고 세션 TTL로 만료됩니다.**
+        그래서 이 경로만 두면 첫 재난에서 보호자는 `/g/` 링크를 받을 방법이 없습니다 —
+        보호자에게 닿는 채널이 웹푸시 하나뿐인데(ADR-0014, 제안) 그 웹푸시를 받으려면 이미
+        구독돼 있어야 하기 때문입니다. `POST /v1/devices`가 세션 토큰 대신 등록 토큰을
+        쓰기로 한 것과 같은 순환이고, 같은 방식으로 끊습니다.
+
+        **등록은 세션이 아니라 피보호자의 보호자 레코드에 붙습니다.** 인증에 쓴 보호자
+        토큰이 만료돼도 등록은 남아 다음 재난의 2차 발송에 그대로 쓰입니다. 반대로
+        만료된 토큰으로는 인증할 수 없으므로 410입니다.
+
+        같은 FCM 토큰을 다시 올려도 200입니다(멱등).
+      operationId: registerGuardianDevice
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: 보호자 페이지 토큰.
+          schema:
+            type: string
+            example: g_4e8b1c7d2a9f5036e8b1c7d2a9f5036e8b1c7d2a
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuardianDeviceRegisterRequest'
+      responses:
+        '200':
+          description: 등록 완료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ack'
+        '400':
+          description: |
+            본문 검증 실패, 또는 이 세션의 피보호자에게 보호자가 없는 경우
+            (`Profile.guardian: null`). 뒤쪽은 잘못된 호출이 아니라 **보호자 없이
+            등록된 사람**이며, 프론트는 `/g/` 화면에서 구독 버튼 자체를 렌더하지
+            않는 것으로 이 응답을 만나지 않게 합니다.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 토큰 부재
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: 토큰 만료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: 요청 한도 초과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags: [guardian, device]
+      summary: 보호자 기기 웹푸시 토큰 해제
+      description: |
+        보호자가 상태 페이지에서 알림 수신을 중단할 때 호출합니다.
+        `DELETE /v1/devices`와 같은 시나리오(기기 교체·공용 단말·동의 철회)를 다루되,
+        **등록 토큰을 손에 들고 있지 않은 보호자**를 위한 경로입니다 — 복지관·지자체가
+        대리등록한 경우 보호자가 가진 자격 증명은 `/g/` 링크뿐이고, 그 경우 이 경로가
+        없으면 보호자가 스스로 수신을 끌 방법이 없습니다.
+
+        해제된 뒤 그 세션은 2차 발송 대상에서 빠집니다
+        (`GuardianStatus.pushEnabled: false`).
+      operationId: unregisterGuardianDevice
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: 보호자 페이지 토큰.
+          schema:
+            type: string
+            example: g_4e8b1c7d2a9f5036e8b1c7d2a9f5036e8b1c7d2a
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuardianDeviceRegisterRequest'
+      responses:
+        '200':
+          description: 해제 완료(토큰이 이미 없었어도 200)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ack'
+        '400':
+          description: 잘못된 요청(본문 검증 실패)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 토큰 부재
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: 토큰 만료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: 요청 한도 초과
           content:
             application/json:
               schema:
@@ -1701,8 +1874,24 @@ components:
 
     DeviceRegisterRequest:
       type: object
-      required: [registrationToken, fcmToken]
+      required: [registrationToken, fcmToken, role]
       properties:
+        role:
+          type: string
+          enum: [ward, guardian]
+          description: |
+            이 기기가 누구의 것인지. **기본값을 두지 않고 필수로 받는다.**
+            생략을 `ward`로 해석하면 보호자 기기가 조용히 피보호자 기기로 등록되고,
+            그 결과는 「1차 재난 알림이 보호자 폰에도 그대로 간다」로 나타난다.
+            값이 틀렸을 때 화면이 아니라 **발송 대상**이 틀어지는 필드이므로,
+            호출자가 매번 의사를 밝히게 한다.
+
+            - `ward` — 피보호자 기기. **1차 재난 알림만** 받는다.
+            - `guardian` — 보호자 기기. **30분 무응답 뒤의 2차 발송만** 받는다.
+              `Profile.guardian`이 `null`이면 400이다.
+
+            한 사람에게 각 역할의 기기를 여러 대 붙일 수 있다(공용 단말, 기기 교체 중
+            겹치는 기간). 같은 값을 다시 올리면 멱등이다.
         registrationToken:
           type: string
           description: |
@@ -1712,6 +1901,23 @@ components:
 
             ⚠️ 만료·재발급 정책(TTL, 1인당 발급 매수, 분실 시 재발급 절차)은
             **미정이며 팀 결정이 필요하다.**
+        fcmToken:
+          type: string
+          description: FCM 등록 토큰.
+        userAgent:
+          type: [string, 'null']
+
+    GuardianDeviceRegisterRequest:
+      type: object
+      description: |
+        `POST`·`DELETE /v1/guardian/{token}/device`의 본문.
+        **`role`도 `registrationToken`도 없다** — 경로의 보호자 토큰이 둘 다 답한다.
+        역할은 경로가 이미 `guardian`으로 고정하고, 대상자는 서버가 그 토큰으로
+        내부 조회한다. 보호자에게 등록 토큰도 세션 토큰도 건네지 않는 기존 분리를
+        그대로 유지하기 위한 것으로, `GET /v1/guardian/{token}`이 보호자 토큰 하나로
+        답하는 것과 같은 이유다.
+      required: [fcmToken]
+      properties:
         fcmToken:
           type: string
           description: FCM 등록 토큰.
@@ -1760,6 +1966,7 @@ components:
         - openedAt
         - respondedAt
         - safetyStatus
+        - pushEnabled
       properties:
         wardName:
           type: string
@@ -1812,6 +2019,23 @@ components:
             이 필드는 향후 안전 확인 채널(구조대 확인 통보 등)이 정의되면
             `safe`·`in_rescue` 같은 값으로 확장될 자리다 — 지금은 확정할 값을
             가지고 있지 않으므로 `unknown`으로 둔다.
+        pushEnabled:
+          type: boolean
+          description: |
+            이 피보호자에게 붙은 **보호자 기기가 하나 이상 있는지.**
+            FCM 토큰 값은 내려가지 않습니다 — 보호자 화면이 알아야 하는 것은
+            「내 폰이 2차 알림을 받을 수 있는 상태인가」뿐이고, 토큰 자체는 그 답에
+            필요하지 않습니다. `Guardian` 스키마에 기기 필드를 두지 않은 것도 같은
+            이유입니다(`Profile.guardian`은 피보호자 브라우저로 내려가는 값입니다).
+
+            `false`면 화면은 [알림 받기]를 띄웁니다. 이 값이 `false`면 30분이 지나도
+            **2차 발송이 나갈 기기가 없습니다** — 2차 발송은 `role: guardian` 기기로만
+            나가기 때문입니다. **M4(폐루프 2차 발송 성공률)의 분모와 분자 정의는
+            ADR-0012 7절을 따르며 이 계약은 그것을 바꾸지 않습니다.**
+
+            ⚠️ **`true`가 전달을 보장하지 않습니다.** 구독된 기기가 있다는 사실일 뿐,
+            푸시 접수·전달·열람 어느 것도 뜻하지 않습니다 — `push_accepted`가
+            접수까지만 뜻하는 것과 같은 선입니다. 안전 상태와도 무관합니다.
         acknowledgedByGuardian:
           type: boolean
           description: 보호자가 [내가 확인했음]을 눌렀는지.
