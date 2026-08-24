@@ -361,6 +361,18 @@ class TestForbiddenPhrases:
         assert metrics.forbidden_phrase_hits("119에 신고하세요.")
         assert metrics.forbidden_phrase_hits("대피소로 이동하십시오.")
 
+    def test_the_polite_imperative_is_blocked_auxiliary_included(self) -> None:
+        # 해요체 spells a statement and an order the same way, so the category is blocked
+        # whole and ADR-0012 3절 fixes the answer's register to 합쇼체 instead. Excepting
+        # 「-고 계세요」 to admit the first sentence would admit the second with it.
+        assert metrics.forbidden_phrase_hits("지금 대피소로 이동하고 계세요.")
+        assert metrics.forbidden_phrase_hits("잠시 기다리고 계세요.")
+
+    def test_the_same_statement_in_the_formal_register_is_clean(self) -> None:
+        # The register the contract's example answers actually use. This is the sentence a
+        # correct answer writes, and it has to pass or the rule above would cost coverage.
+        assert metrics.forbidden_phrase_hits("지금 대피소로 이동하고 계십니다.") == []
+
     def test_a_log_restatement_carries_none_of_the_three(self) -> None:
         # The guard must not fire on the shape a correct answer actually has.
         assert metrics.forbidden_phrase_hits("12시 13분에 상황 확인 버튼을 누르셨습니다.") == []
@@ -447,6 +459,43 @@ class TestGuardianViolations:
                 evidence=CITED_OPENED_NO_RESPONSE,
                 events=LOG_OPENED_NO_RESPONSE,
             )
+            == []
+        )
+
+    def test_the_same_citation_twice_buys_no_second_claim(self) -> None:
+        # One triplet is one fact however many times it is pasted into `sources`. Counting
+        # array entries would let the invented second sentence ride in behind the copy.
+        one = {"type": "situation_check_selected", "present": True, "at": OPENED_AT}
+        answer = "12시 13분에 확인 버튼을 누르셨습니다. 대피소에 이미 도착하셨습니다."
+        assert metrics.guardian_violations(
+            answer=answer, evidence=[one, dict(one)], events=LOG_OPENED_NO_RESPONSE
+        ) == ["unsupported_claim"]
+
+    def test_the_same_event_in_two_notations_is_one_fact(self) -> None:
+        # `+09:00` and `Z` for the same instant are the same citation, not two.
+        pair = [
+            {"type": "situation_check_selected", "present": True, "at": OPENED_AT},
+            {
+                "type": "situation_check_selected",
+                "present": True,
+                "at": "2026-08-24T12:13:41+09:00",
+            },
+        ]
+        answer = "12시 13분에 확인 버튼을 누르셨습니다. 대피소에 이미 도착하셨습니다."
+        assert metrics.guardian_violations(
+            answer=answer, evidence=pair, events=LOG_OPENED_NO_RESPONSE
+        ) == ["unsupported_claim"]
+
+    def test_two_occurrences_of_one_type_are_two_facts(self) -> None:
+        # The dedup key is the whole triplet, not the type: 「반복 가능」 events cited at two
+        # different minutes are two facts, and an answer may state both.
+        cited = [
+            {"type": "choice_screen_viewed", "present": True, "at": "2026-08-24T03:13:41Z"},
+            {"type": "choice_screen_viewed", "present": True, "at": "2026-08-24T03:51:02Z"},
+        ]
+        answer = "12시 13분에 선택 화면을 보셨습니다. 12시 51분에 다시 보셨습니다."
+        assert (
+            metrics.guardian_violations(answer=answer, evidence=cited, events=LOG_OPENED_TWICE)
             == []
         )
 

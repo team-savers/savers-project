@@ -312,6 +312,14 @@ _SPECULATION = re.compile(r"것같")
 # out of scope for a guardian answer — 3절: "로그를 풀어 읽어 주는 자리이고, 무엇을 하라고
 # 말하는 자리가 아니다". Deliberately broader than `_DIRECTIVE` above, which counts
 # imperatives *wanted* in the 대피 문안; the same grammar is a defect here and a KPI there.
+#
+# The whole category is blocked, 보조용언 included, because 해요체 spells a statement and an
+# order the same way: 「이동하고 계세요」 is a statement and 「기다리고 계세요」 is an order.
+# Excepting the auxiliary to let the first through lets the second through with it. ADR-0012
+# 3절 closes that by fixing the answer's register to 합쇼체, where the two forms separate —
+# 「이동하고 계십니다」 vs. 「기다려 주십시오」 — so a 해요체 sentence is a register violation
+# and not a false positive here. `_CLAUSE_BREAK` excepts the same auxiliary because it is
+# counting facts, not judging wording; one construction, two questions.
 _INSTRUCTION = re.compile(r"(세요|십시오)")
 
 # 나열·대조 연결어미 — the joins that put two facts in one sentence. ADR-0012's claim unit
@@ -350,6 +358,34 @@ def _claim_units(answer: str) -> list[str]:
         # The 연결어미 keeps its own comma, so the next unit starts with the leftover one.
         if (unit := raw.strip().lstrip(", ")) and bigrams(unit)
     ]
+
+
+def _facts_cited(evidence: Sequence[Mapping[str, object]]) -> int:
+    """How many *distinct* facts the citations carry (ADR-0012 1절).
+
+    A triplet is a fact, so citing the same `(type, present, at)` twice cites one fact
+    twice — it does not add a second one. Counting the array's length instead would let an
+    invented claim ride in behind a duplicated citation: two sentences, the same source
+    pasted twice, and the count check sees 2 <= 2 and passes.
+
+    Compared on the UTC minute, like every other time comparison here (2절), so the same
+    event cited once as `+09:00` and once as `Z` collapses to the one fact it is. Values
+    that cannot be normalized are keyed by `repr` rather than dropped: they are already
+    `malformed_evidence`, and letting two unreadable items pass as two facts would reopen
+    the same hole one step further down.
+    """
+    keys = set()
+    for item in evidence:
+        kind = item.get("type")
+        present = item.get("present")
+        keys.add(
+            (
+                kind if isinstance(kind, str) else repr(kind),
+                present if isinstance(present, bool) else repr(present),
+                _instant_minute(item.get("at")),
+            )
+        )
+    return len(keys)
 
 
 def _distinct(codes: Sequence[str]) -> list[str]:
@@ -558,7 +594,10 @@ def guardian_violations(
     # Counting sentences instead of clauses would leave the join open: 「눌렀고 현재
     # 대피소로 이동 중입니다」 is one sentence with one citation, so the invented half rides
     # in free. `_claim_units` splits at the 연결어미 for that reason.
-    if len(claims) > len(evidence):
+    #
+    # The other side of the count is *facts*, not array entries — see `_facts_cited`.
+    # Pasting one citation twice would otherwise buy a second claim for free.
+    if len(claims) > _facts_cited(evidence):
         reasons.append("unsupported_claim")
 
     return _distinct(evidence_mismatches(evidence, events)) + reasons
