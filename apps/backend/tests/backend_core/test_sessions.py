@@ -142,13 +142,13 @@ def test_same_key_different_payload_is_a_conflict(
     record = _create(sessions, event)
     sessions.append_user_event(
         record,
-        key="evt_guidance_key_00",
+        key="evt_guidance_key_00",  # gitleaks:allow 테스트 키
         create=_user_event("next_guidance_requested", {"guidanceStep": 2}),
     )
     with pytest.raises(IdempotencyKeyConflictError):
         sessions.append_user_event(
             record,
-            key="evt_guidance_key_00",
+            key="evt_guidance_key_00",  # gitleaks:allow 테스트 키
             create=_user_event("next_guidance_requested", {"guidanceStep": 3}),
         )
     assert len(record.events) == 1
