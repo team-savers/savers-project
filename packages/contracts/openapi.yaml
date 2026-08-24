@@ -22,9 +22,18 @@ openapi: 3.1.0
 
 info:
   title: SAVERS API
-  version: 0.4.0-draft
+  version: 0.5.0-draft
   description: |
     재난 취약계층 대상 무설치 대피 안내 서비스의 모듈 간 계약 초안입니다.
+
+    > **변경 이력(v0.5)**: 사용자 행동 기반 보호자 상태 확인을 위한
+    > 기존 세션의 `events` 배열과 `SessionEvent` 계약, 사용자 행동 기록용
+    > `POST /v1/session/{token}/events`와 내부 조회용
+    > `GET /internal/sessions/{token}/events`를 추가했습니다. 사용자 행동 12종과 폐루프
+    > 측정용 시스템 이벤트 4종을 한 배열로 표현하되, 공개 POST는 사용자 행동만
+    > 받습니다. 저장 시각은 서버가 UTC로 기록하며 좌표·현재 위치·실제 이동 또는
+    > 실제 도착 여부를 담지 않습니다. 별도 로그 저장소나 세션 간 조회 구조를
+    > 만들지 않으며 기존 국민행동요령 RAG와 연결하지 않습니다.
 
     > **변경 이력(v0.4)**: backend ↔ ai-engine 내부 계약 신설
     > (`POST /v1/generate`, `generation` 태그). `AlertMessage.messageMode`가
@@ -78,6 +87,11 @@ tags:
     description: 웹푸시 토큰 등록·해제
   - name: guardian
     description: 보호자 상태 페이지
+  - name: session-log
+    description: |
+      사용자 브라우저의 행동 기록과 Backend·Guardian Q&A·Verifier의 내부 조회 계약.
+      POST는 공개 `/v1/session/*` 구간이고 GET은 `infra/Caddyfile`이 외부 요청을
+      차단하는 `/internal/*` 구간입니다.
   - name: generation
     description: |
       **내부 구간 (backend → ai-engine).** 브라우저가 직접 부르지 않습니다 —
@@ -204,6 +218,171 @@ paths:
                 $ref: '#/components/schemas/Error'
         '410':
           description: 토큰 만료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/session/{token}/events:
+    post:
+      tags: [session-log]
+      summary: 사용자 행동 이벤트 기록
+      operationId: postSessionEvent
+      security: []
+      description: |
+        사용자 브라우저 FE가 현재 세션에서 관측한 화면 진입·버튼 선택 1건을 기록합니다.
+        시스템 이벤트 4종은 Backend·푸시 시스템이 직접 생성하므로 이 기록 요청으로
+        받지 않습니다. 기존 `/v1/session/{token}`과 같은 세션 토큰 모델을 사용합니다.
+        브라우저 호출에 필요한 CORS와 실제 Backend 구현은 이 계약의 범위 밖입니다.
+
+        요청 본문은 `type`과 `payload`만 받습니다. 저장되는 `SessionEvent.at`은
+        클라이언트 시각을 신뢰하지 않고 서버가 수신 시각 기준 UTC로 생성합니다.
+        본문에 `at`이나 좌표·프로필·연락처를 보내면 422로 거부합니다.
+
+        **반복 행동과 네트워크 재시도는 다릅니다.** 사용자가 실제로 같은 행동을 다시
+        하면 새 `Idempotency-Key`로 보내 각각 기록합니다. 동일 HTTP 요청을 재전송할
+        때는 같은 키를 재사용합니다. 같은 세션과 키 조합에 대해 `type`과 `payload`가
+        모두 같은 요청은 네트워크 재시도로 취급하여 새 이벤트를 만들지 않고 최초 저장
+        이벤트와 최초 `at`을 반환합니다. 같은 키를 다른 `type` 또는 `payload`에 재사용한
+        요청은 키 충돌이며, 기존 이벤트를 반환하거나 새 이벤트를 저장하지 않고 409로
+        거부합니다. 이 원칙은 저장 구현을 신설하지 않고 향후 Backend가 지켜야 할 최소
+        멱등 계약만 정의합니다.
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: 이벤트가 속한 단일 세션의 토큰.
+          schema:
+            type: string
+            pattern: '^s_[A-Za-z0-9_-]+$'
+            example: s_7f3c9a1e4b8d2f60-a5c1_e9b47d0f3a26
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: |
+            사용자 행동 1회의 불투명 식별자. 같은 행동 요청의 재시도에는 같은 값을,
+            실제로 다시 수행한 행동에는 새 값을 사용합니다. 동일 요청 내용은 최소한
+            `type`과 `payload`가 모두 같은 경우이며, 같은 키에 둘 중 하나라도 다른 요청은
+            409 충돌입니다. 개인정보를 넣지 않습니다.
+          schema:
+            type: string
+            minLength: 16
+            maxLength: 128
+            pattern: '^[A-Za-z0-9._~-]+$'
+            example: evt_01J60D5Q4Z8N7K2M3P6R9T1VXC
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserActionEventCreate'
+            examples:
+              화면_진입:
+                value:
+                  type: choice_screen_viewed
+                  payload: {}
+              다음_안내:
+                value:
+                  type: next_guidance_requested
+                  payload: { guidanceStep: 2 }
+      responses:
+        '200':
+          description: |
+            기록 완료. 같은 `Idempotency-Key`와 같은 `type`·`payload`의 성공 재시도이면
+            새 이벤트를 만들지 않고 최초 저장된 사용자 행동 이벤트와 그때 서버가 기록한
+            `at`을 그대로 반환합니다.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecordedUserActionEvent'
+              example:
+                type: choice_screen_viewed
+                at: '2026-08-23T03:05:00Z'
+                payload: {}
+        '409':
+          description: |
+            `Idempotency-Key` 충돌. 같은 세션과 키로 최초 저장한 요청과 새 요청의 `type`
+            또는 `payload`가 다릅니다. 기존 이벤트를 응답하지 않고 새 이벤트도 저장하지
+            않습니다.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: IDEMPOTENCY_KEY_CONFLICT
+                message: Idempotency-Key was already used with a different event request
+        '404':
+          description: 토큰 부재
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: 토큰 만료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: 허용되지 않은 이벤트·필드·payload 조합
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /internal/sessions/{token}/events:
+    get:
+      tags: [session-log]
+      summary: 세션 이벤트 전체 조회
+      operationId: getSessionEvents
+      security: []
+      description: |
+        Backend·Guardian Q&A·Verifier가 특정 사용자 세션의 `SessionEvent` 전량을
+        읽는 내부 계약입니다. 사용자용 `GET /v1/session/{token}`과 분리하며,
+        보호자 토큰(`g_`)을 받은 서비스가 서버 내부에서 대상 사용자 세션(`s_`)을
+        해석한 뒤 호출하므로 보호자 클라이언트가 사용자 세션 토큰을 직접 다루지 않습니다.
+
+        한 세션의 이벤트는 수십 건 수준이므로 `at` 오름차순으로 전체 반환합니다.
+        같은 `at`이면 저장 순서를 유지하며 pagination·index·search나 세션 간 조회를
+        추가하지 않습니다. 기존 세션 레코드의 배열을 읽을 뿐 별도 EventStore·LogStore를
+        전제하지 않습니다. 모든 `at`은 서버가 기록한 UTC 시각이고 payload에는 좌표·
+        위치정보·프로필·연락처를 복제하지 않습니다.
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: 조회할 사용자 세션의 내부 세션 토큰(`s_`).
+          schema:
+            type: string
+            pattern: '^s_[A-Za-z0-9_-]+$'
+            example: s_7f3c9a1e4b8d2f60-a5c1_e9b47d0f3a26
+      responses:
+        '200':
+          description: 세션의 전체 이벤트 로그. 기록이 없으면 빈 배열입니다.
+          headers:
+            Cache-Control:
+              description: 세션 행동 이력을 캐시하지 않습니다.
+              schema:
+                type: string
+                example: no-store
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SessionEvent'
+              example:
+                - { type: alert_dispatched, at: '2026-08-23T03:00:00Z', payload: {} }
+                - { type: push_accepted, at: '2026-08-23T03:00:02Z', payload: {} }
+                - { type: choice_screen_viewed, at: '2026-08-23T03:05:00Z', payload: {} }
+        '404':
+          description: 세션 토큰 부재
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: 세션 토큰 만료
           content:
             application/json:
               schema:
@@ -950,6 +1129,383 @@ components:
           $ref: '#/components/schemas/AlertMessage'
         profile:
           $ref: '#/components/schemas/Profile'
+        events:
+          type: array
+          description: |
+            이 세션의 사용자 행동·시스템 이벤트를 `at` 오름차순으로 나열합니다. 기존
+            `SessionStore`의 세션 레코드에 함께 보관할 배열이며, 별도 EventStore·
+            LogStore·인덱스·페이지네이션·세션 간 조회를 전제하지 않습니다.
+
+            Backend가 아직 이 필드를 응답하지 않으므로 현재는 optional입니다. 필드가
+            존재하는 경우 빈 배열은 이 세션에 기록된 이벤트가 없음을 뜻합니다.
+            세션 식별자와 사용자 프로필은 각 이벤트 payload에 복제하지 않습니다.
+          items:
+            $ref: '#/components/schemas/SessionEvent'
+          examples:
+            # 사용자 중간 이탈
+            - - { type: situation_check_selected, at: '2026-08-23T03:00:00Z', payload: {} }
+              - { type: profile_review_started, at: '2026-08-23T03:01:00Z', payload: {} }
+            # 도움 요청 뒤 직접 대피로 선택 변경
+            - - { type: choice_screen_viewed, at: '2026-08-23T03:10:00Z', payload: {} }
+              - { type: help_request_selected, at: '2026-08-23T03:11:00Z', payload: {} }
+              - { type: direct_evacuation_selected, at: '2026-08-23T03:12:00Z', payload: {} }
+            # 직접 대피 뒤 도움 요청으로 선택 변경
+            - - { type: choice_screen_viewed, at: '2026-08-23T03:20:00Z', payload: {} }
+              - { type: direct_evacuation_selected, at: '2026-08-23T03:21:00Z', payload: {} }
+              - { type: help_request_selected, at: '2026-08-23T03:22:00Z', payload: {} }
+            # 경로 안내 진행
+            - - { type: evacuation_guidance_viewed, at: '2026-08-23T03:30:00Z', payload: {} }
+              - { type: route_guidance_started, at: '2026-08-23T03:31:00Z', payload: {} }
+              - type: next_guidance_requested
+                at: '2026-08-23T03:32:00Z'
+                payload: { guidanceStep: 2 }
+              - type: next_guidance_requested
+                at: '2026-08-23T03:33:00Z'
+                payload: { guidanceStep: 3 }
+            # 사용자 도착 완료 버튼 선택
+            - - { type: arrival_confirmed_by_user, at: '2026-08-23T03:40:00Z', payload: {} }
+            # 최초 알림부터 보호자 후속 알림까지의 폐루프 시스템 이벤트
+            - - { type: alert_dispatched, at: '2026-08-23T03:00:00Z', payload: {} }
+              - { type: push_accepted, at: '2026-08-23T03:00:02Z', payload: {} }
+              - { type: followup_due, at: '2026-08-23T03:30:00Z', payload: {} }
+              - { type: guardian_notified, at: '2026-08-23T03:30:05Z', payload: {} }
+
+    EventTimestamp:
+      type: string
+      format: date-time
+      description: |
+        이벤트가 서버에 기록된 UTC 수신 시각입니다. 클라이언트 로컬 시각은 받거나
+        신뢰하지 않습니다. `Z` 표기를 사용해 M4 등의 시간 비교가 오프셋 문자열에
+        영향받지 않게 하며, 사용자 표시 단계에서만 KST 등으로 변환할 수 있습니다.
+        사용자의 현실 위치나 이동 상태를 나타내지 않습니다.
+      pattern: 'Z$'
+      example: '2026-08-23T04:00:00Z'
+
+    EmptyEventPayload:
+      type: object
+      description: |
+        추가 정보가 필요 없는 이벤트의 빈 payload. 좌표·프로필·전화번호 등
+        이벤트 해석에 불필요한 개인정보가 들어오지 않도록 필드를 허용하지 않습니다.
+      additionalProperties: false
+      maxProperties: 0
+
+    GuidanceStepPayload:
+      type: object
+      description: |
+        사용자가 `다음 안내`를 요청한 화면 단계. `guidanceStep`은 1부터 시작하는
+        안내 순번일 뿐, 경로상의 현재 위치·이동 여부·경로 이탈을 뜻하지 않습니다.
+      required: [guidanceStep]
+      additionalProperties: false
+      properties:
+        guidanceStep:
+          type: integer
+          minimum: 1
+          description: 사용자가 표시를 요청한 다음 안내의 1-based 순번.
+          example: 2
+
+    UserActionEventType:
+      type: string
+      enum:
+        - situation_check_selected
+        - profile_review_started
+        - profile_review_completed
+        - profile_review_skipped
+        - choice_screen_viewed
+        - help_request_selected
+        - direct_evacuation_selected
+        - evacuation_guidance_viewed
+        - route_guidance_started
+        - next_guidance_requested
+        - emergency_call_119_selected
+        - arrival_confirmed_by_user
+
+    UserActionEventCreate:
+      type: object
+      required: [type, payload]
+      additionalProperties: false
+      description: |
+        FE 기록 요청 DTO. 저장 이벤트와 달리 `at`이 없으며 사용자 행동 12종만
+        허용합니다. `next_guidance_requested`만 `guidanceStep`을 담고 나머지는 빈
+        payload를 사용합니다. 좌표·현재 위치·경로 좌표·프로필·연락처는 금지합니다.
+      properties:
+        type:
+          $ref: '#/components/schemas/UserActionEventType'
+        payload:
+          oneOf:
+            - $ref: '#/components/schemas/EmptyEventPayload'
+            - $ref: '#/components/schemas/GuidanceStepPayload'
+      allOf:
+        - if:
+            properties: { type: { const: next_guidance_requested } }
+            required: [type]
+          then:
+            properties:
+              payload: { $ref: '#/components/schemas/GuidanceStepPayload' }
+          else:
+            properties:
+              payload: { $ref: '#/components/schemas/EmptyEventPayload' }
+
+    SessionEvent:
+      oneOf:
+        - $ref: '#/components/schemas/SituationCheckSelectedEvent'
+        - $ref: '#/components/schemas/ProfileReviewStartedEvent'
+        - $ref: '#/components/schemas/ProfileReviewCompletedEvent'
+        - $ref: '#/components/schemas/ProfileReviewSkippedEvent'
+        - $ref: '#/components/schemas/ChoiceScreenViewedEvent'
+        - $ref: '#/components/schemas/HelpRequestSelectedEvent'
+        - $ref: '#/components/schemas/DirectEvacuationSelectedEvent'
+        - $ref: '#/components/schemas/EvacuationGuidanceViewedEvent'
+        - $ref: '#/components/schemas/RouteGuidanceStartedEvent'
+        - $ref: '#/components/schemas/NextGuidanceRequestedEvent'
+        - $ref: '#/components/schemas/EmergencyCall119SelectedEvent'
+        - $ref: '#/components/schemas/ArrivalConfirmedByUserEvent'
+        - $ref: '#/components/schemas/AlertDispatchedEvent'
+        - $ref: '#/components/schemas/PushAcceptedEvent'
+        - $ref: '#/components/schemas/FollowupDueEvent'
+        - $ref: '#/components/schemas/GuardianNotifiedEvent'
+      discriminator:
+        propertyName: type
+        mapping:
+          situation_check_selected: '#/components/schemas/SituationCheckSelectedEvent'
+          profile_review_started: '#/components/schemas/ProfileReviewStartedEvent'
+          profile_review_completed: '#/components/schemas/ProfileReviewCompletedEvent'
+          profile_review_skipped: '#/components/schemas/ProfileReviewSkippedEvent'
+          choice_screen_viewed: '#/components/schemas/ChoiceScreenViewedEvent'
+          help_request_selected: '#/components/schemas/HelpRequestSelectedEvent'
+          direct_evacuation_selected: '#/components/schemas/DirectEvacuationSelectedEvent'
+          evacuation_guidance_viewed: '#/components/schemas/EvacuationGuidanceViewedEvent'
+          route_guidance_started: '#/components/schemas/RouteGuidanceStartedEvent'
+          next_guidance_requested: '#/components/schemas/NextGuidanceRequestedEvent'
+          emergency_call_119_selected: '#/components/schemas/EmergencyCall119SelectedEvent'
+          arrival_confirmed_by_user: '#/components/schemas/ArrivalConfirmedByUserEvent'
+          alert_dispatched: '#/components/schemas/AlertDispatchedEvent'
+          push_accepted: '#/components/schemas/PushAcceptedEvent'
+          followup_due: '#/components/schemas/FollowupDueEvent'
+          guardian_notified: '#/components/schemas/GuardianNotifiedEvent'
+      description: |
+        보호자 상태 확인과 폐루프 측정의 근거가 되는 세션 단위 저장 이벤트입니다.
+        사용자 행동 12종은 서비스가 직접 관측한 화면 진입·버튼 선택을, 시스템 이벤트
+        4종은 Backend·푸시 시스템이 관측한 발송 및 폐루프 상태를 표현합니다.
+
+        이 계약은 실제 이동 중·경로 추종·경로 이탈·실제 대피소 도착을 표현하지
+        않습니다. 특히 `arrival_confirmed_by_user`는 GPS 검증 결과가 아니라 사용자가
+        `도착 완료` 버튼을 누른 기록일 뿐입니다.
+
+        **반복 가능:** `situation_check_selected`, `profile_review_started`,
+        `profile_review_completed`, `profile_review_skipped`, `choice_screen_viewed`,
+        `help_request_selected`,
+        `direct_evacuation_selected`, `evacuation_guidance_viewed`,
+        `route_guidance_started`, `next_guidance_requested`,
+        `emergency_call_119_selected`. 화면 재진입·재선택은 새 행동으로 모두 기록합니다.
+
+        **세션당 1회:** `arrival_confirmed_by_user`와 시스템 이벤트 4종. 도착 완료
+        선택이나 최초·2차 발송 계측을 중복 집계하지 않습니다. 시스템 이벤트 4종이
+        이미 존재하면 새 이벤트를 쓰지 않고 최초 이벤트의 `at`을 유지합니다.
+        이 의미 제약과 별개로 모든 POST 재시도는 `Idempotency-Key`로 중복 제거하며,
+        실제 반복 행동에는 매번 새 키를 사용합니다. 특히 `profile_review_completed`는
+        사용자가 정보를 수정한 뒤 다시 확인·완료할 수 있으므로 서로 다른 키로 여러 건
+        기록할 수 있습니다.
+
+    RecordedUserActionEvent:
+      oneOf:
+        - $ref: '#/components/schemas/SituationCheckSelectedEvent'
+        - $ref: '#/components/schemas/ProfileReviewStartedEvent'
+        - $ref: '#/components/schemas/ProfileReviewCompletedEvent'
+        - $ref: '#/components/schemas/ProfileReviewSkippedEvent'
+        - $ref: '#/components/schemas/ChoiceScreenViewedEvent'
+        - $ref: '#/components/schemas/HelpRequestSelectedEvent'
+        - $ref: '#/components/schemas/DirectEvacuationSelectedEvent'
+        - $ref: '#/components/schemas/EvacuationGuidanceViewedEvent'
+        - $ref: '#/components/schemas/RouteGuidanceStartedEvent'
+        - $ref: '#/components/schemas/NextGuidanceRequestedEvent'
+        - $ref: '#/components/schemas/EmergencyCall119SelectedEvent'
+        - $ref: '#/components/schemas/ArrivalConfirmedByUserEvent'
+      description: |
+        사용자 행동 기록 POST가 성공했을 때 반환하는 저장 이벤트입니다. 요청에서 허용한
+        사용자 행동 12종에 서버가 생성한 UTC `at`을 더한 결과만 허용하며, 시스템 이벤트
+        4종은 이 응답에 포함하지 않습니다.
+
+    SituationCheckSelectedEvent:
+      type: object
+      description: 사용자가 첫 화면에서 `상황 확인하기` 버튼을 선택한 기록.
+      required: [type, at, payload]
+      additionalProperties: false
+      properties:
+        type: { type: string, const: situation_check_selected }
+        at: { $ref: '#/components/schemas/EventTimestamp' }
+        payload: { $ref: '#/components/schemas/EmptyEventPayload' }
+
+    ProfileReviewStartedEvent:
+      type: object
+      description: 사용자가 정보 확인 화면에 진입한 기록.
+      required: [type, at, payload]
+      additionalProperties: false
+      properties:
+        type: { type: string, const: profile_review_started }
+        at: { $ref: '#/components/schemas/EventTimestamp' }
+        payload: { $ref: '#/components/schemas/EmptyEventPayload' }
+
+    ProfileReviewCompletedEvent:
+      type: object
+      description: 사용자가 정보 확인을 완료한 기록. 확인한 프로필 값은 담지 않습니다.
+      required: [type, at, payload]
+      additionalProperties: false
+      properties:
+        type: { type: string, const: profile_review_completed }
+        at: { $ref: '#/components/schemas/EventTimestamp' }
+        payload: { $ref: '#/components/schemas/EmptyEventPayload' }
+
+    ProfileReviewSkippedEvent:
+      type: object
+      description: 사용자가 정보 확인 단계를 건너뛴 기록.
+      required: [type, at, payload]
+      additionalProperties: false
+      properties:
+        type: { type: string, const: profile_review_skipped }
+        at: { $ref: '#/components/schemas/EventTimestamp' }
+        payload: { $ref: '#/components/schemas/EmptyEventPayload' }
+
+    ChoiceScreenViewedEvent:
+      type: object
+      description: |
+        사용자가 `도움이 필요해요`·`혼자서 대피할게요` 선택 화면에 정상적으로
+        도달한 기록. 선택 없이 멈춘 상태를 두 분기 선택과 구분합니다.
+      required: [type, at, payload]
+      additionalProperties: false
+      properties:
+        type: { type: string, const: choice_screen_viewed }
+        at: { $ref: '#/components/schemas/EventTimestamp' }
+        payload: { $ref: '#/components/schemas/EmptyEventPayload' }
+
+    HelpRequestSelectedEvent:
+      type: object
+      description: 사용자가 `도움이 필요해요`를 선택한 기록. 접수 성공을 뜻하지 않습니다.
+      required: [type, at, payload]
+      additionalProperties: false
+      properties:
+        type: { type: string, const: help_request_selected }
+        at: { $ref: '#/components/schemas/EventTimestamp' }
+        payload: { $ref: '#/components/schemas/EmptyEventPayload' }
+
+    DirectEvacuationSelectedEvent:
+      type: object
+      description: 사용자가 `혼자서 대피할게요`를 선택한 기록.
+      required: [type, at, payload]
+      additionalProperties: false
+      properties:
+        type: { type: string, const: direct_evacuation_selected }
+        at: { $ref: '#/components/schemas/EventTimestamp' }
+        payload: { $ref: '#/components/schemas/EmptyEventPayload' }
+
+    EvacuationGuidanceViewedEvent:
+      type: object
+      description: 사용자가 행동 권고·대피소 안내 화면을 조회한 기록.
+      required: [type, at, payload]
+      additionalProperties: false
+      properties:
+        type: { type: string, const: evacuation_guidance_viewed }
+        at: { $ref: '#/components/schemas/EventTimestamp' }
+        payload: { $ref: '#/components/schemas/EmptyEventPayload' }
+
+    RouteGuidanceStartedEvent:
+      type: object
+      description: 사용자가 경로 안내 시작 동작을 선택한 기록. 실제 이동 시작을 뜻하지 않습니다.
+      required: [type, at, payload]
+      additionalProperties: false
+      properties:
+        type: { type: string, const: route_guidance_started }
+        at: { $ref: '#/components/schemas/EventTimestamp' }
+        payload: { $ref: '#/components/schemas/EmptyEventPayload' }
+
+    NextGuidanceRequestedEvent:
+      type: object
+      description: 사용자가 `다음 안내`를 선택해 다음 화면 단계를 요청한 기록.
+      required: [type, at, payload]
+      additionalProperties: false
+      properties:
+        type: { type: string, const: next_guidance_requested }
+        at: { $ref: '#/components/schemas/EventTimestamp' }
+        payload: { $ref: '#/components/schemas/GuidanceStepPayload' }
+
+    EmergencyCall119SelectedEvent:
+      type: object
+      description: |
+        사용자가 `119 전화하기` 버튼을 선택한 기록. 전화 연결·신고 접수·출동을
+        뜻하지 않습니다.
+      required: [type, at, payload]
+      additionalProperties: false
+      properties:
+        type: { type: string, const: emergency_call_119_selected }
+        at: { $ref: '#/components/schemas/EventTimestamp' }
+        payload: { $ref: '#/components/schemas/EmptyEventPayload' }
+
+    ArrivalConfirmedByUserEvent:
+      type: object
+      description: |
+        사용자가 마지막 경로 안내 단계에서 `도착 완료` 버튼을 선택한 기록.
+        GPS로 실제 대피소 도착을 확인한 결과가 아니며 실제 안전 상태도 뜻하지 않습니다.
+      required: [type, at, payload]
+      additionalProperties: false
+      properties:
+        type: { type: string, const: arrival_confirmed_by_user }
+        at: { $ref: '#/components/schemas/EventTimestamp' }
+        payload: { $ref: '#/components/schemas/EmptyEventPayload' }
+
+    AlertDispatchedEvent:
+      type: object
+      description: |
+        Backend가 이 세션의 최초 재난 알림 발송을 요청한 기록. 전달 성공을 뜻하지
+        않으며, `push_accepted`와 구분합니다.
+      required: [type, at, payload]
+      additionalProperties: false
+      properties:
+        type: { type: string, const: alert_dispatched }
+        at: { $ref: '#/components/schemas/EventTimestamp' }
+        payload: { $ref: '#/components/schemas/EmptyEventPayload' }
+
+    PushAcceptedEvent:
+      type: object
+      description: |
+        FCM 또는 푸시 서비스가 최초 재난 알림의 발송 요청을 접수했다고 Backend에
+        반환해 기록한 사실. 실제 사용자 단말 전달, 알림 열람 또는 내용 확인을
+        뜻하지 않습니다.
+      required: [type, at, payload]
+      additionalProperties: false
+      properties:
+        type: { type: string, const: push_accepted }
+        at: { $ref: '#/components/schemas/EventTimestamp' }
+        payload: { $ref: '#/components/schemas/EmptyEventPayload' }
+
+    FollowupDueEvent:
+      type: object
+      description: |
+        해당 세션에서 마지막으로 기록된 `SessionEvent.at` 이후 30분 동안 추가 이벤트가
+        없어 폐루프가 관측 단계로 재진입하고 보호자 후속 알림 조건·시점에 도달한 기록.
+        최초에는 `alert_dispatched`가 마지막 이벤트이므로 같은 규칙을 적용하고, 사용자가
+        중간에 행동하면 그 사용자 행동 이벤트의 `at`부터 30분을 다시 계산합니다. 한 번
+        반응했다는 이유만으로 폐루프가 종료되지는 않으며 `arrival_confirmed_by_user` 등
+        실제 종결 조건의 판단과는 별개입니다. 예를 들어 09:00 발송 뒤 09:25에 행동하고
+        추가 이벤트가 없다면 09:55 이후 후속 조건에 도달합니다. 보호자 발송 성공 자체는
+        `guardian_notified`로 따로 기록합니다.
+      required: [type, at, payload]
+      additionalProperties: false
+      properties:
+        type: { type: string, const: followup_due }
+        at: { $ref: '#/components/schemas/EventTimestamp' }
+        payload: { $ref: '#/components/schemas/EmptyEventPayload' }
+
+    GuardianNotifiedEvent:
+      type: object
+      description: |
+        폐루프 조건 도달 뒤 FCM 또는 푸시 서비스가 보호자 후속 발송 요청을 접수한
+        기록. 실제 보호자 단말 전달, 알림 열람 또는 피보호자의 안전 확인을 뜻하지
+        않습니다.
+      required: [type, at, payload]
+      additionalProperties: false
+      properties:
+        type: { type: string, const: guardian_notified }
+        at: { $ref: '#/components/schemas/EventTimestamp' }
+        payload: { $ref: '#/components/schemas/EmptyEventPayload' }
 
     Shelter:
       type: object
@@ -1270,6 +1826,7 @@ components:
             - SESSION_NOT_FOUND
             - SESSION_EXPIRED
             - INVALID_REQUEST
+            - IDEMPOTENCY_KEY_CONFLICT
             - RATE_LIMITED
             - INTERNAL
             # generation 구간 전용 — 생성 백엔드/벡터 DB 장애(503).

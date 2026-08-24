@@ -13,6 +13,8 @@
 | frontend ↔ backend | 세션·대피소·챗봇·기기등록·보호자 5개 | v0 초안 (2026-07-27, 이진호 제안 / Tech Lead 확정 대기) |
 | backend ↔ ai-engine (생성) | `POST /v1/generate` | v0 ([ADR-0006](../../docs/adr/0006-generation-contract.md)) · **구현됨** |
 | backend ↔ ai-engine (챗봇) | `POST /v1/answer` | v0 ([ADR-0007](../../docs/adr/0007-walking-skeleton.md)) · **구현됨** |
+| 사용자 행동 이벤트 기록 | `POST /v1/session/{token}/events` | v0 계약 · 구현 전 |
+| 세션 이벤트 로그 조회 (내부) | `GET /internal/sessions/{token}/events` | v0 계약 · 구현 전 |
 | 재난 이벤트 스키마 (수집→매칭) | — | 미작성 (백엔드 내부 모델 `backend_core.models.DisasterEvent`로만 존재) |
 
 **검색(retrieval)은 계약에 없습니다.** ai-engine 내부 단방향 파이프라인의 중간 단계이며
