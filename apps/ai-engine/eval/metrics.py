@@ -341,6 +341,11 @@ def evidence_mismatches(
         item_type = item.get("type")
         present = item.get("present")
         if not isinstance(item_type, str) or not isinstance(present, bool):
+            # ADR-0012 4절, third shape: the triplet's other two slots. Until `type` and
+            # `present` are readable there is no row in the 2절 table to apply — which
+            # event to match against and which direction is being claimed are both
+            # undecided. Note `isinstance(1, bool)` is False, so a stringified or numeric
+            # flag lands here rather than falling through to the absence branch.
             codes.append("malformed_evidence")
             continue
 
