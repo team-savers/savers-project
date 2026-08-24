@@ -355,6 +355,14 @@ class TestGuardianViolations:
             == []
         )
 
+    def test_forbidden_phrase_is_reported_even_with_no_citations(self) -> None:
+        # ADR-0012 3절: 금지 표현은 대조 결과와 무관하게 차단한다. Returning only the
+        # citation code would drop the more serious reason from the 사유별 집계 — the
+        # answer said 「괜찮습니다」 and that must show up as its own code.
+        assert metrics.guardian_violations(
+            answer="괜찮습니다.", evidence=[], events=LOG_OPENED_NO_RESPONSE
+        ) == ["unsupported_claim", "forbidden_phrase"]
+
     def test_safety_assertion_blocks_even_with_valid_citations(self) -> None:
         assert metrics.guardian_violations(
             answer="열어 보셨으니 안전합니다.",
@@ -479,3 +487,59 @@ class TestFollowupDeliveryRate:
         ]
         third = [{"type": "followup_due", "at": "2026-08-24T04:22:07Z"}]
         assert metrics.followup_delivery_rate([first, second, third]) == 2 / 3
+
+
+SENT_SESSION = [
+    {"type": "followup_due", "at": "2026-08-24T03:42:07Z"},
+    {"type": "guardian_notified", "at": "2026-08-24T03:42:09Z"},
+]
+
+
+class TestUnscoreableLoopSessions:
+    """A loop event with an unusable `at` must not quietly move M4 in either direction."""
+
+    def test_broken_due_stamp_does_not_vanish_from_the_denominator(self) -> None:
+        # The session did re-enter — `followup_due` is right there — so dropping it would
+        # report one clean success out of one, i.e. 100% for a run that scored 1 of 2.
+        broken = [{"type": "followup_due", "at": "2026-08-24 03:42"}]
+        summary = metrics.followup_summary([SENT_SESSION, broken])
+        assert (summary.due, summary.sent, summary.unscoreable) == (1, 1, 1)
+        assert metrics.followup_delivery_rate([SENT_SESSION, broken]) is None
+
+    def test_broken_send_stamp_is_not_a_delivery_failure(self) -> None:
+        # The send is in the log; only its position is missing. Calling it a miss would
+        # invent a delivery failure out of a clock bug, on a metric targeting 100%.
+        broken = [
+            {"type": "followup_due", "at": "2026-08-24T03:42:07Z"},
+            {"type": "guardian_notified", "at": "2026-08-24 03:42:09"},
+        ]
+        summary = metrics.followup_summary([broken])
+        assert (summary.due, summary.sent, summary.unscoreable) == (0, 0, 1)
+        assert summary.rate is None
+        assert metrics.followup_delivery_rate([broken]) is None
+
+    def test_a_placeable_send_settles_the_session_despite_junk_elsewhere(self) -> None:
+        # Being unable to place *one* record does not matter once another one answered
+        # the question. Marking this unscoreable would discard a verdict we actually have.
+        log = [
+            {"type": "guardian_notified", "at": "어제"},
+            {"type": "followup_due", "at": "2026-08-24T03:42:07Z"},
+            {"type": "guardian_notified", "at": "2026-08-24T03:42:09Z"},
+        ]
+        summary = metrics.followup_summary([log])
+        assert (summary.due, summary.sent, summary.unscoreable) == (1, 1, 0)
+        assert metrics.followup_delivery_rate([log]) == 1.0
+
+    def test_a_clean_run_reports_no_unscoreable_sessions(self) -> None:
+        missed = [{"type": "followup_due", "at": "2026-08-24T04:10:00Z"}]
+        summary = metrics.followup_summary([SENT_SESSION, missed])
+        assert (summary.due, summary.sent, summary.unscoreable) == (2, 1, 0)
+        assert summary.rate == 0.5
+
+    def test_a_session_that_never_re_entered_is_not_unscoreable(self) -> None:
+        # No `followup_due` means the loop never came back, which is an answered person,
+        # not a defective log. It belongs in neither count.
+        answered = [{"type": "arrival_confirmed_by_user", "at": "2026-08-24T03:14:02Z"}]
+        summary = metrics.followup_summary([answered])
+        assert (summary.due, summary.sent, summary.unscoreable) == (0, 0, 0)
+        assert summary.rate is None

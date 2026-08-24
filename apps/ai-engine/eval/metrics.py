@@ -291,10 +291,25 @@ SAFETY_ASSERTIONS = (
     "이상 없습니다",
 )
 
+_WHITESPACE = re.compile(r"\s+")
+
+# The default phrases never change, so collapse them once at import instead of on every
+# scored answer. Custom `forbidden` lists still pay per call, which is the rare path.
+_COLLAPSED_SAFETY = tuple((p, _WHITESPACE.sub("", p)) for p in SAFETY_ASSERTIONS)
+
 
 # Sort position for an event whose `at` could not be parsed. It has no place on the
-# timeline, so it goes last rather than ahead of real events; see `followup_delivery_rate`.
+# timeline, so it goes last rather than ahead of real events; see `followup_summary`.
 _UNDATED = datetime.min.replace(tzinfo=UTC)
+
+
+def _share(part: int, whole: int) -> float | None:
+    """`part / whole`, or `None` when nothing was scored.
+
+    The module-wide "0 denominator is 측정 불가, never 0.0" rule lives here so M2 and M4
+    cannot drift apart on it.
+    """
+    return None if whole == 0 else part / whole
 
 
 def _instant(value: object) -> datetime | None:
@@ -330,11 +345,14 @@ def evidence_mismatches(
     An empty list means every citation held. The codes are the ADR's, not free text, so a
     report can count *why* answers were blocked rather than only how many.
     """
-    by_type: dict[str, list[str | None]] = {}
+    # Sets, not lists: every use below is a membership test or an emptiness test, and
+    # ADR-0012 2절 says one matching occurrence is enough, so duplicate minutes carry
+    # nothing. Nobody counts occurrences here — 횟수 주장 is `unsupported_claim` by 2절.
+    by_type: dict[str, set[str | None]] = {}
     for event in events:
         event_type = event.get("type")
         if isinstance(event_type, str):
-            by_type.setdefault(event_type, []).append(_instant_minute(event.get("at")))
+            by_type.setdefault(event_type, set()).add(_instant_minute(event.get("at")))
 
     codes: list[str] = []
     for item in evidence:
@@ -349,7 +367,7 @@ def evidence_mismatches(
             codes.append("malformed_evidence")
             continue
 
-        logged = by_type.get(item_type, [])
+        logged: set[str | None] = by_type.get(item_type, set())
         if present:
             cited = _instant_minute(item.get("at"))
             if cited is None:
@@ -375,8 +393,13 @@ def forbidden_phrase_hits(answer: str, phrases: Sequence[str] = SAFETY_ASSERTION
     Matching is on the answer with whitespace collapsed, so a line break inside the phrase
     does not hide it.
     """
-    collapsed = re.sub(r"\s+", "", answer)
-    return [phrase for phrase in phrases if re.sub(r"\s+", "", phrase) in collapsed]
+    collapsed = _WHITESPACE.sub("", answer)
+    pairs = (
+        _COLLAPSED_SAFETY
+        if phrases is SAFETY_ASSERTIONS
+        else tuple((p, _WHITESPACE.sub("", p)) for p in phrases)
+    )
+    return [phrase for phrase, needle in pairs if needle in collapsed]
 
 
 def guardian_violations(
@@ -395,6 +418,13 @@ def guardian_violations(
     """
     if answer is None:
         return []
+
+    # ADR-0012 3절: 금지 표현은 대조 결과와 *무관하게* 차단한다. It is computed before the
+    # evidence branch for exactly that reason — an answer that cites nothing is still an
+    # answer that said 「괜찮습니다」, and returning only the citation code would drop the
+    # more serious reason from the 8/31 사유별 집계.
+    codes = ["forbidden_phrase" for _ in forbidden_phrase_hits(answer, forbidden)]
+
     if not evidence:
         # The contract's invariant is `sources` empty -> `answer` null. An answer that
         # arrives with no citations has already broken it: every claim it makes has no
@@ -405,10 +435,8 @@ def guardian_violations(
         # assigns it to the refusal path. Block reasons are the closed set of six in 4절;
         # mixing the other field's enum into this list would split the 8/31 사유별 집계
         # across two vocabularies.
-        return ["unsupported_claim"]
-    return evidence_mismatches(evidence, events) + [
-        "forbidden_phrase" for _ in forbidden_phrase_hits(answer, forbidden)
-    ]
+        return ["unsupported_claim", *codes]
+    return evidence_mismatches(evidence, events) + codes
 
 
 def guardian_accuracy(case_violations: Sequence[Sequence[str]]) -> float | None:
@@ -417,48 +445,124 @@ def guardian_accuracy(case_violations: Sequence[Sequence[str]]) -> float | None:
     Refusals count as graded and clean (see `guardian_violations`), because a refusal that
     was correct is exactly the behaviour the metric is defending.
     """
-    if not case_violations:
-        return None
     clean = sum(1 for violations in case_violations if not violations)
-    return clean / len(case_violations)
+    return _share(clean, len(case_violations))
+
+
+@dataclass(frozen=True)
+class FollowupSummary:
+    """M4 with the sessions it could not score kept next to the number.
+
+    `rate` is over `due` alone. `unscoreable` counts sessions that *did* re-enter the loop
+    but carry a `followup_due` or `guardian_notified` whose `at` cannot be ordered, so
+    "did the send follow its own timer" has no answer for them.
+
+    They are deliberately neither successes nor failures. Dropping them silently inflates
+    M4 — a run with one clean success and one unreadable session would report 100%. But
+    counting them as failures is just as wrong: it makes a timestamp bug indistinguishable
+    from a guardian who was never notified, on a metric whose whole point is telling those
+    two apart. Report `rate` and `unscoreable` together, or report neither.
+    """
+
+    due: int
+    sent: int
+    unscoreable: int
+    rate: float | None
+
+
+def _ordered_by_instant(
+    events: Sequence[Mapping[str, object]],
+) -> list[tuple[datetime | None, Mapping[str, object]]]:
+    """Events oldest-first by parsed instant, unorderable ones last.
+
+    Ordering is on the instant, never the raw stamp — a KST-stamped `followup_due` and a
+    Z-stamped `guardian_notified` seconds later sort backwards as strings, which would
+    read a punctual second dispatch as having preceded its own timer.
+    """
+    dated = [(_instant(event.get("at")), event) for event in events]
+    dated.sort(key=lambda pair: (pair[0] is None, pair[0] or _UNDATED))
+    return dated
+
+
+@dataclass(frozen=True)
+class _LoopOutcome:
+    """What one session's log says about the closed loop."""
+
+    due: bool  # `followup_due` is present, so the loop re-entered
+    sent: bool  # a placeable `guardian_notified` followed it
+    readable: bool  # the log answers "did the send follow its timer" one way or the other
+
+
+def _score_session(events: Sequence[Mapping[str, object]]) -> _LoopOutcome:
+    due_at: datetime | None = None
+    due = False
+    due_placed = False
+    sent = False
+    unplaceable_send = False
+
+    for at, event in _ordered_by_instant(events):
+        event_type = event.get("type")
+        if event_type == "followup_due":
+            if due:
+                continue  # 재진입 상한은 1회 (7절); a second one cannot move the verdict.
+            due = True
+            due_at = at
+            # The loop re-entered — the event's presence says so, not its clock — but
+            # with no readable time there is nothing to order the send against.
+            due_placed = at is not None
+        elif event_type == "guardian_notified":
+            if at is None:
+                unplaceable_send = True
+            elif due_at is not None and at >= due_at:
+                sent = True
+
+    # A send that *could* be placed settles the session, junk timestamps elsewhere in the
+    # log notwithstanding. An unplaceable one only decides anything when nothing else
+    # answered the question — and then it is a send we can see but cannot score, which is
+    # not the same as a guardian who was never notified.
+    return _LoopOutcome(
+        due=due,
+        sent=sent,
+        readable=due_placed and (sent or not unplaceable_send),
+    )
+
+
+def followup_summary(
+    session_logs: Sequence[Sequence[Mapping[str, object]]],
+) -> FollowupSummary:
+    """M4 (ADR-0012 7절): 분모는 `followup_due`가 있는 세션, 분자는 `guardian_notified`까지 간 세션.
+
+    A session with no `followup_due` at all never re-entered the loop and is out of both
+    counts — that is not a failure, it is a person who answered.
+    """
+    scored = [_score_session(events) for events in session_logs]
+    reentered = [outcome for outcome in scored if outcome.due]
+    scoreable = [outcome for outcome in reentered if outcome.readable]
+    sent_count = sum(1 for outcome in scoreable if outcome.sent)
+
+    return FollowupSummary(
+        due=len(scoreable),
+        sent=sent_count,
+        unscoreable=len(reentered) - len(scoreable),
+        rate=_share(sent_count, len(scoreable)),
+    )
 
 
 def followup_delivery_rate(
     session_logs: Sequence[Sequence[Mapping[str, object]]],
 ) -> float | None:
-    """M4: among sessions where the loop re-entered, the share that actually sent.
+    """M4 as a single number, or `None` when this run cannot honestly produce one.
 
-    A session counts once `followup_due` is logged; it succeeds when a `guardian_notified`
-    follows it in time. `None` — not 0.0 — when no session ever reached `followup_due`:
-    a run where the 30분 timer never fired has not measured this at all, and reporting 0
-    would read as "the loop failed every time".
+    `None` — never 0.0 — in two cases, and they mean different things:
+
+    - no session ever reached `followup_due`. The 30분 timer never fired, so nothing was
+      measured; reporting 0 would read as "the loop failed every time".
+    - some session's loop events cannot be ordered (`unscoreable` above). A rate computed
+      over the readable remainder is a number about a subset, and quoting it as M4 would
+      report the log's defect as a better score.
+
+    Use `followup_summary` when the report needs the breakdown; it is the honest form and
+    this function is the convenience wrapper over it.
     """
-    due_count = 0
-    sent_count = 0
-    for events in session_logs:
-        due_at: datetime | None = None
-        sent = False
-        # Ordered by instant, not by the raw stamp — a KST-stamped `followup_due` and a
-        # Z-stamped `guardian_notified` seconds later sort backwards as strings, which
-        # would read a punctual second dispatch as having preceded its own timer.
-        ordered = sorted(
-            ((_instant(event.get("at")), event) for event in events),
-            key=lambda pair: (pair[0] is None, pair[0] if pair[0] is not None else _UNDATED),
-        )
-        for at, event in ordered:
-            event_type = event.get("type")
-            if event_type == "followup_due" and due_at is None:
-                due_at = at
-            elif (
-                event_type == "guardian_notified"
-                and due_at is not None
-                and at is not None
-                and at >= due_at
-            ):
-                sent = True
-        if due_at is not None:
-            due_count += 1
-            sent_count += int(sent)
-    if due_count == 0:
-        return None
-    return sent_count / due_count
+    summary = followup_summary(session_logs)
+    return None if summary.unscoreable else summary.rate
