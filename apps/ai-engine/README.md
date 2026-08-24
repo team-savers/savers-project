@@ -89,4 +89,28 @@ ruff check apps/ai-engine && ruff format --check apps/ai-engine
 cd apps/ai-engine && mypy && pytest
 ```
 
+## 부합도 모델 실학습
+
+실데이터는 공개 저장소에 커밋하지 않습니다. 로컬에
+`data/raw/building_registry_3districts_20260805.csv`를 둔 뒤 아래 명령을
+실행하면 자치구 3-fold GroupKFold 평가, 동일 seed 재현성 확인, 최종 LightGBM
+학습을 한 번에 수행합니다.
+
+```bash
+python scripts/train_shelter_suitability.py --verify-reproducibility
+```
+
+결과는 `artifacts/shelter_safety/summary.json`과
+`artifacts/shelter_safety/shelter_suitability_lgbm.txt`에 저장됩니다.
+이 학습 파이프라인에서 사용하는 lift는 기존 프로젝트 문서에 수식으로 고정돼 있던
+값이 아니라 다음과 같이 명시한 operational definition입니다.
+
+```text
+모델의 비학교 recall@top-20%
+÷ 침수심 baseline의 기대 비학교 recall@top-20%
+```
+
+`summary.json`은 자치구별 lift와 recall@top-20%뿐 아니라 평균·표준편차·최솟값·
+최댓값을 함께 기록하므로, 3개 자치구 결과 편차를 평균 하나로 숨기지 않습니다.
+
 > TODO(P1): `RETRIEVER_BACKEND=chroma`를 운영 기본값으로 전환, 평가 하네스(`apps/ai-engine/eval/`) 배선.

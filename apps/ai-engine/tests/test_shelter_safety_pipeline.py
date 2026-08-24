@@ -114,17 +114,19 @@ def _run_unified(config: SpyPipelineConfig | None = None) -> PuPipelineResult:
     )
 
 
-def test_unified_pipeline_raises_when_dedup_drops_a_shelter_row() -> None:
+def test_unified_pipeline_preserves_shelter_before_larger_non_shelter() -> None:
     """dup_02: 같은 pk에 대피소(is_shelter=1, 연면적 60) 행과 비-대피소
     (is_shelter=0, 연면적 9998) 행이 섞여 있다 — 연면적 최대 기준 dedup이면
     대피소 행이 버려지고 그 필지가 조용히 U로 넘어간다. select_primary_building()
-    이 split_unified_registry()보다 먼저 실행되는 순서 자체는 그대로 두되, dedup
-    전후로 "대피소 라벨을 가진 필지(pk)"가 보존되는지 검증하는 가드가 여기서
-    막아야 한다(PR #60 리뷰 -> self-review로 행 수 비교에서 pk 집합 비교로 교체)."""
-    with pytest.raises(ValueError, match="라벨이 탈락"):
-        run_pu_pipeline_from_unified_registry(
-            UNIFIED_REGISTRY_DEDUP_GUARD_CSV, config=SpyPipelineConfig(), scorer=_fake_scorer
-        )
+    이 우선순위를 뒤집지 못하고 지정 대피소 사실이 최종 P에 남아야 한다."""
+    result = run_pu_pipeline_from_unified_registry(
+        UNIFIED_REGISTRY_DEDUP_GUARD_CSV, config=SpyPipelineConfig(), scorer=_fake_scorer
+    )
+
+    preserved = result.positive[result.positive[schema.UNIFIED_REGISTRY_PK_COL].eq("dup_02")]
+    assert len(preserved) == 1
+    assert preserved.iloc[0][schema.UNIFIED_REGISTRY_IS_SHELTER_COL] == 1
+    assert preserved.iloc[0][schema.UNIFIED_REGISTRY_TOTAL_FLOOR_AREA_COL] == 60
 
 
 def test_unified_pipeline_dedup_reducing_duplicate_shelter_rows_does_not_raise() -> None:
@@ -197,26 +199,20 @@ def test_unified_pipeline_is_deterministic_given_same_seed() -> None:
     assert result_a.threshold == pytest.approx(result_b.threshold)
 
 
-def test_unified_pipeline_positive_rows_carry_spatial_feature_columns() -> None:
-    """2026-08-05 완전판(브이월드 PNU 조인)의 침수구역내/침수심등급/
-    최근접펌프장거리_m이 실제로 FEATURE_COLUMNS를 통해 결과에 실려 있는지 확인."""
+def test_unified_pipeline_keeps_validation_only_spatial_columns_out_of_features() -> None:
+    """침수예상도 baseline 컬럼을 모델 피처로 쓰면 lift 검증이 누수된다."""
     result = _run_unified()
 
     for col in ("침수구역내", "침수심등급", "최근접펌프장거리_m"):
-        assert col in schema.UNIFIED_REGISTRY_FEATURE_COLUMNS
+        assert col not in schema.UNIFIED_REGISTRY_FEATURE_COLUMNS
         assert col in result.positive.columns
+    assert len(schema.UNIFIED_REGISTRY_FEATURE_COLUMNS) == 13
 
 
-def test_unified_pipeline_runs_with_real_lightgbm_despite_spatial_feature_nans() -> None:
-    """결측 처리에 별도 로직이 필요 없다는 걸 실제로 확인한다: fixtures/README.md의
-    `safe_06`/`u_005`/`u_015`/`u_025`/`u_035`(공간 피처 전부 NaN)가 섞인 채로도,
-    가짜 스코어러가 아니라 **진짜 `default_lightgbm_scorer`**로 학습·스코어링까지
-    에러 없이 끝나야 한다 — fake scorer는 피처 값을 안 보므로 이 확인엔 못 쓴다."""
+def test_unified_pipeline_runs_with_real_lightgbm_and_final_features() -> None:
+    """확정한 13개 피처로 실제 임시 LightGBM 학습·스코어링까지 실행한다."""
     pytest.importorskip("lightgbm")
 
-    # NaN이 섞인 안전 P(safe_06)가 학습에 포함되는지는 spy_ratio 기본값(0.15)에
-    # 맡기고, 여기서는 시드만 고정한다(결정론적 재현 목적 -- 우연히 spy로 빠져도
-    # 문제 없음 -- U 서브샘플에도 NaN 섞인 u_00X가 이미 포함돼 있기 때문).
     result = run_pu_pipeline_from_unified_registry(
         UNIFIED_REGISTRY_CSV, config=SpyPipelineConfig(seed=1)
     )
