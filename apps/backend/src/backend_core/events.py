@@ -115,6 +115,19 @@ class SessionEvent(ContractModel):
         # `Z` 표기 강제. isoformat()은 UTC를 `+00:00`으로 내므로 그 자리를 `Z`로 바꾼다.
         return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
+    @model_validator(mode="after")
+    def _payload_matches_type(self) -> SessionEvent:
+        # 저장 이벤트도 생성 DTO와 같은 불변식을 강제한다. 이 로그가 검증기, 보호자 QA의
+        # 사실 정본이므로, append 경로가 아니라 SQLite 역직렬화로 직접 구성될 때도
+        # 계약 밖 이벤트(alert_dispatched + 좌표, next_guidance_requested + 빈 payload)가
+        # 정본에 들어가지 못하게 한다.
+        if self.type == "next_guidance_requested":
+            if not isinstance(self.payload, GuidanceStepPayload):
+                raise ValueError("next_guidance_requested requires a guidanceStep payload")
+        elif not (isinstance(self.payload, dict) and not self.payload):
+            raise ValueError(f"{self.type} must carry an empty payload")
+        return self
+
 
 class UserActionEventCreate(RequestModel):
     """FE 기록 요청 DTO. `type`·`payload`만 받는다 — `at`·좌표·프로필·연락처를 보내면

@@ -134,3 +134,13 @@ def test_empty_payload_event_dumps_as_empty_object() -> None:
         "at": "2026-08-24T03:12:00Z",
         "payload": {},
     }
+
+
+def test_stored_event_enforces_type_payload_invariant() -> None:
+    """저장 모델도 짝을 강제한다 — SQLite 역직렬화 등 append 경로 밖에서 직접 구성해도
+    계약 밖 이벤트가 정본에 들어가지 못한다."""
+    now = datetime(2026, 8, 24, 3, 12, tzinfo=UTC)
+    with pytest.raises(ValidationError):  # 빈-payload 타입에 필드가 붙으면 거부
+        SessionEvent(type="alert_dispatched", at=now, payload={"lat": 37.5})
+    with pytest.raises(ValidationError):  # guidance 타입에 guidanceStep이 없으면 거부
+        SessionEvent(type="next_guidance_requested", at=now, payload={})
