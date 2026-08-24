@@ -81,3 +81,56 @@ def test_session_event_at_must_be_utc_aware() -> None:
     kst = timezone(timedelta(hours=9))
     with pytest.raises(ValidationError):
         SessionEvent(type="alert_dispatched", at=datetime(2026, 8, 24, 12, 12, tzinfo=kst))
+
+
+def test_json_guidance_step_resolves_to_the_model_not_a_dict() -> None:
+    """JSON dict 입력에서도 payload가 dict가 아니라 GuidanceStepPayload로 판정돼야 한다.
+
+    union_mode를 좌에서 우로 고정하지 않으면 smart 유니온이 {"guidanceStep": 2}를
+    dict 정확 일치로 골라, 정상 요청을 model_validator가 거부한다.
+    """
+    create = UserActionEventCreate.model_validate(
+        {"type": "next_guidance_requested", "payload": {"guidanceStep": 2}}
+    )
+    assert isinstance(create.payload, GuidanceStepPayload)
+    assert create.payload.guidance_step == 2
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # next_guidance인데 빈 payload -> 짝 어긋남.
+        {"type": "next_guidance_requested", "payload": {}},
+        # 빈 payload를 써야 하는 종류에 guidanceStep이 붙음.
+        {"type": "choice_screen_viewed", "payload": {"guidanceStep": 2}},
+        # 좌표는 GuidanceStepPayload에서 실패해 dict로 떨어지고, 비어 있지 않아 거부된다.
+        {"type": "choice_screen_viewed", "payload": {"lat": 37.5, "lng": 127.0}},
+    ],
+)
+def test_json_bad_payloads_are_rejected(body: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        UserActionEventCreate.model_validate(body)
+
+
+def test_guidance_event_dump_round_trips_with_camel_alias() -> None:
+    event = SessionEvent(
+        type="next_guidance_requested",
+        at=datetime(2026, 8, 24, 3, 12, tzinfo=UTC),
+        payload=GuidanceStepPayload(guidance_step=3),
+    )
+    dumped = event.model_dump(mode="json", by_alias=True)
+    assert dumped == {
+        "type": "next_guidance_requested",
+        "at": "2026-08-24T03:12:00Z",
+        "payload": {"guidanceStep": 3},
+    }
+
+
+def test_empty_payload_event_dumps_as_empty_object() -> None:
+    event = SessionEvent(type="alert_dispatched", at=datetime(2026, 8, 24, 3, 12, tzinfo=UTC))
+    dumped = event.model_dump(mode="json", by_alias=True)
+    assert dumped == {
+        "type": "alert_dispatched",
+        "at": "2026-08-24T03:12:00Z",
+        "payload": {},
+    }

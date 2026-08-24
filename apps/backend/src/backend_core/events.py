@@ -93,7 +93,12 @@ class SessionEvent(ContractModel):
 
     type: EventType
     at: datetime
-    payload: GuidanceStepPayload | dict[str, Any] = Field(default_factory=dict)
+    # left_to_right: try GuidanceStepPayload first, fall back to an (empty) dict. Smart mode
+    # would match a bare `{"guidanceStep": 2}` to the exact `dict[str, Any]` and then the
+    # pairing validator would reject a valid request.
+    payload: GuidanceStepPayload | dict[str, Any] = Field(
+        default_factory=dict, union_mode="left_to_right"
+    )
 
     @field_validator("at")
     @classmethod
@@ -120,7 +125,9 @@ class UserActionEventCreate(RequestModel):
     """
 
     type: UserActionEventType
-    payload: GuidanceStepPayload | dict[str, Any]
+    # left_to_right: same reason as SessionEvent.payload — pin the union so a JSON
+    # `{"guidanceStep": 2}` resolves to GuidanceStepPayload, not the exact-match dict branch.
+    payload: GuidanceStepPayload | dict[str, Any] = Field(union_mode="left_to_right")
 
     @model_validator(mode="after")
     def _payload_matches_type(self) -> UserActionEventCreate:
