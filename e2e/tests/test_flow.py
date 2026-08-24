@@ -2,7 +2,7 @@
 
 Exercises `POST /internal/alerts/dispatch` against the seeded demo 행정동, then follows one
 delivered resident's session and guardian tokens through their own endpoints. This is the
-first non-placeholder flow test (docs/역할_일정/06-QA-보안.md S1-3) — it landed early because
+first non-placeholder flow test (docs/역할_일정/01-기획총괄.md) — it landed early because
 the walking skeleton (PR #22) shipped ahead of schedule.
 
 Deliberately agnostic about which text the message carries: whether the AI engine answered
