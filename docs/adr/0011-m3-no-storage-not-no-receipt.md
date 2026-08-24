@@ -1,9 +1,9 @@
 # ADR-0011: M3 지표를 "위치정보 미수신"에서 "위치정보 무저장, 무로깅"으로 재정정한다
 
-- **상태**: 제안 (Proposed) - PR [#95](https://github.com/team-savers/savers-project/pull/95) 리뷰(신호정) 지적에 따라 작성, Tech Lead 승인 대기
+- **상태**: 승인 (Accepted) - 2026-08-24 Tech Lead 승인. PR [#95](https://github.com/team-savers/savers-project/pull/95) 리뷰(신호정) 지적에 따라 작성됐다
 - **번호 정정**: 초안은 ADR-0010으로 작성됐으나, main에 먼저 병합된 [ADR-0010](0010-privacy-harness-placement.md)(개인정보 점검 하네스 배치, PR #76)과 번호가 겹쳐 PR #96 2차 리뷰(신호정)에서 지적되어 ADR-0011로 재번호했습니다
-- **날짜**: 2026-08-22
-- **결정자**: 안은남 (PM) 제안 / 신호정 (Tech Lead) 승인 대기
+- **날짜**: 2026-08-22 (작성) / 2026-08-24 (승인)
+- **결정자**: 안은남 (PM) 제안 / 신호정 (Tech Lead) 승인
 - **관련 문서**: [정량목표_검증설계.md 3절](../공유_문서/정량목표_검증설계.md), [서비스_기획서.md](../공유_문서/서비스_기획서.md) 정정 항목 표, `packages/contracts/openapi.yaml`, `apps/backend/src/api/routes/shelters.py`
 
 ## 배경 (Context)
@@ -74,5 +74,6 @@ M3 지표 문구를 **코드가 실제로 보장하는 것**에 맞춥니다. �
 | 역할_일정 문서(00-overall, README, 01, 03) M3 문구 갱신 | PM | 완료, 이 PR |
 | 기존_자산_내역.md M3 관련 서술 갱신 | PM | 완료, 이 PR |
 AGENTS.md에 4대 지표(M1-M4) 자체를 반영 | PM | 미처리 - AGENTS.md Quality bar 절이 아직 예선 시절 지표(근거 일치율 등)만 담고 있고 M1-M4로 갱신되지 않았음. 이 PR의 범위(문서 3종 + 역할_일정)를 넘는 별도 후속 작업으로 남깁니다 |
-| `check_privacy.py`가 저장, 로깅 지점을 실제로 스캔하는지 확인 | Backend | 완료 — [ADR-0010](0010-privacy-harness-placement.md) |
-| Tech Lead 승인 | Tech Lead | 대기 |
+| `check_privacy.py`가 저장, 로깅 지점을 실제로 스캔하는지 확인 | Backend | 완료 - [ADR-0010](0010-privacy-harness-placement.md) |
+| Tech Lead 승인 | Tech Lead | 완료 - 2026-08-24 |
+| 저장소의 "제안 상태, 검토 중" 표기 정리 (AGENTS.md 3곳, 공통 가이드 5곳, 공유 문서 README, 역할 가이드 01) | PM | 대기 - 이 승인 뒤 별도 PR |
