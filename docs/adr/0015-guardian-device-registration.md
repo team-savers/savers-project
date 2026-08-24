@@ -4,7 +4,8 @@
 - **날짜**: 2026-08-24
 - **결정자**: 신호정 (Tech Lead) 작성 / 김도혁 (Backend), 김소원 (AI/RAG/프론트엔드) 확인 대기
 - **관련 문서**: [ADR-0005](0005-webpush-primary-channel.md) (1차 채널),
-  [ADR-0012](0012-verifier-rules-and-closed-loop.md) 5절, 7절 (폐루프 상태, M4 분모와 분자),
+  [ADR-0012](0012-verifier-rules-and-closed-loop.md) 5절, 7절, 7-a절 (폐루프 상태, M4 분모와 분자.
+  7-a절은 [PR 120](https://github.com/team-savers/savers-project/pull/120) 개정, 제안),
   [ADR-0014](0014-closed-loop-second-dispatch-channel.md) (2차 발송 채널, 제안 - [PR 119](https://github.com/team-savers/savers-project/pull/119)),
   [packages/contracts/openapi.yaml](../../packages/contracts/openapi.yaml) v0.7,
   [역할_일정/04-백엔드.md](../역할_일정/04-백엔드.md) 8/25
@@ -56,8 +57,8 @@ FCM 으로 닿으려면 **보호자 기기가 이미 구독돼 있어야 한다.
 6. **보호자 기기가 없는 세션은 M4 분모에 넣지 않는다.**
    측정 대상이 아닌 것을 실패로 세지 않는다는 뜻이다.
    **그 결과를 어느 규칙으로 얻을지는 [ADR-0012](0012-verifier-rules-and-closed-loop.md) 소관이고 이 ADR 이 정하지 않는다.**
-   규칙은 아래 "M4 분모에서 빼는 방법" 절이 기록한 대로 Tech Lead 가 정했고 7절에 적힌다.
-   계약(`GuardianStatus.pushEnabled`)도 분모를 판정하지 않고 7절을 가리키기만 한다.
+   규칙은 아래 "M4 분모에서 빼는 방법" 절이 기록한 대로 Tech Lead 가 정했고 7-a절에 적혔다.
+   계약(`GuardianStatus.pushEnabled`)도 분모를 판정하지 않고 그 절을 가리키기만 한다.
 7. **보낼 보호자 기기가 없어 건너뛴 재진입은 `followup_unreachable` 로 로그에 남긴다.**
    `followup_due` 와 배타이고 세션당 1회다.
    이것으로 시스템 이벤트가 4종에서 5종이 된다.
@@ -80,6 +81,7 @@ FCM 으로 닿으려면 **보호자 기기가 이미 구독돼 있어야 한다.
   데모 페르소나 2인 중 `p002`(외국인 근로자)가 정확히 `guardian: null` 이다.
   다만 이것은 "무엇을 세지 않을 것인가"까지이고,
   분모를 어느 이벤트로 셀지는 [ADR-0012](0012-verifier-rules-and-closed-loop.md) 7절이 이미 정한 영역이다.
+  무엇을 분모에서 빼는지는 같은 문서 7-a절이 정한다.
 
 ## 결과 (Consequences)
 
@@ -103,7 +105,7 @@ FCM 으로 닿으려면 **보호자 기기가 이미 구독돼 있어야 한다.
 **(3)으로 간다. Tech Lead 판단, 2026-08-24. Backend 확인 완료.**
 `pushEnabled: false` 면 2단계에서 `followup_due` 대신 `followup_unreachable` 을 남긴다.
 재진입 사실은 로그에 남고, `followup_due` 를 분모로 세는 집계는 그 세션을 비켜 간다.
-**규칙 자체는 [ADR-0012](0012-verifier-rules-and-closed-loop.md) 7절에 적히며 이 문서가 정하지 않는다.**
+**규칙 자체는 [ADR-0012](0012-verifier-rules-and-closed-loop.md) 7-a절에 적혔으며 이 문서가 정하지 않는다.**
 여기 남기는 것은 계약이 왜 이 모양인지를 복원하기 위한 선택지 기록이다.
 
 | 안 | 얻는 것 | 잃는 것 | 판정 |
@@ -121,7 +123,7 @@ M4 가 폐루프 신뢰성이 아니라 **보호자 가입률 지표**가 되기
 페이로드 검사로 바뀌고, 채점 함수가 이벤트 내부를 읽기 시작한다.
 
 **수신 해제가 재진입 판정 뒤면 분모에는 들고 분자는 채울 수 없다.**
-이 순서의 처리 규칙은 [ADR-0012](0012-verifier-rules-and-closed-loop.md) 7절에 적힌다
+이 순서의 처리 규칙은 [ADR-0012](0012-verifier-rules-and-closed-loop.md) 7-a절에 적혔다
 (분모 소속은 2단계 진입 시점에 고정되고 이후 이벤트가 바꾸지 못한다는 불변식이 이 경우를 덮는다).
 계약 쪽에서 이 순서를 만들 수 있는 경로가 `DELETE /v1/guardian/{token}/device` 라는 것만 여기 적어 둔다.
 
@@ -133,8 +135,8 @@ M4 가 폐루프 신뢰성이 아니라 **보호자 가입률 지표**가 되기
 | `Resident.devices` 를 역할별로 분리하고 1차 발송을 `ward` 로 한정 | Backend | 대기 (8/25 슬롯) |
 | `/register` 완료 화면의 보호자 구독, `/g/` 랜딩의 구독과 해제 | AI/RAG/프론트엔드 | 대기 |
 | 계약에 `followup_unreachable` 신설, 시스템 이벤트 4종 표기를 5종으로 (`SessionEvent` oneOf/discriminator, 세션당 1회 목록, `POST /v1/session/{token}/events`, `RecordedUserActionEvent`) | Tech Lead | 완료, 이 PR |
-| `GuardianEvidenceType` 과 `GuardianQuestionId` 3질문 매핑표에 `followup_unreachable` 반영. **두 스키마는 이 브랜치에 없고 보호자 Q&A 계약(PR 104)에 있다** - 나중에 머지되는 쪽이 넣는다 | Tech Lead | 대기 |
-| [ADR-0012](0012-verifier-rules-and-closed-loop.md) 7절에 분모 소속 고정 불변식, `followup_unreachable` 세션당 1회, 종료 조건에 `guardian_notified` 1건 | Tech Lead | 진행 |
+| `GuardianEvidenceType` 과 `GuardianQuestionId` 3질문 매핑표에 `followup_unreachable` 반영(`evacuation_progress` 에 배분). **두 스키마는 이 브랜치에 없고 보호자 Q&A 계약(PR 104)이 소유하므로 그쪽에서 넣는다** - 이 브랜치는 건드리지 않는다 | Tech Lead (PR 104) | 확정 |
+| [ADR-0012](0012-verifier-rules-and-closed-loop.md) 7-a절에 분모 소속 고정 불변식, `followup_unreachable` 세션당 1회, 별도 계상 단위, 소급 발송 at-least-once. 종료 조건에 `guardian_notified` 1건 | Tech Lead | 완료 ([PR 120](https://github.com/team-savers/savers-project/pull/120), 제안) |
 | 등록 토큰의 TTL, 1인당 발급 매수, 분실 시 재발급이 계약에 "미정"으로 남아 있다(`DeviceRegisterRequest.registrationToken`). 보호자 기기가 이 토큰에 매이므로 2차 발송 신뢰성에 걸린다. 갱신 경로(`/g/`)가 있어 완전 차단은 아니다 | Tech Lead | 대기 |
 | [정량목표_검증설계.md](../공유_문서/정량목표_검증설계.md) M4 행에 분모 제외 조건과 그 보고 방식 | PM | 대기 |
 | [워킹_스켈레톤_설명.md](../공통_가이드/워킹_스켈레톤_설명.md) API 표에 새 경로 두 줄 | Tech Lead | 대기 |
