@@ -16,9 +16,16 @@ live links; the replacement (Redis/DB) is Backend's S1-2 work.
 from __future__ import annotations
 
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
+from backend_core.events import (
+    ONCE_PER_SESSION,
+    IdempotencyKeyConflictError,
+    SessionEvent,
+    SystemEventType,
+    UserActionEventCreate,
+)
 from backend_core.models import AlertMessage, DisasterEvent, ResponseChoice, Stage
 
 # 32 bytes -> ~43 url-safe chars. The session response carries name, housing type and
@@ -66,6 +73,12 @@ class SessionRecord:
     responded_at: datetime | None = None
     last_response: ResponseChoice | None = None
     acknowledged_by_guardian: bool = False
+    # Append-only event log for this session. The guardian answer, the claim-level verifier
+    # and the closed loop all read this — never coordinates (payloads have no field for one).
+    events: list[SessionEvent] = field(default_factory=list)
+    # Idempotency-Key -> the event that key produced. A resent POST returns that same event
+    # instead of appending a duplicate, so retries cannot inflate the M4 numerator.
+    idempotency: dict[str, SessionEvent] = field(default_factory=dict)
 
     def is_expired(self, now: datetime | None = None) -> bool:
         return (now or _now()) >= self.expires_at
@@ -144,6 +157,59 @@ class SessionStore:
         """
         record.last_response = choice
         record.responded_at = now or _now()
+
+    def append_user_event(
+        self,
+        record: SessionRecord,
+        *,
+        key: str,
+        create: UserActionEventCreate,
+        now: datetime | None = None,
+    ) -> SessionEvent:
+        """Append one user-action event, honouring both dedup rules.
+
+        (a) Same `Idempotency-Key` seen before -> a retry only if `type` and `payload` match
+            the stored event; then return it, write nothing. Reused with a *different*
+            request it is a caller bug -> `IdempotencyKeyConflictError` (409), write nothing.
+        (b) A once-per-session type that already exists -> return the first one and bind this
+            key to it, write no new event: a real re-tap uses a *new* key, so a repeat of the
+            same key here is a retry of the same action. The bound event's `type` equals the
+            request's, so a later retry of that key is judged a retry in (a).
+        (c) Otherwise append, record the key, and return the new event.
+        """
+        existing = record.idempotency.get(key)
+        if existing is not None:
+            if existing.type == create.type and existing.payload == create.payload:
+                return existing
+            raise IdempotencyKeyConflictError(key)
+
+        if create.type in ONCE_PER_SESSION:
+            for event in record.events:
+                if event.type == create.type:
+                    record.idempotency[key] = event
+                    return event
+
+        event = SessionEvent(type=create.type, at=now or _now(), payload=create.payload)
+        record.events.append(event)
+        record.idempotency[key] = event
+        return event
+
+    def append_system_event(
+        self, record: SessionRecord, type: SystemEventType, *, now: datetime | None = None
+    ) -> SessionEvent:
+        """Append one system event. All four are once-per-session: if the type already exists,
+        the first event is returned unchanged so its `at` is preserved."""
+        for event in record.events:
+            if event.type == type:
+                return event
+        event = SessionEvent(type=type, at=now or _now(), payload={})
+        record.events.append(event)
+        return event
+
+    def events_of(self, record: SessionRecord) -> list[SessionEvent]:
+        """All events for this session, `at` ascending. Ties keep insertion order — a stable
+        sort on `at` is enough because events are appended in arrival order."""
+        return sorted(record.events, key=lambda event: event.at)
 
     def __len__(self) -> int:
         return len(self._by_token)

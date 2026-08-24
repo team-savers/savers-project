@@ -227,6 +227,8 @@ def run_alert(
         session = sessions.create(
             user_id=profile.user_id, stage=stage, message=message, event=event, now=started
         )
+        # 발송을 시도한 시각. 전달 성공이 아니라 발송 요청이며, push_accepted와 구분한다.
+        sessions.append_system_event(session, "alert_dispatched", now=started)
 
         if not resident.devices:
             # Registered but unreachable: no FCM token yet, or every device was detached.
@@ -236,8 +238,9 @@ def run_alert(
             continue
 
         link = deep_link(public_base_url, session.token, stage)
-        notified = sum(
-            dispatcher.send(
+        notified = 0
+        for token in resident.devices:
+            accepted = dispatcher.send(
                 PushPayload(
                     device_token=token,
                     title=message.title,
@@ -246,8 +249,19 @@ def run_alert(
                     link=link,
                 )
             )
-            for token in resident.devices
-        )
+            if accepted:
+                if notified == 0:
+                    # First device the push service accepted. Recorded once — no device or an
+                    # all-failed send leaves this event absent, which is itself a fact.
+                    # Stamped on the same injected+monotonic basis as `started`/`finished_at`,
+                    # never the wall clock: mixing the two could order this before
+                    # `alert_dispatched` when `now` is a replayed past time.
+                    sessions.append_system_event(
+                        session,
+                        "push_accepted",
+                        now=started + timedelta(seconds=perf_counter() - clock_start),
+                    )
+                notified += 1
 
         run.deliveries.append(
             Delivery(

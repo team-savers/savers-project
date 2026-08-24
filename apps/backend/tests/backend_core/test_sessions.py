@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from backend_core.events import IdempotencyKeyConflictError, UserActionEventCreate
 from backend_core.models import AlertMessage, DisasterEvent
 from backend_core.sessions import (
     SessionExpiredError,
@@ -13,6 +14,10 @@ from backend_core.sessions import (
     SessionStore,
     new_token,
 )
+
+
+def _user_event(type_: str, payload: dict | None = None) -> UserActionEventCreate:
+    return UserActionEventCreate(type=type_, payload=payload or {})
 
 MESSAGE = AlertMessage(
     title="[세이버스] 서원동 호우경보",
@@ -99,3 +104,130 @@ def test_tokens_are_high_entropy_and_prefixed() -> None:
     sample = tokens.pop()
     assert sample.startswith("s_")
     assert len(sample) > 40
+
+
+def test_same_idempotency_key_writes_once(sessions: SessionStore, event: DisasterEvent) -> None:
+    """같은 키의 재시도는 새 이벤트를 만들지 않고 최초 저장 결과를 그대로 돌려준다."""
+    record = _create(sessions, event)
+    first = sessions.append_user_event(
+        record, key="evt_key_repeated_00", create=_user_event("choice_screen_viewed")
+    )
+    again = sessions.append_user_event(
+        record, key="evt_key_repeated_00", create=_user_event("choice_screen_viewed")
+    )
+    assert len(record.events) == 1
+    assert again is first
+
+
+def test_same_key_different_type_is_a_conflict(
+    sessions: SessionStore, event: DisasterEvent
+) -> None:
+    """같은 키를 다른 행동에 재사용하면 재시도가 아니라 충돌이다 — 아무것도 쓰지 않는다."""
+    record = _create(sessions, event)
+    sessions.append_user_event(
+        record, key="evt_key_reused_000", create=_user_event("choice_screen_viewed")
+    )
+    with pytest.raises(IdempotencyKeyConflictError):
+        sessions.append_user_event(
+            record, key="evt_key_reused_000", create=_user_event("help_request_selected")
+        )
+    assert len(record.events) == 1
+
+
+def test_same_key_different_payload_is_a_conflict(
+    sessions: SessionStore, event: DisasterEvent
+) -> None:
+    """type이 같아도 payload가 다르면 충돌이다 — guidanceStep 2로 저장한 키에 3은 다른 요청이다."""
+    record = _create(sessions, event)
+    sessions.append_user_event(
+        record,
+        key="evt_guidance_key_00",
+        create=_user_event("next_guidance_requested", {"guidanceStep": 2}),
+    )
+    with pytest.raises(IdempotencyKeyConflictError):
+        sessions.append_user_event(
+            record,
+            key="evt_guidance_key_00",
+            create=_user_event("next_guidance_requested", {"guidanceStep": 3}),
+        )
+    assert len(record.events) == 1
+
+
+def test_repeatable_action_with_new_keys_records_each(
+    sessions: SessionStore, event: DisasterEvent
+) -> None:
+    """반복 가능한 행동은 새 키마다 별개로 기록된다 — 재선택 자체가 인용 가능한 사실이다."""
+    record = _create(sessions, event)
+    for i in range(3):
+        sessions.append_user_event(
+            record, key=f"evt_choice_{i:016d}", create=_user_event("choice_screen_viewed")
+        )
+    assert len(record.events) == 3
+
+
+def test_arrival_is_once_per_session_even_with_new_keys(
+    sessions: SessionStore, event: DisasterEvent
+) -> None:
+    """도착 완료는 세션당 1건 — 다른 키로 다시 와도 최초 이벤트와 그 `at`을 유지한다."""
+    record = _create(sessions, event)
+    first = sessions.append_user_event(
+        record,
+        key="evt_arrival_first_0",
+        create=_user_event("arrival_confirmed_by_user"),
+        now=datetime(2026, 8, 5, 9, 40, tzinfo=UTC),
+    )
+    second = sessions.append_user_event(
+        record,
+        key="evt_arrival_retry_0",
+        create=_user_event("arrival_confirmed_by_user"),
+        now=datetime(2026, 8, 5, 9, 55, tzinfo=UTC),
+    )
+    assert len(record.events) == 1
+    assert second is first
+    assert second.at == first.at
+
+
+def test_profile_review_completed_can_repeat(sessions: SessionStore, event: DisasterEvent) -> None:
+    """정보 수정 뒤 다시 확인·완료할 수 있으므로 서로 다른 키로 여러 건 남는다."""
+    record = _create(sessions, event)
+    sessions.append_user_event(
+        record, key="evt_review_first_00", create=_user_event("profile_review_completed")
+    )
+    sessions.append_user_event(
+        record, key="evt_review_second_0", create=_user_event("profile_review_completed")
+    )
+    assert len(record.events) == 2
+
+
+def test_system_event_is_deduped_keeping_the_first_at(
+    sessions: SessionStore, event: DisasterEvent
+) -> None:
+    record = _create(sessions, event)
+    first = sessions.append_system_event(
+        record, "alert_dispatched", now=datetime(2026, 8, 5, 9, 0, tzinfo=UTC)
+    )
+    again = sessions.append_system_event(
+        record, "alert_dispatched", now=datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    )
+    assert len(record.events) == 1
+    assert again is first
+    assert again.at == first.at
+
+
+def test_events_of_sorts_ascending_by_at(sessions: SessionStore, event: DisasterEvent) -> None:
+    """역순으로 넣어도 `at` 오름차순으로 나온다 — 저장 순서가 아니라 시각으로 정렬한다."""
+    record = _create(sessions, event)
+    injected = [
+        datetime(2026, 8, 5, 9, 30, tzinfo=UTC),
+        datetime(2026, 8, 5, 9, 20, tzinfo=UTC),
+        datetime(2026, 8, 5, 9, 10, tzinfo=UTC),
+    ]
+    for i, when in enumerate(injected):
+        sessions.append_user_event(
+            record,
+            key=f"evt_order_{i:016d}",
+            create=_user_event("choice_screen_viewed"),
+            now=when,
+        )
+    ordered = [e.at for e in sessions.events_of(record)]
+    assert ordered == sorted(injected)

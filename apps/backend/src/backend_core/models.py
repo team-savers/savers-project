@@ -41,7 +41,12 @@ Availability = Literal["ok", "all_excluded", "cache_only", "upstream_unavailable
 HazardMatch = Literal["inside", "outside", "unknown"]
 ExclusionReason = Literal["underground", "closed", "unreachable"]
 ErrorCode = Literal[
-    "SESSION_NOT_FOUND", "SESSION_EXPIRED", "INVALID_REQUEST", "RATE_LIMITED", "INTERNAL"
+    "SESSION_NOT_FOUND",
+    "SESSION_EXPIRED",
+    "INVALID_REQUEST",
+    "IDEMPOTENCY_KEY_CONFLICT",
+    "RATE_LIMITED",
+    "INTERNAL",
 ]
 
 

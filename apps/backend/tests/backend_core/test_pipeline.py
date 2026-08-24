@@ -4,7 +4,7 @@ Convention: tests/ mirrors src/ (src/backend_core/pipeline.py ->
 tests/backend_core/test_pipeline.py).
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import get_args
 
 from conftest import GROUNDED_BODY, FakeAiEngine
@@ -315,6 +315,71 @@ def test_multiple_devices_all_receive(
     delivery = next(d for d in run.deliveries if d.user_id == "p001")
     assert delivery.devices_notified == 2
     assert len(dispatcher.sent) == 3
+
+
+def test_reached_recipient_gets_alert_dispatched_then_push_accepted(
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    dispatcher: RecordingDispatcher,
+    shelter_repository: ShelterRepository,
+) -> None:
+    """디바이스가 있는 수신자 세션은 alert_dispatched 다음 push_accepted를 남긴다."""
+    run = _run(event, registry, sessions, ai, dispatcher, shelter_repository)
+    record = sessions.get(run.deliveries[0].session_token)
+    types = [e.type for e in sessions.events_of(record)]
+    assert types == ["alert_dispatched", "push_accepted"]
+
+
+def test_system_event_times_follow_the_injected_clock(
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    dispatcher: RecordingDispatcher,
+    shelter_repository: ShelterRepository,
+) -> None:
+    """주입 시각을 과거로 줘도 push_accepted는 alert_dispatched 뒤이고 둘 다 주입 시각 근처다.
+
+    시스템 이벤트 시각을 벽시계로 찍으면 과거를 리플레이할 때 push_accepted가
+    alert_dispatched보다 앞서는 로그가 나온다 — finished_at과 같은 기준을 써야 한다.
+    """
+    injected = datetime(2026, 8, 5, 9, 0, tzinfo=UTC)
+    run = run_alert(
+        event,
+        registry=registry,
+        sessions=sessions,
+        ai=ai,
+        dispatcher=dispatcher,
+        shelters=shelter_repository,
+        public_base_url=BASE_URL,
+        now=injected,
+    )
+    record = sessions.get(run.deliveries[0].session_token, now=injected)
+    events = {e.type: e.at for e in sessions.events_of(record)}
+    assert events["push_accepted"] >= events["alert_dispatched"] == injected
+    assert events["push_accepted"] - injected < timedelta(seconds=10)
+
+
+def test_device_less_recipient_has_alert_dispatched_but_no_push_accepted(
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    dispatcher: RecordingDispatcher,
+    shelter_repository: ShelterRepository,
+) -> None:
+    """디바이스가 없으면 발송 시도만 있고 접수는 없다 — push_accepted의 부재가 곧 사실이다."""
+    resident = registry.get("p002")
+    assert resident is not None
+    resident.devices.clear()
+
+    _run(event, registry, sessions, ai, dispatcher, shelter_repository)
+
+    record = next(r for r in sessions._by_token.values() if r.user_id == "p002")
+    types = [e.type for e in sessions.events_of(record)]
+    assert types == ["alert_dispatched"]
 
 
 def test_availability_maps_to_service_mode(
