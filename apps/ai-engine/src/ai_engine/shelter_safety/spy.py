@@ -31,6 +31,16 @@ _IS_SPY_COL = "_is_spy"
 Scorer = Callable[["pd.DataFrame", "pd.Series", "pd.DataFrame", int], Sequence[float]]
 
 
+@dataclass(frozen=True)
+class LightGBMReproducibilityConfig:
+    """Spy와 최종 LightGBM이 공유하는 결정론 설정."""
+
+    seed: int
+    n_jobs: int = 1
+    deterministic: bool = True
+    force_col_wise: bool = True
+
+
 class NoSpiesError(ValueError):
     """스파이가 0개라 임계값을 계산할 스파이 점수 분포 자체가 없음 — P 크기가
     너무 작거나 spy_ratio가 너무 낮아 `round(len(P) * spy_ratio)`가 0이 됐다는 신호."""
@@ -103,11 +113,12 @@ def default_lightgbm_scorer(
     import numpy as np
     from lightgbm import LGBMClassifier
 
+    reproducibility = LightGBMReproducibilityConfig(seed)
     model = LGBMClassifier(
-        random_state=seed,
-        n_jobs=1,
-        deterministic=True,
-        force_col_wise=True,
+        random_state=reproducibility.seed,
+        n_jobs=reproducibility.n_jobs,
+        deterministic=reproducibility.deterministic,
+        force_col_wise=reproducibility.force_col_wise,
         verbosity=-1,
     )
     model.fit(x_train, y_train)

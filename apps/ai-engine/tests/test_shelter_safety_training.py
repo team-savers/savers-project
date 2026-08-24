@@ -47,9 +47,13 @@ def test_baseline_recall_uses_expected_hits_at_boundary_tie() -> None:
     )
 
 
-def _write_synthetic_registry(path: Path) -> None:
+def _write_synthetic_registry(
+    path: Path, *, non_school_positive_districts: set[str] | None = None
+) -> None:
     rows = []
     district_markers = {"10001": 101.0, "10002": 202.0, "10003": 303.0}
+    if non_school_positive_districts is None:
+        non_school_positive_districts = set(district_markers)
     row_number = 0
     for district, marker in district_markers.items():
         for kind, count in (("safe", 6), ("urgent", 2), ("unlabeled", 30)):
@@ -71,7 +75,13 @@ def _write_synthetic_registry(path: Path) -> None:
                             else None
                         ),
                         schema.UNIFIED_REGISTRY_SHELTER_FACILITY_TYPE_COL: (
-                            "관공서" if kind == "safe" else None
+                            (
+                                "관공서"
+                                if district in non_school_positive_districts
+                                else schema.UNIFIED_REGISTRY_SCHOOL_FACILITY_VALUE
+                            )
+                            if kind == "safe"
+                            else None
                         ),
                         "대지면적(㎡)": base * 10,
                         "건축면적(㎡)": base * 5,
@@ -157,6 +167,9 @@ def test_train_and_evaluate_isolates_every_validation_district(
     assert summary["data"]["excluded_emergency_shelters"] == 6
     assert summary["features"]["count"] == 13
     assert summary["cv"]["folds"] == 3
+    assert summary["cv"]["spatial_leakage_check"] is True
+    assert summary["cv"]["valid_non_school_recall_at_20_folds"] == 3
+    assert summary["cv"]["valid_lift_folds"] == 3
     for field in (
         "mean_lift_over_flood_baseline",
         "std_lift_over_flood_baseline",
@@ -179,3 +192,80 @@ def test_train_and_evaluate_is_reproducible_with_same_seed(tmp_path: Path) -> No
 
     assert summary_a == summary_b
     assert model_a.booster_.model_to_string() == model_b.booster_.model_to_string()
+
+
+def test_fold_without_non_school_positive_keeps_other_metrics(tmp_path: Path) -> None:
+    csv_path = tmp_path / "one_school_only_district.csv"
+    _write_synthetic_registry(csv_path, non_school_positive_districts={"10001", "10002"})
+
+    _, summary = train_and_evaluate(csv_path, model_config=_small_model_config())
+
+    folds = {fold["validation_group"]: fold for fold in summary["cv"]["fold_metrics"]}
+    undefined = folds["10003"]
+    assert undefined["non_school_recall_at_top_20_percent"] is None
+    assert undefined["flood_baseline_expected_recall_at_top_20_percent"] is None
+    assert undefined["lift_over_flood_baseline"] is None
+    assert undefined["recall"] is not None
+    assert undefined["roc_auc"] is not None
+    assert folds["10001"]["non_school_recall_at_top_20_percent"] is not None
+    assert folds["10002"]["non_school_recall_at_top_20_percent"] is not None
+    assert summary["cv"]["valid_non_school_recall_at_20_folds"] == 2
+
+
+def test_all_undefined_non_school_metrics_have_null_aggregates(tmp_path: Path) -> None:
+    csv_path = tmp_path / "all_school_districts.csv"
+    _write_synthetic_registry(csv_path, non_school_positive_districts=set())
+
+    _, summary = train_and_evaluate(csv_path, model_config=_small_model_config())
+
+    cv = summary["cv"]
+    assert cv["valid_non_school_recall_at_20_folds"] == 0
+    assert cv["valid_lift_folds"] == 0
+    for prefix in ("mean", "std", "min", "max"):
+        assert cv[f"{prefix}_non_school_recall_at_top_20_percent"] is None
+        assert cv[f"{prefix}_lift_over_flood_baseline"] is None
+
+
+def test_missing_district_column_has_actionable_error(tmp_path: Path) -> None:
+    csv_path = tmp_path / "missing_district.csv"
+    _write_synthetic_registry(csv_path)
+    frame = pd.read_csv(csv_path, encoding="utf-8-sig")
+    frame.drop(columns=[schema.UNIFIED_REGISTRY_DISTRICT_COL]).to_csv(
+        csv_path, index=False, encoding="utf-8-sig"
+    )
+
+    with pytest.raises(ValueError, match=r"시군구코드.*validation group을 구성할 수 없음"):
+        train_and_evaluate(csv_path, model_config=_small_model_config())
+
+
+def test_missing_district_value_has_actionable_error(tmp_path: Path) -> None:
+    csv_path = tmp_path / "missing_district_value.csv"
+    _write_synthetic_registry(csv_path)
+    frame = pd.read_csv(csv_path, encoding="utf-8-sig", dtype=str)
+    frame.loc[0, schema.UNIFIED_REGISTRY_DISTRICT_COL] = None
+    frame.to_csv(csv_path, index=False, encoding="utf-8-sig")
+
+    with pytest.raises(ValueError, match=r"시군구코드.*validation group을 구성할 수 없음"):
+        train_and_evaluate(csv_path, model_config=_small_model_config())
+
+
+def test_spatial_leakage_check_fails_on_overlapping_groups(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sklearn.model_selection
+
+    csv_path = tmp_path / "overlapping_groups.csv"
+    _write_synthetic_registry(csv_path)
+
+    class OverlappingGroupKFold:
+        def __init__(self, n_splits: int) -> None:
+            assert n_splits == 3
+
+        def split(self, frame: Any, *, groups: Any) -> Any:
+            del frame, groups
+            yield [0], [0]
+
+    monkeypatch.setattr(sklearn.model_selection, "GroupKFold", OverlappingGroupKFold)
+
+    with pytest.raises(ValueError, match="train/validation 자치구가 겹침"):
+        train_and_evaluate(csv_path, model_config=_small_model_config())

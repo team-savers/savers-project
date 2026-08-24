@@ -107,13 +107,9 @@ def run_pu_pipeline_from_unified_registry(
 
     registry_df = loading.load_unified_registry(registry_path)
 
-    # 같은 pk에 대피소/비-대피소 행이 섞여 있고 비-대피소 행의 연면적이 더 크면,
-    # 연면적 최대 기준 dedup이 대피소 행을 버리고 그 필지 전체가 조용히 U로
-    # 넘어간다 — split_unified_registry()보다 먼저 dedup이 실행되는 순서 자체는
-    # 그대로 두되, dedup 전후로 "대피소 라벨을 가진 필지(pk)"가 보존되는지 검증
-    # 한다. 행 개수 비교(이전 버전)는 같은 pk에 대피소 행이 두 개(본관/별관 등)라
-    # 하나가 dedup으로 줄어도 필지 자체는 여전히 대피소인 정상 케이스에서도 오탐
-    # 했었다 — 그래서 행 수가 아니라 pk 집합으로 비교한다(PR #60 self-review).
+    # PR #60에서 추가한 대피소 필지 보존 가드를 유지한다. 대표행은 대피소 여부를
+    # 연면적보다 먼저 정렬하므로 혼합 필지에서도 라벨이 보존되고, 이 집합 비교는
+    # 향후 선택 정책이 바뀌어도 조용한 회귀를 막는 안전장치다.
     is_shelter_col = schema.UNIFIED_REGISTRY_IS_SHELTER_COL
     pk_col = schema.UNIFIED_REGISTRY_PK_COL
     shelter_pks_before = set(registry_df.loc[registry_df[is_shelter_col] == 1, pk_col])
@@ -122,11 +118,11 @@ def run_pu_pipeline_from_unified_registry(
         registry_df,
         area_col=schema.UNIFIED_REGISTRY_TOTAL_FLOOR_AREA_COL,
         address_col=pk_col,
+        shelter_col=is_shelter_col,
     )
 
-    # Dedup keeps the largest 연면적 row per pk. Losing a *row* is harmless when the
-    # parcel keeps another shelter row; only a parcel whose surviving row is
-    # non-shelter silently drops the label into U.
+    # 대피소 행이 여러 개면 그 안에서 최대 연면적 행을 고른다. 행 수가 줄어도
+    # 필지의 대피소 라벨이 남아 있으면 정상이다.
     lost_pks = shelter_pks_before - set(
         registry_primary_df.loc[registry_primary_df[is_shelter_col] == 1, pk_col]
     )

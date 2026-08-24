@@ -114,17 +114,19 @@ def _run_unified(config: SpyPipelineConfig | None = None) -> PuPipelineResult:
     )
 
 
-def test_unified_pipeline_raises_when_dedup_drops_a_shelter_row() -> None:
+def test_unified_pipeline_preserves_shelter_before_larger_non_shelter() -> None:
     """dup_02: 같은 pk에 대피소(is_shelter=1, 연면적 60) 행과 비-대피소
     (is_shelter=0, 연면적 9998) 행이 섞여 있다 — 연면적 최대 기준 dedup이면
     대피소 행이 버려지고 그 필지가 조용히 U로 넘어간다. select_primary_building()
-    이 split_unified_registry()보다 먼저 실행되는 순서 자체는 그대로 두되, dedup
-    전후로 "대피소 라벨을 가진 필지(pk)"가 보존되는지 검증하는 가드가 여기서
-    막아야 한다(PR #60 리뷰 -> self-review로 행 수 비교에서 pk 집합 비교로 교체)."""
-    with pytest.raises(ValueError, match="라벨이 탈락"):
-        run_pu_pipeline_from_unified_registry(
-            UNIFIED_REGISTRY_DEDUP_GUARD_CSV, config=SpyPipelineConfig(), scorer=_fake_scorer
-        )
+    이 우선순위를 뒤집지 못하고 지정 대피소 사실이 최종 P에 남아야 한다."""
+    result = run_pu_pipeline_from_unified_registry(
+        UNIFIED_REGISTRY_DEDUP_GUARD_CSV, config=SpyPipelineConfig(), scorer=_fake_scorer
+    )
+
+    preserved = result.positive[result.positive[schema.UNIFIED_REGISTRY_PK_COL].eq("dup_02")]
+    assert len(preserved) == 1
+    assert preserved.iloc[0][schema.UNIFIED_REGISTRY_IS_SHELTER_COL] == 1
+    assert preserved.iloc[0][schema.UNIFIED_REGISTRY_TOTAL_FLOOR_AREA_COL] == 60
 
 
 def test_unified_pipeline_dedup_reducing_duplicate_shelter_rows_does_not_raise() -> None:

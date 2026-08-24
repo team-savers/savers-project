@@ -37,9 +37,10 @@ class FinalModelConfig:
 def _new_model(config: FinalModelConfig) -> LGBMClassifier:
     from lightgbm import LGBMClassifier
 
+    reproducibility = spy.LightGBMReproducibilityConfig(config.seed)
     return LGBMClassifier(
         objective="binary",
-        random_state=config.seed,
+        random_state=reproducibility.seed,
         n_estimators=config.n_estimators,
         learning_rate=config.learning_rate,
         num_leaves=config.num_leaves,
@@ -48,9 +49,9 @@ def _new_model(config: FinalModelConfig) -> LGBMClassifier:
         subsample_freq=config.subsample_freq,
         colsample_bytree=config.colsample_bytree,
         reg_lambda=config.reg_lambda,
-        n_jobs=1,
-        deterministic=True,
-        force_col_wise=True,
+        n_jobs=reproducibility.n_jobs,
+        deterministic=reproducibility.deterministic,
+        force_col_wise=reproducibility.force_col_wise,
         verbosity=-1,
     )
 
@@ -59,14 +60,25 @@ def _prepare_registry(path: str | Path) -> pd.DataFrame:
     import numpy as np
 
     registry = loading.load_unified_registry(path)
+    if schema.UNIFIED_REGISTRY_DISTRICT_COL not in registry.columns:
+        raise ValueError("시군구코드 컬럼이 없어 validation group을 구성할 수 없음")
+    required_columns = {
+        schema.UNIFIED_REGISTRY_PK_COL,
+        schema.UNIFIED_REGISTRY_IS_SHELTER_COL,
+        schema.UNIFIED_REGISTRY_GUBUN_COL,
+        schema.UNIFIED_REGISTRY_SHELTER_FACILITY_TYPE_COL,
+        schema.UNIFIED_REGISTRY_FLOOD_BASELINE_COL,
+        *schema.UNIFIED_REGISTRY_FEATURE_COLUMNS,
+    }
+    missing = required_columns - set(registry.columns)
+    if missing:
+        raise ValueError(f"학습 필수 컬럼 누락: {sorted(missing)!r}")
     primary = loading.select_primary_building(
         registry,
         area_col=schema.UNIFIED_REGISTRY_TOTAL_FLOOR_AREA_COL,
         address_col=schema.UNIFIED_REGISTRY_PK_COL,
+        shelter_col=schema.UNIFIED_REGISTRY_IS_SHELTER_COL,
     )
-    missing = set(schema.UNIFIED_REGISTRY_FEATURE_COLUMNS) - set(primary.columns)
-    if missing:
-        raise ValueError(f"학습 피처 컬럼 누락: {sorted(missing)!r}")
     numeric = primary[list(schema.UNIFIED_REGISTRY_FEATURE_COLUMNS)]
     if np.isinf(numeric.to_numpy(dtype=float)).any():
         raise ValueError("학습 피처에 inf/-inf 값이 있음")
@@ -161,9 +173,15 @@ def expected_tied_recall_at_top_fraction(
     return expected_hits / positives
 
 
-def _distribution_summary(values: list[float], metric_name: str) -> dict[str, float]:
+def _distribution_summary(values: list[float], metric_name: str) -> dict[str, float | None]:
     import numpy as np
 
+    if not values:
+        return {
+            f"std_{metric_name}": None,
+            f"min_{metric_name}": None,
+            f"max_{metric_name}": None,
+        }
     return {
         f"std_{metric_name}": float(np.std(values)),
         f"min_{metric_name}": min(values),
@@ -210,13 +228,19 @@ def _evaluate_fold(
     non_school_scores = probabilities[non_school_mask]
     flood_depth = evaluation.loc[non_school_mask, schema.UNIFIED_REGISTRY_FLOOD_BASELINE_COL]
     baseline_scores = -flood_depth.fillna(np.inf)
-    model_recall_top = recall_at_top_fraction(
-        non_school_labels, non_school_scores, fraction=model_config.top_fraction
-    )
-    baseline_recall_top = expected_tied_recall_at_top_fraction(
-        non_school_labels, baseline_scores, fraction=model_config.top_fraction
-    )
-    lift = model_recall_top / baseline_recall_top if baseline_recall_top > 0 else None
+    non_school_positive = int(non_school_labels.sum())
+    if non_school_positive > 0:
+        model_recall_top = recall_at_top_fraction(
+            non_school_labels, non_school_scores, fraction=model_config.top_fraction
+        )
+        baseline_recall_top = expected_tied_recall_at_top_fraction(
+            non_school_labels, baseline_scores, fraction=model_config.top_fraction
+        )
+        lift = model_recall_top / baseline_recall_top if baseline_recall_top > 0 else None
+    else:
+        model_recall_top = None
+        baseline_recall_top = None
+        lift = None
 
     return {
         "fold": fold,
@@ -225,7 +249,7 @@ def _evaluate_fold(
         "train_rows": len(train),
         "validation_rows": len(validation),
         "validation_positive": len(validation_positive),
-        "validation_non_school_positive": int(non_school_labels.sum()),
+        "validation_non_school_positive": non_school_positive,
         "pu_threshold": threshold,
         "pu_counts": pu_counts,
         "recall": float(recall_score(labels_observed, predicted, zero_division=0)),
@@ -250,12 +274,16 @@ def train_and_evaluate(
     pu_config = pu_config or spy.SpyPipelineConfig()
     model_config = model_config or FinalModelConfig(seed=pu_config.seed)
     registry = _prepare_registry(data_path)
-    groups = registry[schema.UNIFIED_REGISTRY_DISTRICT_COL].astype(str)
+    group_values = registry[schema.UNIFIED_REGISTRY_DISTRICT_COL]
+    if group_values.isna().any() or group_values.astype(str).str.strip().eq("").any():
+        raise ValueError("시군구코드 값이 누락되어 validation group을 구성할 수 없음")
+    groups = group_values.astype(str)
     unique_groups = sorted(groups.unique())
     if len(unique_groups) < 3:
         raise ValueError(f"3-fold 자치구 GroupKFold에 그룹이 부족함: {unique_groups!r}")
 
     folds: list[dict[str, Any]] = []
+    group_isolation_checks: list[bool] = []
     splitter = GroupKFold(n_splits=3)
     for fold, (train_index, validation_index) in enumerate(
         splitter.split(registry, groups=groups), start=1
@@ -264,7 +292,9 @@ def train_and_evaluate(
         validation = registry.iloc[validation_index].reset_index(drop=True)
         train_groups = set(train[schema.UNIFIED_REGISTRY_DISTRICT_COL].astype(str))
         validation_groups = set(validation[schema.UNIFIED_REGISTRY_DISTRICT_COL].astype(str))
-        if train_groups & validation_groups:
+        groups_are_isolated = not bool(train_groups & validation_groups)
+        group_isolation_checks.append(groups_are_isolated)
+        if not groups_are_isolated:
             raise ValueError("GroupKFold train/validation 자치구가 겹침")
         if len(validation_groups) != 1:
             raise ValueError(
@@ -297,18 +327,20 @@ def train_and_evaluate(
         "flood_baseline_expected_recall_at_top_20_percent",
         "lift_over_flood_baseline",
     )
+    metric_values = {
+        key: [float(fold[key]) for fold in folds if fold[key] is not None] for key in metric_keys
+    }
     means = {
-        f"mean_{key}": float(np.mean([fold[key] for fold in folds if fold[key] is not None]))
-        for key in metric_keys
+        f"mean_{key}": float(np.mean(values)) if values else None
+        for key, values in metric_values.items()
     }
     distribution_keys = (
         "non_school_recall_at_top_20_percent",
         "lift_over_flood_baseline",
     )
-    distributions: dict[str, float] = {}
+    distributions: dict[str, float | None] = {}
     for metric_key in distribution_keys:
-        values = [float(fold[metric_key]) for fold in folds if fold[metric_key] is not None]
-        distributions.update(_distribution_summary(values, metric_key))
+        distributions.update(_distribution_summary(metric_values[metric_key], metric_key))
     shelter_rows, _ = labels.split_unified_registry(registry)
     positive_rows = labels.filter_safe_shelters(
         shelter_rows, gubun_col=schema.UNIFIED_REGISTRY_GUBUN_COL
@@ -336,9 +368,9 @@ def train_and_evaluate(
             "count": len(schema.UNIFIED_REGISTRY_FEATURE_COLUMNS),
             "columns": list(schema.UNIFIED_REGISTRY_FEATURE_COLUMNS),
             "excluded_validation_only": [
-                "침수구역내",
+                schema.UNIFIED_REGISTRY_FLOOD_ZONE_COL,
                 schema.UNIFIED_REGISTRY_FLOOD_BASELINE_COL,
-                "최근접펌프장거리_m",
+                schema.UNIFIED_REGISTRY_PUMP_DISTANCE_COL,
             ],
             "nan_counts": {
                 column: int(registry[column].isna().sum())
@@ -353,7 +385,11 @@ def train_and_evaluate(
             "method": "GroupKFold",
             "group_column": schema.UNIFIED_REGISTRY_DISTRICT_COL,
             "folds": 3,
-            "spatial_leakage_check": "passed",
+            "spatial_leakage_check": all(group_isolation_checks) and len(folds) == 3,
+            "valid_non_school_recall_at_20_folds": len(
+                metric_values["non_school_recall_at_top_20_percent"]
+            ),
+            "valid_lift_folds": len(metric_values["lift_over_flood_baseline"]),
             "fold_metrics": folds,
             **means,
             **distributions,

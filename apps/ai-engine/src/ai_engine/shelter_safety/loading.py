@@ -95,9 +95,13 @@ def select_primary_building(
     *,
     area_col: str = schema.REGISTRY_TOTAL_FLOOR_AREA_COL,
     address_col: str = schema.REGISTRY_ROAD_ADDRESS_CODE_COL,
+    shelter_col: str | None = None,
 ) -> pd.DataFrame:
-    """필지(`address_col`)당 표제부가 여러 행일 때, 연면적(`area_col`)이 가장 큰
-    행을 주건축물로 선정해 1행으로 축소한다.
+    """필지(`address_col`)당 표제부가 여러 행일 때 대표 1행으로 축소한다.
+
+    `shelter_col`을 주면 지정 대피소 행을 먼저 보존하고, 같은 지정 여부 안에서
+    연면적(`area_col`)이 가장 큰 행을 선택한다. 지정/비지정 행이 섞인 필지에서
+    면적만으로 대피소 라벨이 사라지는 것을 막기 위한 우선순위다.
 
     키워드 인자 기본값은 레거시(mock) 스키마 — 실제 통합 건축물대장 파일은
     `pipeline.run_pu_pipeline_from_unified_registry()`에서 `UNIFIED_REGISTRY_*`
@@ -135,8 +139,25 @@ def select_primary_building(
             f"{len(offenders)}건 있음 — 예: {offenders.head(5).to_dict('records')!r}"
         )
 
-    sorted_df = working.sort_values(area_col, ascending=False, na_position="last")
-    return sorted_df.drop_duplicates(subset=[address_col], keep="first").reset_index(drop=True)
+    if not working[address_col].duplicated().any():
+        return working.sort_values(area_col, ascending=False, na_position="last").reset_index(
+            drop=True
+        )
+
+    sort_columns = [area_col]
+    ascending = [False]
+    if shelter_col is not None:
+        if shelter_col not in working.columns:
+            raise ValueError(f"대피소 보존 기준 컬럼 누락: {shelter_col}")
+        sort_columns.insert(0, shelter_col)
+        ascending.insert(0, False)
+    sorted_df = working.sort_values(sort_columns, ascending=ascending, na_position="last")
+    selected = sorted_df.drop_duplicates(subset=[address_col], keep="first")
+    # 대표행 선택 우선순위와 반환 순서를 분리한다. 반환은 기존 면적 내림차순을
+    # 유지해 중복이 없는 데이터의 학습 샘플링 순서가 불필요하게 바뀌지 않게 한다.
+    return selected.sort_values(area_col, ascending=False, na_position="last").reset_index(
+        drop=True
+    )
 
 
 def join_shelters_with_registry(

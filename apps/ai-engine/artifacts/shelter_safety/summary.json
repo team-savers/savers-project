@@ -105,9 +105,11 @@
     "method": "GroupKFold",
     "min_lift_over_flood_baseline": 1.5722399885446996,
     "min_non_school_recall_at_top_20_percent": 0.375,
-    "spatial_leakage_check": "passed",
+    "spatial_leakage_check": true,
     "std_lift_over_flood_baseline": 0.9561534275316674,
-    "std_non_school_recall_at_top_20_percent": 0.2562913609702617
+    "std_non_school_recall_at_top_20_percent": 0.2562913609702617,
+    "valid_lift_folds": 3,
+    "valid_non_school_recall_at_20_folds": 3
   },
   "data": {
     "columns": 46,
@@ -178,7 +180,7 @@
     "subsample_freq": 1,
     "top_fraction": 0.2
   },
-  "generated_at": "2026-08-23T06:04:12.907523+00:00",
+  "generated_at": "2026-08-24T00:43:41.158697+00:00",
   "lift_definition": {
     "baseline": "expected non-school Positive recall among top 20% ranked by ascending flood-depth grade; boundary ties use expected recall",
     "formula": "model recall@top20 / flood-depth baseline expected recall@top20",
