@@ -40,6 +40,12 @@ info:
     > **1차 발송은 `role: ward` 기기에만, 2차 발송은 `role: guardian` 기기에만**
     > 나갑니다.
     >
+    > 함께 **`followup_unreachable` 이벤트를 신설**해 시스템 이벤트가 4종에서 5종이
+    > 됩니다(v0.5의 표현은 그 시점 기록이므로 고치지 않습니다). 보낼 보호자 기기가
+    > 없어 2차 발송을 건너뛴 경우로, `followup_due`와 배타이고 세션당 1회입니다.
+    > 재진입 사실은 로그에 남기되 `followup_due`를 분모로 세는 집계는 그 세션을
+    > 비켜 가게 하려는 것이며, 분모·분자 규칙의 정본은 ADR-0012 7절입니다.
+    >
     > **v0.6은 보호자 Q&A 계약(`POST /v1/guardian/{token}/ask`, PR 104)이 쓰고 있어
     > 이 변경을 v0.7로 잡습니다.** 두 계약은 서로를 필요로 하지 않으므로 머지 순서는
     > 자유이며, 이 브랜치가 먼저 들어가면 버전이 0.5에서 0.7로 건너뜁니다.
@@ -251,7 +257,7 @@ paths:
       security: []
       description: |
         사용자 브라우저 FE가 현재 세션에서 관측한 화면 진입·버튼 선택 1건을 기록합니다.
-        시스템 이벤트 4종은 Backend·푸시 시스템이 직접 생성하므로 이 기록 요청으로
+        시스템 이벤트 5종은 Backend·푸시 시스템이 직접 생성하므로 이 기록 요청으로
         받지 않습니다. 기존 `/v1/session/{token}`과 같은 세션 토큰 모델을 사용합니다.
         브라우저 호출에 필요한 CORS와 실제 Backend 구현은 이 계약의 범위 밖입니다.
 
@@ -1435,6 +1441,7 @@ components:
         - $ref: '#/components/schemas/AlertDispatchedEvent'
         - $ref: '#/components/schemas/PushAcceptedEvent'
         - $ref: '#/components/schemas/FollowupDueEvent'
+        - $ref: '#/components/schemas/FollowupUnreachableEvent'
         - $ref: '#/components/schemas/GuardianNotifiedEvent'
       discriminator:
         propertyName: type
@@ -1454,11 +1461,12 @@ components:
           alert_dispatched: '#/components/schemas/AlertDispatchedEvent'
           push_accepted: '#/components/schemas/PushAcceptedEvent'
           followup_due: '#/components/schemas/FollowupDueEvent'
+          followup_unreachable: '#/components/schemas/FollowupUnreachableEvent'
           guardian_notified: '#/components/schemas/GuardianNotifiedEvent'
       description: |
         보호자 상태 확인과 폐루프 측정의 근거가 되는 세션 단위 저장 이벤트입니다.
         사용자 행동 12종은 서비스가 직접 관측한 화면 진입·버튼 선택을, 시스템 이벤트
-        4종은 Backend·푸시 시스템이 관측한 발송 및 폐루프 상태를 표현합니다.
+        5종은 Backend·푸시 시스템이 관측한 발송 및 폐루프 상태를 표현합니다.
 
         이 계약은 실제 이동 중·경로 추종·경로 이탈·실제 대피소 도착을 표현하지
         않습니다. 특히 `arrival_confirmed_by_user`는 GPS 검증 결과가 아니라 사용자가
@@ -1471,9 +1479,11 @@ components:
         `route_guidance_started`, `next_guidance_requested`,
         `emergency_call_119_selected`. 화면 재진입·재선택은 새 행동으로 모두 기록합니다.
 
-        **세션당 1회:** `arrival_confirmed_by_user`와 시스템 이벤트 4종. 도착 완료
-        선택이나 최초·2차 발송 계측을 중복 집계하지 않습니다. 시스템 이벤트 4종이
+        **세션당 1회:** `arrival_confirmed_by_user`와 시스템 이벤트 5종. 도착 완료
+        선택이나 최초·2차 발송 계측을 중복 집계하지 않습니다. 시스템 이벤트 5종이
         이미 존재하면 새 이벤트를 쓰지 않고 최초 이벤트의 `at`을 유지합니다.
+        `followup_unreachable`도 같습니다 — 30분마다 다시 남기면 TTL 6시간 동안 최대
+        12건이 쌓여, 한 세션의 「보낼 곳이 없었다」가 열두 번 있었던 일처럼 읽힙니다.
         이 의미 제약과 별개로 모든 POST 재시도는 `Idempotency-Key`로 중복 제거하며,
         실제 반복 행동에는 매번 새 키를 사용합니다. 특히 `profile_review_completed`는
         사용자가 정보를 수정한 뒤 다시 확인·완료할 수 있으므로 서로 다른 키로 여러 건
@@ -1496,7 +1506,7 @@ components:
       description: |
         사용자 행동 기록 POST가 성공했을 때 반환하는 저장 이벤트입니다. 요청에서 허용한
         사용자 행동 12종에 서버가 생성한 UTC `at`을 더한 결과만 허용하며, 시스템 이벤트
-        4종은 이 응답에 포함하지 않습니다.
+        5종은 이 응답에 포함하지 않습니다.
 
     SituationCheckSelectedEvent:
       type: object
@@ -1664,6 +1674,33 @@ components:
       additionalProperties: false
       properties:
         type: { type: string, const: followup_due }
+        at: { $ref: '#/components/schemas/EventTimestamp' }
+        payload: { $ref: '#/components/schemas/EmptyEventPayload' }
+
+    FollowupUnreachableEvent:
+      type: object
+      description: |
+        `followup_due`와 같은 조건에 도달했으나 **보낼 보호자 기기가 없어 2차 발송을
+        하지 않고 건너뛴 기록.** 보호자 정보가 없는 경우(`Profile.guardian: null`)와
+        보호자 기기가 하나도 없는 경우(`GuardianStatus.pushEnabled: false`)를 같은
+        이벤트로 표현합니다.
+
+        **`followup_due`와 배타입니다.** 한 번의 재진입 판정에서 둘 중 하나만 남습니다 —
+        보낼 곳이 있으면 `followup_due`, 없으면 이 이벤트입니다. 그래서 재진입 사실은
+        로그에 남고, `followup_due`를 분모로 세는 집계는 이 세션을 자동으로 비켜 갑니다.
+        **M4(폐루프 2차 발송 성공률)의 분모·분자 규칙의 정본은 ADR-0012 7절이며 이
+        계약이 정하지 않습니다.**
+
+        분모 소속은 그 판정 시점에 고정되고 이후 이벤트가 바꾸지 않습니다(같은 7절).
+        보호자가 나중에 구독해 소급 발송이 나가면 그 세션의 로그는 `followup_due` 없이
+        `guardian_notified`만 갖는 모양이 되며, 그것이 소속을 되돌리지는 않습니다.
+
+        ⚠️ **아무것도 보내지 않은 기록입니다.** 보호자가 통보받았다는 뜻이 아니고,
+        피보호자의 안전과도 무관합니다.
+      required: [type, at, payload]
+      additionalProperties: false
+      properties:
+        type: { type: string, const: followup_unreachable }
         at: { $ref: '#/components/schemas/EventTimestamp' }
         payload: { $ref: '#/components/schemas/EmptyEventPayload' }
 
@@ -2029,7 +2066,8 @@ components:
             이유입니다(`Profile.guardian`은 피보호자 브라우저로 내려가는 값입니다).
 
             `false`면 화면은 [알림 받기]를 띄웁니다. 이 값이 `false`면 30분이 지나도
-            **2차 발송이 나갈 기기가 없습니다** — 2차 발송은 `role: guardian` 기기로만
+            **2차 발송이 나갈 기기가 없고**, 그 세션의 로그에는 `followup_due` 대신
+            `followup_unreachable`이 남습니다 — 2차 발송은 `role: guardian` 기기로만
             나가기 때문입니다. **M4(폐루프 2차 발송 성공률)의 분모와 분자 정의는
             ADR-0012 7절을 따르며 이 계약은 그것을 바꾸지 않습니다.**
 
