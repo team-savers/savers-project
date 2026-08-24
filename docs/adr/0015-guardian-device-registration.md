@@ -4,7 +4,7 @@
 - **날짜**: 2026-08-24
 - **결정자**: 신호정 (Tech Lead) 작성 / 김도혁 (Backend), 김소원 (AI/RAG/프론트엔드) 확인 대기
 - **관련 문서**: [ADR-0005](0005-webpush-primary-channel.md) (1차 채널),
-  [ADR-0012](0012-verifier-rules-and-closed-loop.md) 5절, 7절, 7-a절 (폐루프 상태, M4 분모와 분자.
+  [ADR-0012](0012-verifier-rules-and-closed-loop.md)(제안) 5절, 7절, 7-a절 (폐루프 상태, M4 분모와 분자.
   7-a절은 [PR 120](https://github.com/team-savers/savers-project/pull/120) 개정, 제안),
   [ADR-0014](0014-closed-loop-second-dispatch-channel.md) (2차 발송 채널, 제안 - [PR 119](https://github.com/team-savers/savers-project/pull/119)),
   [packages/contracts/openapi.yaml](../../packages/contracts/openapi.yaml) v0.7,
@@ -177,7 +177,7 @@ Backend 의 8/25 `registry.py` 편집(`Resident.devices` 를 역할 보유 구�
 | 안 | 얻는 것 | 잃는 것 | 판정 |
 |---|---|---|---|
 | (1) 보호자 기기가 없으면 2단계에서 `followup_due` 를 남기지 않는다 | 채점 함수도 계약 어휘도 그대로다 | 재진입 판정을 했다는 사실이 로그에서 사라져 "별도 계상"할 대상이 남지 않는다. 로그 밖의 `pushEnabled` 를 세면 (2)와 같은 문제가 된다 | 미채택 |
-| (2) `followup_due` 는 항상 남기고, `pushEnabled: false` 세션을 분모에서 빼는 규칙을 7절에 명시한다 | 로그가 온전하다 | 제출 지표가 로그 밖의 값을 읽게 되어 6절 원칙("상태를 이벤트 로그에서 유도한다")에 구멍이 난다. `followup_delivery_rate` 는 입력까지 바뀐다 - 지금 시그니처는 세션 로그 배열만 받는다(`apps/ai-engine/eval/metrics.py` 704행) | 미채택 |
+| (2) `followup_due` 는 항상 남기고, `pushEnabled: false` 세션을 분모에서 빼는 규칙을 7절에 명시한다 | 로그가 온전하다 | 제출 지표가 로그 밖의 값을 읽게 되어 6절 원칙("상태를 이벤트 로그에서 유도한다")에 구멍이 난다. `followup_delivery_rate` 는 입력까지 바뀐다 - 지금 시그니처는 세션 로그 배열만 받는다(`apps/ai-engine/eval/metrics.py` 704행 - PR #106 으로 머지된 파일이며 721행짜리다) | 미채택 |
 | (3) `followup_unreachable` 이벤트를 신설해 재진입 사실은 남기고 분모 정의는 그대로 둔다 | 로그도 온전하고 7절의 분모 정의도 무수정이다. 분모가 순수 건수 세기로 남고, 시스템 이벤트의 빈 `payload` 불변식도 유지된다 | 계약 어휘가 늘어난다. 시스템 이벤트 4종이 5종이 되고 그 숫자가 박힌 자리를 함께 고쳐야 한다 | **채택** |
 
 **분모에 포함(기기 없음 = 실패)하는 길을 택하지 않은 이유**는 그렇게 하면
@@ -212,7 +212,7 @@ M4 가 폐루프 신뢰성이 아니라 **보호자 가입률 지표**가 되기
 | 항목 | 소관 | 상태 |
 |---|---|---|
 | 계약 v0.7 (`role`, `/v1/guardian/{token}/device`, `pushEnabled`) | Tech Lead | 완료, 이 PR |
-| `Resident.devices` 를 역할별로 분리하고 1차 발송을 `ward` 로 한정. 실제 편집 지점 다섯 - `backend_core/models.py` 250행 `DeviceRegisterRequest` 와 `DeviceUnregisterRequest` 신설, `backend_core/registry.py` 36행 `Resident.devices`(지금 `list[str]` 이라 자료구조부터 바뀐다)와 70행 `register_device`, 76행 `unregister_device`, `api/routes/devices.py` 24행과 36행(해제 핸들러는 `DeviceUnregisterRequest` 를 받는다 - `role` 없음), `backend_core/pipeline.py` 231행 `skipped_no_device` 판정과 249행 `for token in resident.devices` (**231행을 함께 고치지 않으면 발송 0건 실행이 252행에서 `Delivery` 로 기록되어 M1 지연 표본에 섞인다.** 실제 발송이 없어 빠르기까지 하므로 p95 가 좋아지는 방향으로 오염된다), `tests/api/test_main.py` 122행 payload. **`pipeline.py` 를 빠뜨리면 계약이 `role` 을 나눠도 실제 발송은 전과 같이 전원에게 나간다.** `tests/api/test_cors.py` 는 본문 없는 OPTIONS 프리플라이트라 해당 없다 | Backend | 대기 (8/25 슬롯) |
+| `Resident.devices` 를 역할별로 분리하고 1차 발송을 `ward` 로 한정. 실제 편집 지점 다섯 - `backend_core/models.py` 250행 `DeviceRegisterRequest` 와 `DeviceUnregisterRequest` 신설, `backend_core/registry.py` 36행 `Resident.devices`(지금 `list[str]` 이라 자료구조부터 바뀐다)와 70행 `register_device`, 76행 `unregister_device`, `api/routes/devices.py` 24행과 36행(해제 핸들러는 `DeviceUnregisterRequest` 를 받는다 - `role` 없음), `backend_core/pipeline.py` 231행 `skipped_no_device` 판정과 249행 `for token in resident.devices` (**231행을 함께 고치지 않으면 발송 0건 실행이 252행에서 `Delivery` 로 기록되어 M1 지연 표본에 섞인다.** 실제 발송이 없어 빠르기까지 하므로 p95 가 좋아지는 방향으로 오염된다), `tests/api/test_main.py` 122행 payload, `tests/backend_core/test_registry.py` 9행, 10행, 16행, 22행(`register_device`, `unregister_device` 직접 호출). **`pipeline.py` 를 빠뜨리면 계약이 `role` 을 나눠도 실제 발송은 전과 같이 전원에게 나간다.** `tests/api/test_cors.py` 는 본문 없는 OPTIONS 프리플라이트라 해당 없다 | Backend | 대기 (8/25 슬롯) |
 | `/g/` 랜딩의 구독과 해제. `api/types.ts` 의 `DeviceRegisterRequest`(+`DeviceUnregisterRequest`)와 `api/mock.ts` 에 `role` 추가 | AI/RAG/프론트엔드 | 대기 (8/28 보호자 화면 칸) |
 | **`/register` 완료 화면의 보호자 구독 - 본선 후 과제로 내린다**(Tech Lead 판단, 2026-08-25). [역할_일정/03](../역할_일정/03-AI-RAG-프론트엔드.md)에 슬롯이 없고, 8/28 칸의 "보호자 화면 + Q&A UI 7h"는 이 계약 이전 견적이라 여기에 얹으면 조건부인 SHAP 이 아니라 P1 인 보호자 화면이 밀린다. 슬롯을 배정하지 **않기로** 정한 것이지 미결이 아니다. 시연 경로는 아래 문단의 시드로 세운다. [후속_과제.md](../공통_가이드/후속_과제.md) P1 15번에 등재([PR 126](https://github.com/team-savers/savers-project/pull/126)) | AI/RAG/프론트엔드 | 본선 후 |
 | 계약에 `followup_unreachable` 신설, 시스템 이벤트 4종 표기를 5종으로 (`SessionEvent` oneOf/discriminator, 세션당 1회 목록, `POST /v1/session/{token}/events`, `RecordedUserActionEvent`) | Tech Lead | 완료, 이 PR |
@@ -221,5 +221,5 @@ M4 가 폐루프 신뢰성이 아니라 **보호자 가입률 지표**가 되기
 | [ADR-0012](0012-verifier-rules-and-closed-loop.md) 7-a절에 **보호자가 없는 세션은 2단계에 들어가지 않는다**(위 결정 8번, 리뷰 반영으로 신설), 분모 소속 고정 불변식, `followup_unreachable` 세션당 1회, 별도 계상 단위, 소급 발송 at-least-once. 종료 조건에 `guardian_notified` 1건 | Tech Lead | 완료 ([PR 120](https://github.com/team-savers/savers-project/pull/120), 제안) |
 | [후속_과제.md](../공통_가이드/후속_과제.md) 팀 결정 대기 행에 등재됨([PR 126](https://github.com/team-savers/savers-project/pull/126)). 등록 토큰의 TTL, 1인당 발급 매수, 분실 시 재발급이 계약에 "미정"으로 남아 있다(`DeviceRegisterRequest.registrationToken`). 보호자 기기가 이 토큰에 매이므로 2차 발송 신뢰성에 걸린다. 갱신 경로(`/g/`)가 있어 완전 차단은 아니다 | Tech Lead | 대기 |
 | [정량목표_검증설계.md](../공유_문서/정량목표_검증설계.md) M4 행에 분모 제외 조건과 그 보고 방식 | PM | 대기 |
-| [워킹_스켈레톤_설명.md](../공통_가이드/워킹_스켈레톤_설명.md) API 표에 새 경로 두 줄 | Tech Lead | 대기 |
+| [워킹_스켈레톤_설명.md](../공통_가이드/워킹_스켈레톤_설명.md) API 표에 새 경로와 `role`, [워킹_스켈레톤_점검.md](../공통_가이드/워킹_스켈레톤_점검.md) 13절의 `curl` 예시와 `GuardianStatus` 기대 응답 | Tech Lead | 완료, 이 PR (PM 리뷰 5, 6, 7번) |
 | 결정자 확인 후 상태를 승인으로 변경 | Tech Lead | 대기 |
