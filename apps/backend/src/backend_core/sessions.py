@@ -93,10 +93,11 @@ class SessionStore:
         self._by_token: dict[str, SessionRecord] = {}
         self._by_guardian_token: dict[str, SessionRecord] = {}
         # FastAPI runs sync routes on a threadpool, so two near-simultaneous requests can
-        # interleave between a "does it exist?" check and its write. Every first-write-wins
-        # mutation below (idempotency, once-per-session, first-open) runs under this lock;
+        # interleave between a "does it exist?" check and its write. Every store mutation
+        # below (index insert, first-write-wins dedup, the two-field response update) and the
+        # event-log snapshot read run under this one lock;
         # the in-memory ops are microseconds, so contention is negligible. The SQLite stage
-        # replaces this with a DB UNIQUE(token, idem_key) constraint (설계 문서 2단계).
+        # replaces this with DB UNIQUE(token, idem_key) constraints (설계 문서 2단계).
         self._lock = threading.Lock()
 
     def create(
@@ -121,8 +122,14 @@ class SessionStore:
             issued_at=event.issued_at,
             expires_at=started + self._ttl,
         )
-        self._by_token[record.token] = record
-        self._by_guardian_token[record.guardian_token] = record
+        # Both indexes go in under the store lock, same as every other mutation. A token
+        # cannot be observed mid-write: it leaves this function only via the return value,
+        # after both entries exist. Collision handling was considered and rejected — the
+        # tokens carry 256 bits of entropy (TOKEN_BYTES), so regeneration would be an
+        # untestable branch guarding an unreachable state.
+        with self._lock:
+            self._by_token[record.token] = record
+            self._by_guardian_token[record.guardian_token] = record
         return record
 
     def get(self, token: str, *, now: datetime | None = None) -> SessionRecord:
@@ -164,8 +171,12 @@ class SessionStore:
         ⚠️ This is an interaction record, not a survival signal. Nothing here may be
         promoted to a safety status.
         """
-        record.last_response = choice
-        record.responded_at = now or _now()
+        # Not first-write-wins, but a two-field update whose halves must come from the same
+        # request — without the lock, concurrent answers could pair one request's choice
+        # with the other's timestamp, breaking the "move together" contract above.
+        with self._lock:
+            record.last_response = choice
+            record.responded_at = now or _now()
 
     def append_user_event(
         self,
@@ -220,7 +231,12 @@ class SessionStore:
     def events_of(self, record: SessionRecord) -> list[SessionEvent]:
         """All events for this session, `at` ascending. Ties keep insertion order — a stable
         sort on `at` is enough because events are appended in arrival order."""
-        return sorted(record.events, key=lambda event: event.at)
+        # Copy under the lock so a read racing an append sees a clean snapshot instead of
+        # relying on CPython append atomicity; the sort runs outside to keep the critical
+        # section at a copy's length.
+        with self._lock:
+            snapshot = list(record.events)
+        return sorted(snapshot, key=lambda event: event.at)
 
     def __len__(self) -> int:
         return len(self._by_token)

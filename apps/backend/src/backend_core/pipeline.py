@@ -102,6 +102,10 @@ class AlertRun:
     matched: int
     deliveries: list[Delivery] = field(default_factory=list)
     skipped_no_device: list[str] = field(default_factory=list)
+    # Sends where the adapter *raised* instead of returning False. Kept separate so a broken
+    # adapter (auth misconfig, network fault) is distinguishable from an honest "not
+    # accepted" — folding the two together would hide a real FCM outage from the run report.
+    send_errors: int = 0
 
     @property
     def latencies_ms(self) -> list[float]:
@@ -253,8 +257,11 @@ def run_alert(
                 # The Dispatcher contract signals failure with False; this guard is for an
                 # adapter that raises instead (real FCM: network error, bad token). One
                 # recipient's failure must never silence everyone still waiting — the same
-                # no-silent-stop principle as the offline fallbacks. Treated as not accepted:
-                # no `push_accepted`, and the absence itself is the recorded fact.
+                # no-silent-stop principle as the offline fallbacks. Not accepted for the
+                # log (no `push_accepted`; the absence is the recorded fact), but counted in
+                # `send_errors` so an adapter fault stays distinguishable from an honest
+                # False in the run report.
+                run.send_errors += 1
                 accepted = False
             if accepted:
                 if notified == 0:

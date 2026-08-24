@@ -258,6 +258,43 @@ def test_system_event_dedup_holds_under_concurrent_writes(
     assert len([e for e in record.events if e.type == "followup_due"]) == 1
 
 
+class _SpyLock:
+    """Counts acquisitions while still locking — proves the mutation paths take the lock."""
+
+    def __init__(self) -> None:
+        self.entered = 0
+        self._inner = threading.Lock()
+
+    def __enter__(self) -> "_SpyLock":
+        self.entered += 1
+        self._inner.__enter__()
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self._inner.__exit__(*args)
+
+
+def test_every_store_mutation_runs_under_the_lock(
+    sessions: SessionStore, event: DisasterEvent
+) -> None:
+    """락 삭제 회귀를 결정적으로 잡는다 — 위의 동시성 테스트는 GIL 탓에 락이 없어도
+    통과할 수 있으므로, 여기서는 경쟁 재현 대신 "모든 변이와 스냅샷 읽기가 락을
+    지나간다"는 구조 자체를 검증한다."""
+    record = _create(sessions, event)
+    spy = _SpyLock()
+    sessions._lock = spy  # type: ignore[assignment]  # 락 사용 검증이 목적인 의도적 접근
+
+    sessions.append_user_event(
+        record, key="evt_lock_probe_0000", create=_user_event("choice_screen_viewed")
+    )
+    sessions.append_system_event(record, "followup_due")
+    sessions.mark_opened(record)
+    sessions.record_response(record, "home")
+    sessions.events_of(record)
+
+    assert spy.entered == 5, "다섯 경로 전부 스토어 락 아래에서 돌아야 한다"
+
+
 def test_events_of_sorts_ascending_by_at(sessions: SessionStore, event: DisasterEvent) -> None:
     """역순으로 넣어도 `at` 오름차순으로 나온다 — 저장 순서가 아니라 시각으로 정렬한다."""
     record = _create(sessions, event)

@@ -462,3 +462,7 @@ def test_one_raising_send_does_not_stop_the_run(
         for d in run.deliveries
     )
     assert event_types == [("alert_dispatched",), ("alert_dispatched", "push_accepted")]
+    # 집계 의미까지 고정한다: 터진 수신자는 0대, 성공한 수신자는 1대로 세어져야 하고,
+    # 어댑터 예외는 정직한 False와 구분돼 send_errors에 따로 남아야 한다.
+    assert sorted(d.devices_notified for d in run.deliveries) == [0, 1]
+    assert run.send_errors == 1
