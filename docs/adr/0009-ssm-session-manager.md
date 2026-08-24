@@ -1,8 +1,8 @@
 # ADR-0009: 서버 셸 접근은 SSM Session Manager로 하고, 셸 권한은 2인으로 제한한다
 
-- **상태**: 제안 (Proposed) — PR [#75](https://github.com/team-savers/savers-project/pull/75) 리뷰 지적에 따라 작성, PM·Backend/Infra 승인 대기
-- **날짜**: 2026-08-07
-- **결정자**: 신호정 (Tech Lead) 제안 / 김도혁 (Backend/Infra), 안은남 (PM) 승인 대기
+- **상태**: 승인 (Accepted) — PR [#75](https://github.com/team-savers/savers-project/pull/75) 리뷰 지적에 따라 작성, 2026-08-24 PM·Backend/Infra 승인. 승인과 동시에 셸 권한 2인 구성을 정정(아래 「2026-08-24 정정」 참고)
+- **날짜**: 2026-08-07 / 2026-08-24 (승인 · 셸 권한 2인 정정)
+- **결정자**: 신호정 (Tech Lead) 제안 / 김도혁 (Backend/Infra), 안은남 (PM) 승인
 - **관련 문서**: [ADR-0003](0003-single-vm-seoul.md) (단일 VM), [ADR-0008](0008-frontend-static-hosting.md) (프론트는 VM 밖), [서버_운영.md](../공통_가이드/서버_운영.md), [AWS_계정_발급_가이드.md](../공통_가이드/AWS_계정_발급_가이드.md), [배포_절차.md](../공통_가이드/배포_절차.md), 이슈 [#25](https://github.com/team-savers/savers-project/issues/25)
 
 ## 배경 (Context)
@@ -32,7 +32,12 @@
 
 ## 결정 (Decision)
 
-**셸 접근은 AWS Systems Manager Session Manager로만 하고, 셸 권한은 김도혁·신호정 2인으로 제한합니다.**
+**셸 접근은 AWS Systems Manager Session Manager로만 하고, 셸 권한은 안은남·김도혁 2인으로 제한합니다.**
+
+> **정정 (2026-08-24, 승인과 동시 반영).** 초안(2026-08-07) 작성 시점에는 셸 권한 2인이 「김도혁·신호정」이었다.
+> Tech Lead(신호정)의 역할이 이후 PR 리뷰 전담으로 좁혀져 서버 셸이 필요 없어졌고, 그 대신 인프라를 인수한 PM(안은남)이
+> 명단에 없었다. 승인 시점에 실제 인프라 담당 2인(안은남·김도혁)으로 정정한다. 이하 본문·표의 「김도혁·신호정」은
+> 모두 「안은남·김도혁」으로 읽는다.
 
 - **SSH 인바운드(22번)를 닫습니다.** 보안그룹에 남는 것은 80·443뿐입니다.
 - **`.pem` 키페어를 팀에 공유하지 않습니다.** 배포 담당자 외에는 인스턴스 키를 보유하지 않습니다.
@@ -73,7 +78,7 @@ SSM의 대가는 최초 1회 IAM 역할 부착과 인당 정책 부여(30분 정
 
 **현재 구성에는 적용 대상이 없습니다.** 그렇게 적는 이유는 아래와 같습니다.
 
-김도혁·신호정 두 사람이 **모두 인프라 작업을 겸합니다.**
+안은남·김도혁 두 사람이 **모두 인프라 작업을 겸합니다.**
 서버를 만들고 고치려면 `PowerUserAccess`가 필요한데,
 `PowerUserAccess`는 `NotAction: [iam:*, organizations:*, account:*]` 구조라
 **`ssm:*`이 리소스 제한 없이 열려 있습니다.**
@@ -148,7 +153,7 @@ IAM에서 권한은 Allow의 합집합이므로
 | 항목 | 소관 | 상태 |
 |---|---|---|
 | IAM 역할 `savers-ec2-ssm` **생성** | **계정 관리자(PM)** | ⬜ 미처리 — `PowerUserAccess`는 `iam:CreateRole`을 막습니다 |
-| 김도혁·신호정 IAM 사용자에 정책 **부여** | **계정 관리자(PM)** | ⬜ 미처리 — `iam:AttachUserPolicy` 불가 |
+| 안은남·김도혁 IAM 사용자에 정책 **부여** | **계정 관리자(PM)** | ⬜ 미처리 — `iam:AttachUserPolicy` 불가 |
 | 인스턴스에 역할 **부착** (EC2 > IAM 역할 수정) | Backend/Infra | ⬜ 미처리 — 별도로 `iam:PassRole`이 필요합니다 |
 | **2인이 각자** SSM 접속 성공을 확인한 뒤 22번 인바운드 삭제 | Backend/Infra | ⬜ 미처리 |
 | [서버_운영.md](../공통_가이드/서버_운영.md)에 이 ADR 근거 표기 | Tech Lead | ✅ #75 |
