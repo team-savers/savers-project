@@ -6,7 +6,8 @@
   승인 전이므로 사후편집 금지에 해당하지 않는다.
   내용은 `evacuation_progress`가 인용하는 근거를 최근 사용자 행동 1건과 도착 확인 부재로 정하는 규칙,
   그 부재를 다는 조건, 사용자 행동이 하나도 없는 세션의 답,
-  행동별 다음 단계 표를 두지 않는 근거다. PR #134 리뷰와 PR #142 리뷰에서 나왔다
+  행동별 다음 단계 표를 두지 않는 근거, 계약이 같은 규칙을 받는 시점이다.
+  PR #134 리뷰와 PR #142 리뷰에서 나왔다
 - **날짜**: 2026-08-23
 - **결정자**: 신호정 (Tech Lead)
 - **관련 문서**: [ADR-0006](0006-generation-contract.md), [ADR-0007](0007-walking-skeleton.md),
@@ -118,18 +119,19 @@ M4(폐루프 2차 발송 성공률)는 "30분 무응답 판정 후 2차 발송�
 도착 확인이 로그에 있으면 최근 행동이 무엇이든 부재 근거를 만들지 않는다 -
 있는 이벤트를 없다고 말하면 `absent_claim_mismatch`다.
 
-**사용자 행동이 하나도 없는 세션은 12종 전부의 부재를 인용하는 문장 하나로 닫는다.**
+**사용자 행동이 하나도 없는 세션은 전 종류(8절)의 부재를 인용하는 문장 하나로 닫는다.**
 인용할 최근 행동이 없어 첫 근거 자리가 비지만, 그 자리를 시스템 이벤트로 채우지 않는다 -
 채우면 이 절이 막으려던 "그 뒤로" 형태가 되살아난다.
-계약의 `GuardianQuestionId` 설명도 같은 규칙을 적는다 -
-그 문구는 PR [#134](https://github.com/team-savers/savers-project/pull/134)와
-PR [#141](https://github.com/team-savers/savers-project/pull/141)로 들어오며,
-이 ADR이 머지되는 시점의 `main`에는 아직 없다.
+계약의 `GuardianQuestionId` 설명도 같은 규칙을 적는다.
+2026-08-25 기준 계약에는 아직 없고,
+PR [#134](https://github.com/team-savers/savers-project/pull/134)와
+PR [#141](https://github.com/team-savers/savers-project/pull/141)로 들어온다.
 
 **행동별 "다음 단계" 표는 두지 않는다.**
-사용자 행동 12종이 선형이 아니라 분기 변경과 재진입이 가능해
+사용자 행동(8절)이 선형이 아니라 분기 변경과 재진입이 가능해
 표가 실제 흐름과 어긋난다.
-도착 확인은 12종 중 유일한 종결 이벤트이고 세션당 1회(`ONCE_PER_SESSION`)라,
+표가 없어도 되는 이유는 앞 두 문단의 규칙이 그 자리를 이미 덮기 때문이다 -
+도착 확인은 사용자 행동 중 유일한 종결 이벤트이고 세션당 1회(`ONCE_PER_SESSION`)라,
 세션 전체의 부재가 곧 "아직 도착이 확인되지 않았다"와 같다.
 앞 세 문단 중 둘은 PR [#134](https://github.com/team-savers/savers-project/pull/134#issuecomment-5411630599)
 논의에서, 무행동 세션 규칙은 PR [#142](https://github.com/team-savers/savers-project/pull/142)
