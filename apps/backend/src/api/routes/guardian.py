@@ -15,8 +15,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Response
 
 from api import errors
-from api.deps import registry, sessions
-from backend_core.models import Ack, GuardianStatus
+from api.deps import ai_client, registry, sessions
+from backend_core.ai_client import AiEngineClient, AiEngineUnavailableError
+from backend_core.models import Ack, GuardianAnswer, GuardianAskRequest, GuardianStatus
 from backend_core.registry import ResidentRegistry
 from backend_core.sessions import SessionExpiredError, SessionNotFoundError, SessionStore
 
@@ -70,3 +71,27 @@ def post_guardian_acknowledge(
 
     record.acknowledged_by_guardian = True
     return Ack(ok=True)
+
+
+@router.post("/v1/guardian/{token}/ask", response_model=GuardianAnswer)
+def post_guardian_ask(
+    token: str,
+    payload: GuardianAskRequest,
+    response: Response,
+    store: Annotated[SessionStore, Depends(sessions)],
+    ai: Annotated[AiEngineClient, Depends(ai_client)],
+) -> GuardianAnswer:
+    """Answer one fixed Korean guardian question from this session's event snapshot."""
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        record = store.get_by_guardian_token(token)
+    except SessionNotFoundError:
+        errors.session_not_found()
+    except SessionExpiredError:
+        errors.session_expired()
+
+    events = store.events_of(record)
+    try:
+        return ai.answer_guardian(payload.question_id, events)
+    except AiEngineUnavailableError:
+        return GuardianAnswer.no_evidence(payload.question_id)

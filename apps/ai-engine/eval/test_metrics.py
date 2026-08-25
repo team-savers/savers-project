@@ -14,6 +14,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import metrics
+import pytest
+
+from ai_engine.guardian_log_qa import (
+    GuardianEvidence,
+    GuardianLogAnswer,
+    GuardianQuestionId,
+    answer_guardian_question,
+    verify_guardian_answer_detailed,
+)
 
 # Two sentences from the bundled dummy corpus, used as "retrieved source text".
 SOURCE_EVACUATE = (
@@ -560,6 +569,131 @@ class TestGuardianViolations:
             evidence=CITED_OPENED_NO_RESPONSE,
             events=LOG_OPENED_NO_RESPONSE,
         ) == ["forbidden_phrase"]
+
+
+def _parity_verdict(
+    question_id: GuardianQuestionId,
+    response: GuardianLogAnswer,
+    events: list[dict[str, object]],
+) -> tuple[bool, bool]:
+    runtime_blocked = bool(
+        verify_guardian_answer_detailed(question_id, response, events).violations
+    )
+    metric_blocked = bool(
+        metrics.guardian_violations(
+            answer=response.answer,
+            evidence=[source.model_dump(mode="python") for source in response.sources],
+            events=events,
+        )
+    )
+    return runtime_blocked, metric_blocked
+
+
+class TestGuardianRuntimeMetricParity:
+    def test_claim_source_type_swap_is_blocked_by_both(self) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "arrival_confirmed_by_user", "at": "2026-08-24T01:42:00Z", "payload": {}}
+        ]
+        response = answer_guardian_question(GuardianQuestionId.ARRIVAL_STATUS, events)
+        swapped = response.model_copy(update={"answer": "10시 42분에 경로 안내를 시작하셨습니다."})
+        assert _parity_verdict(GuardianQuestionId.ARRIVAL_STATUS, swapped, events) == (True, True)
+
+    def test_source_order_change_is_allowed_by_both(self) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "help_request_selected", "at": "2026-08-24T01:15:00Z", "payload": {}},
+            {
+                "type": "emergency_call_119_selected",
+                "at": "2026-08-24T01:16:00Z",
+                "payload": {},
+            },
+        ]
+        response = answer_guardian_question(GuardianQuestionId.HELP_REQUEST, events)
+        reversed_sources = response.model_copy(
+            update={"sources": tuple(reversed(response.sources))}
+        )
+        assert _parity_verdict(GuardianQuestionId.HELP_REQUEST, reversed_sources, events) == (
+            False,
+            False,
+        )
+
+    def test_time_mismatch_is_blocked_by_both(self) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "arrival_confirmed_by_user", "at": "2026-08-24T01:42:00Z", "payload": {}}
+        ]
+        response = answer_guardian_question(GuardianQuestionId.ARRIVAL_STATUS, events)
+        wrong_source = GuardianEvidence(
+            type="arrival_confirmed_by_user", present=True, at="2026-08-24T01:43:00Z"
+        )
+        tampered = response.model_copy(update={"sources": (wrong_source,)})
+        assert _parity_verdict(GuardianQuestionId.ARRIVAL_STATUS, tampered, events) == (True, True)
+
+    def test_present_and_absence_mismatches_are_blocked_by_both(self) -> None:
+        event_row: dict[str, object] = {
+            "type": "arrival_confirmed_by_user",
+            "at": "2026-08-24T01:42:00Z",
+            "payload": {},
+        }
+        present = answer_guardian_question(GuardianQuestionId.ARRIVAL_STATUS, [event_row])
+        absent = answer_guardian_question(GuardianQuestionId.ARRIVAL_STATUS, [])
+        assert _parity_verdict(GuardianQuestionId.ARRIVAL_STATUS, present, []) == (True, True)
+        assert _parity_verdict(GuardianQuestionId.ARRIVAL_STATUS, absent, [event_row]) == (
+            True,
+            True,
+        )
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            "10시 42분부터 3분 동안 반응이 확인되지 않습니다.",
+            "[도착 완료] 버튼을 여러 차례 누르셨습니다.",
+            "그 후 [도착 완료] 버튼을 누르셨습니다.",
+            "도착한 듯합니다.",
+        ],
+    )
+    def test_forbidden_wording_is_blocked_by_both(self, answer: str) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "arrival_confirmed_by_user", "at": "2026-08-24T01:42:00Z", "payload": {}}
+        ]
+        response = answer_guardian_question(GuardianQuestionId.ARRIVAL_STATUS, events)
+        tampered = response.model_copy(update={"answer": answer})
+        assert _parity_verdict(GuardianQuestionId.ARRIVAL_STATUS, tampered, events) == (True, True)
+
+    @pytest.mark.parametrize(
+        ("question_id", "events"),
+        [
+            (
+                GuardianQuestionId.EVACUATION_PROGRESS,
+                [{"type": "route_guidance_started", "at": "2026-08-24T01:18:00Z", "payload": {}}],
+            ),
+            (
+                GuardianQuestionId.HELP_REQUEST,
+                [{"type": "help_request_selected", "at": "2026-08-24T01:15:00Z", "payload": {}}],
+            ),
+            (
+                GuardianQuestionId.ARRIVAL_STATUS,
+                [
+                    {
+                        "type": "arrival_confirmed_by_user",
+                        "at": "2026-08-24T01:42:00Z",
+                        "payload": {},
+                    }
+                ],
+            ),
+        ],
+    )
+    def test_normal_answers_are_allowed_by_both(
+        self, question_id: GuardianQuestionId, events: list[dict[str, object]]
+    ) -> None:
+        response = answer_guardian_question(question_id, events)
+        assert _parity_verdict(question_id, response, events) == (False, False)
+
+    def test_empty_progress_aggregate_is_allowed_by_both(self) -> None:
+        response = answer_guardian_question(GuardianQuestionId.EVACUATION_PROGRESS, [])
+        assert len(response.sources) == 12
+        assert _parity_verdict(GuardianQuestionId.EVACUATION_PROGRESS, response, []) == (
+            False,
+            False,
+        )
 
 
 class TestGuardianAccuracy:
