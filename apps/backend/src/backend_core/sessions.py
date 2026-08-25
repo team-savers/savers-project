@@ -21,7 +21,9 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from backend_core.events import (
+    EXCLUSIVE_SYSTEM_EVENT,
     ONCE_PER_SESSION,
+    ExclusiveSystemEventError,
     IdempotencyKeyConflictError,
     SessionEvent,
     SystemEventType,
@@ -218,12 +220,22 @@ class SessionStore:
     def append_system_event(
         self, record: SessionRecord, type: SystemEventType, *, now: datetime | None = None
     ) -> SessionEvent:
-        """Append one system event. All four are once-per-session: if the type already exists,
-        the first event is returned unchanged so its `at` is preserved."""
+        """Append one system event. All five are once-per-session: if the type already exists,
+        the first event is returned unchanged so its `at` is preserved.
+
+        `followup_due`와 `followup_unreachable`은 배타라 한 세션에 함께 남을 수 없다 — 이미
+        상대편이 있으면 `ExclusiveSystemEventError`를 던진다(계약 `FollowupUnreachableEvent`,
+        ADR-0015 결정 7). 세션당 1회 dedup은 같은 type만 막으므로 이 검사가 따로 필요하다.
+
+        같은 타입 재append는 첫 이벤트 유지(멱등), `followup_due`와 `followup_unreachable`
+        교차는 둘 다 참일 수 없어 raise."""
+        exclusive = EXCLUSIVE_SYSTEM_EVENT.get(type)
         with self._lock:
             for event in record.events:
                 if event.type == type:
                     return event
+                if event.type == exclusive:
+                    raise ExclusiveSystemEventError(type, exclusive)
             event = SessionEvent(type=type, at=now or _now(), payload={})
             record.events.append(event)
             return event

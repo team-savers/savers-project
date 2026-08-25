@@ -7,7 +7,11 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from backend_core.events import IdempotencyKeyConflictError, UserActionEventCreate
+from backend_core.events import (
+    ExclusiveSystemEventError,
+    IdempotencyKeyConflictError,
+    UserActionEventCreate,
+)
 from backend_core.models import AlertMessage, DisasterEvent
 from backend_core.sessions import (
     SessionExpiredError,
@@ -215,6 +219,45 @@ def test_system_event_is_deduped_keeping_the_first_at(
     assert len(record.events) == 1
     assert again is first
     assert again.at == first.at
+
+
+def test_followup_unreachable_is_once_per_session(
+    sessions: SessionStore, event: DisasterEvent
+) -> None:
+    """30분마다 재진입해도 「보낼 곳이 없었다」는 세션당 1건 — TTL 6시간에 12건이 쌓이지 않는다."""
+    record = _create(sessions, event)
+    first = sessions.append_system_event(
+        record, "followup_unreachable", now=datetime(2026, 8, 5, 9, 30, tzinfo=UTC)
+    )
+    again = sessions.append_system_event(
+        record, "followup_unreachable", now=datetime(2026, 8, 5, 10, 0, tzinfo=UTC)
+    )
+    assert len([e for e in record.events if e.type == "followup_unreachable"]) == 1
+    assert again is first
+    assert again.at == first.at
+
+
+def test_followup_due_and_unreachable_cannot_coexist(
+    sessions: SessionStore, event: DisasterEvent
+) -> None:
+    """한 재진입 판정의 배타적 두 결과 — 한 세션 로그에 둘이 함께 남으면 재진입을 두 번 계상한다.
+
+    계약 `FollowupUnreachableEvent`·ADR-0015 결정 7. 세션당 1회 dedup은 같은 type만 막으므로
+    이 배타는 저장 단계에서 따로 강제된다.
+    """
+    due_first = _create(sessions, event)
+    sessions.append_system_event(due_first, "followup_due")
+    with pytest.raises(ExclusiveSystemEventError):
+        sessions.append_system_event(due_first, "followup_unreachable")
+    assert [e.type for e in due_first.events if e.type.startswith("followup")] == ["followup_due"]
+
+    unreachable_first = _create(sessions, event)
+    sessions.append_system_event(unreachable_first, "followup_unreachable")
+    with pytest.raises(ExclusiveSystemEventError):
+        sessions.append_system_event(unreachable_first, "followup_due")
+    assert [e.type for e in unreachable_first.events if e.type.startswith("followup")] == [
+        "followup_unreachable"
+    ]
 
 
 def test_once_per_session_holds_under_concurrent_requests(

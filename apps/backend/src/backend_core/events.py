@@ -1,7 +1,7 @@
 """Session event log — the single fact source guardian answers, the verifier and the
 closed loop all read from.
 
-Mirrors packages/contracts/openapi.yaml v0.5 `session-log` 태그: `SessionEvent`,
+Mirrors packages/contracts/openapi.yaml v0.8.0-draft `session-log` 태그: `SessionEvent`,
 `UserActionEventCreate`, and `POST`·`GET /internal/sessions/{token}/events`. Field names,
 enum values and the type↔payload pairing come straight from that spec; the camelCase wire
 spelling (`guidanceStep`) is produced by the alias generator on the base models.
@@ -49,12 +49,14 @@ UserActionEventType = Literal[
     "arrival_confirmed_by_user",
 ]
 
-# 시스템 이벤트 4종. Backend·푸시 시스템이 관측한 발송·폐루프 상태다. FE 기록 요청으로
-# 받지 않고 서버가 직접 생성한다.
+# 시스템 이벤트 5종. Backend·푸시 시스템이 관측한 발송·폐루프 상태다. FE 기록 요청으로
+# 받지 않고 서버가 직접 생성한다. `followup_unreachable`은 #122(ADR-0015 결정 7)로 신설된
+# 다섯째 — 보낼 보호자 기기가 없어 2차 발송을 건너뛴 재진입 기록이다.
 SystemEventType = Literal[
     "alert_dispatched",
     "push_accepted",
     "followup_due",
+    "followup_unreachable",
     "guardian_notified",
 ]
 
@@ -62,16 +64,36 @@ EventType = UserActionEventType | SystemEventType
 
 # 「세션당 1건」 = 멱등 제약. 이미 있으면 두 번째 기록은 새 이벤트를 만들지 않고 최초 `at`을
 # 유지한다 — 재시도가 M4(폐루프 2차 발송 성공률)를 부풀리지 못하게 한다. 도착 완료 1종과
-# 시스템 4종이 여기 든다.
+# 시스템 5종이 여기 든다. `followup_unreachable`을 30분마다 다시 남기면 TTL 6시간 동안 최대
+# 12건이 쌓여 「보낼 곳이 없었다」가 열두 번 있었던 일처럼 읽히므로, 이것도 세션당 1회다.
 ONCE_PER_SESSION: frozenset[EventType] = frozenset(
     {
         "arrival_confirmed_by_user",
         "alert_dispatched",
         "push_accepted",
         "followup_due",
+        "followup_unreachable",
         "guardian_notified",
     }
 )
+
+# 배타 시스템 이벤트 짝. `followup_due`와 `followup_unreachable`은 한 번의 재진입 판정의
+# 배타적 결과다(계약 `FollowupUnreachableEvent`, ADR-0015 결정 7) — 보낼 곳이 있으면
+# `followup_due`, 없으면 `followup_unreachable`, 한 세션 로그에 둘이 공존할 수 없다. 세션당 1회
+# 제약(위)만으로는 서로 다른 두 type의 공존을 막지 못하므로 저장 단계에서 별도로 강제한다.
+EXCLUSIVE_SYSTEM_EVENT: dict[EventType, EventType] = {
+    "followup_due": "followup_unreachable",
+    "followup_unreachable": "followup_due",
+}
+
+
+class ExclusiveSystemEventError(ValueError):
+    """A session already holds the exclusive counterpart of the event being appended.
+
+    `followup_due`와 `followup_unreachable`은 같은 재진입 판정의 배타적 두 결과이므로 한
+    세션 로그에 함께 남을 수 없다. 이미 한쪽이 있는데 다른 쪽을 남기려는 것은 폐루프가
+    재진입을 두 번 계상하려는 것이라 저장을 거부한다.
+    """
 
 
 class GuidanceStepPayload(RequestModel):
@@ -132,9 +154,9 @@ class SessionEvent(ContractModel):
 class RecordedUserActionEvent(SessionEvent):
     """POST /v1/session/{token}/events 200 응답 전용 모델.
 
-    이 경로가 돌려주는 것은 언제나 사용자 행동 12종 중 하나다 — 시스템 이벤트 4종은
+    이 경로가 돌려주는 것은 언제나 사용자 행동 12종 중 하나다 — 시스템 이벤트 5종은
     파이프라인이 안에서만 남기고 이 응답에 오지 않는다(계약 `RecordedUserActionEvent`).
-    `response_model`을 `SessionEvent`로 두면 자동 OpenAPI가 16종을 광고해 계약 정본보다
+    `response_model`을 `SessionEvent`로 두면 자동 OpenAPI가 17종을 광고해 계약 정본보다
     넓어지므로, 여기서 `type`을 좁혀 서버가 내는 스키마와 계약을 일치시킨다.
     `SessionEvent`를 상속하므로 `at`의 Z 직렬화와 type-payload 불변식은 그대로 따라온다.
     """

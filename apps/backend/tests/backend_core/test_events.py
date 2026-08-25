@@ -5,6 +5,7 @@ tests/backend_core/test_events.py).
 """
 
 from datetime import UTC, datetime, timedelta, timezone
+from typing import get_args
 
 import pytest
 from pydantic import ValidationError
@@ -14,16 +15,35 @@ from backend_core.events import (
     GuidanceStepPayload,
     RecordedUserActionEvent,
     SessionEvent,
+    SystemEventType,
     UserActionEventCreate,
+    UserActionEventType,
 )
 
 
-def test_once_per_session_set_is_arrival_plus_the_four_system_events() -> None:
+def test_event_taxonomy_is_twelve_user_plus_five_system() -> None:
+    """계약 discriminator 17종 = 사용자 행동 12 + 시스템 5. followup_unreachable이 다섯째다."""
+    user = set(get_args(UserActionEventType))
+    system = set(get_args(SystemEventType))
+    assert len(user) == 12
+    assert system == {
+        "alert_dispatched",
+        "push_accepted",
+        "followup_due",
+        "followup_unreachable",
+        "guardian_notified",
+    }
+    assert user.isdisjoint(system)
+    assert len(user | system) == 17
+
+
+def test_once_per_session_set_is_arrival_plus_the_five_system_events() -> None:
     assert set(ONCE_PER_SESSION) == {
         "arrival_confirmed_by_user",
         "alert_dispatched",
         "push_accepted",
         "followup_due",
+        "followup_unreachable",
         "guardian_notified",
     }
 
@@ -57,6 +77,8 @@ def test_guidance_step_must_be_at_least_one() -> None:
         {"type": "choice_screen_viewed", "payload": {}, "lat": 37.5, "lng": 127.0},
         # 시스템 이벤트 타입은 FE 기록 요청으로 받지 않는다.
         {"type": "alert_dispatched", "payload": {}},
+        # followup_unreachable도 시스템 이벤트라 FE 기록 요청으로 받지 않는다.
+        {"type": "followup_unreachable", "payload": {}},
         # next_guidance_requested에 빈 payload는 짝이 어긋난다.
         {"type": "next_guidance_requested", "payload": {}},
         # 빈 payload를 써야 하는 종류에 guidanceStep이 붙으면 거부한다.
@@ -145,6 +167,17 @@ def test_stored_event_enforces_type_payload_invariant() -> None:
         SessionEvent(type="alert_dispatched", at=now, payload={"lat": 37.5})
     with pytest.raises(ValidationError):  # guidance 타입에 guidanceStep이 없으면 거부
         SessionEvent(type="next_guidance_requested", at=now, payload={})
+
+
+def test_followup_unreachable_must_carry_empty_payload() -> None:
+    """다섯째 시스템 이벤트도 빈 payload만 허용한다 — guidanceStep도, 좌표도 실을 수 없다."""
+    now = datetime(2026, 8, 24, 3, 12, tzinfo=UTC)
+    ok = SessionEvent(type="followup_unreachable", at=now)
+    assert ok.payload == {}
+    with pytest.raises(ValidationError):  # guidanceStep이 붙으면 거부
+        SessionEvent(type="followup_unreachable", at=now, payload={"guidanceStep": 2})
+    with pytest.raises(ValidationError):  # 좌표는 어떤 이름으로도 거부
+        SessionEvent(type="followup_unreachable", at=now, payload={"lat": 37.5})
 
 
 def test_post_response_model_narrows_to_user_action_types() -> None:
