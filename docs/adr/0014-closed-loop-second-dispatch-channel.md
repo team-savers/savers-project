@@ -1,9 +1,9 @@
 # ADR-0014: 폐루프 2차 발송도 웹푸시(FCM)로 하고 SMS는 채택하지 않는다
 
-- **상태**: 제안 (Proposed) - 2026-08-24 팀 확인 대기
+- **상태**: 승인 (Accepted) - 2026-08-25 안은남 (PM), 김도혁 (Backend) 확인 완료. [PR #119](https://github.com/team-savers/savers-project/pull/119) 리뷰에 두 확인이 다 남아 있다
 - **번호**: 초안은 ADR-0012로 썼으나 [ADR-0012](0012-verifier-rules-and-closed-loop.md)(검증기 대조 규칙, 폐루프 상태, PR #106)가 먼저 머지됐고 0013은 [PR #110](https://github.com/team-savers/savers-project/pull/110)이 쓰고 있어 0014로 잡는다. [ADR-0011](0011-m3-no-storage-not-no-receipt.md)에서 같은 충돌이 한 번 났다
-- **날짜**: 2026-08-24
-- **결정자**: 신호정 (Tech Lead) 작성 / 안은남 (PM), 김도혁 (Backend) 확인 대기
+- **날짜**: 2026-08-24 (작성) / 2026-08-25 (승인)
+- **결정자**: 신호정 (Tech Lead) 작성 / 안은남 (PM), 김도혁 (Backend) 확인
 - **관련 문서**: [ADR-0005](0005-webpush-primary-channel.md) (1차 채널), [ADR-0012](0012-verifier-rules-and-closed-loop.md) 5절, 7절 (폐루프 상태와 M4 분모, 분자), [ADR-0013](https://github.com/team-savers/savers-project/pull/110) (M1은 발송 접수까지, 제안), `packages/contracts/openapi.yaml` (`FollowupDueEvent`, `GuardianNotifiedEvent`), [서비스_기획서.md](../공유_문서/서비스_기획서.md) 정정 항목 표 4번, [정량목표_검증설계.md](../공유_문서/정량목표_검증설계.md) M4, [역할_일정/04-백엔드.md](../역할_일정/04-백엔드.md) 8/25
 
 ## 배경 (Context)
@@ -59,7 +59,7 @@ ADR-0005 본문에는 2차 발송도 SMS 미채택도 없다. 인용이 문서�
 
 | 리스크 | 완화 | 상태 |
 |---|---|---|
-| 채널이 하나라 폴백이 없다. 보호자가 구독하지 않았거나 브라우저 데이터를 지운 세션은 2차 발송이 닿을 자리가 없다 | 구독 자체가 없는 세션은 M4 분모에서 빠진다. 어느 규칙으로 빼는지는 [ADR-0012](0012-verifier-rules-and-closed-loop.md) 7절이 정하며 이 문서가 정하지 않는다 | 7절 개정 진행 |
+| 채널이 하나라 폴백이 없다. 보호자가 구독하지 않았거나 브라우저 데이터를 지운 세션은 2차 발송이 닿을 자리가 없다 | 구독 자체가 없는 세션은 M4 분모에서 빠진다. 어느 규칙으로 빼는지는 [ADR-0012](0012-verifier-rules-and-closed-loop.md) 7-a절이 정하며 이 문서가 정하지 않는다 | 완료 (PR #120이 7-a절 신설) |
 | 구독은 있는데 발송이 실패한다 | 그 세션은 분모에 든 채 `guardian_notified`가 없으므로 실패로 계상한다. 숨기지 않고 실패 사례로 낸다 | 수용 |
 | 기획서 본문 두 곳(2장 [그림 5], 5장)이 제출본이라 고칠 수 없다 | 본문은 고치지 않고 정정 항목 표 4번이 어긋남을 밝힌다. [ADR-0011](0011-m3-no-storage-not-no-receipt.md)의 4장 보안성 처리와 같은 방식이다 | 완료 (PR #115) |
 | 본선 이후 도달률을 위해 SMS가 필요해질 수 있다 | 그때 다시 별도 ADR로 검토한다. 이 결정의 범위는 본선까지다 | 후속 |
@@ -75,4 +75,4 @@ ADR-0005 본문에는 2차 발송도 SMS 미채택도 없다. 인용이 문서�
 | [비용_산정.md](../공통_가이드/비용_산정.md) 14행 "실패 시 SMS 폴백 포함", 80 ~ 85행 대행사 SMS 단가 표 정리 | PM | 미처리 ([ADR-0005](0005-webpush-primary-channel.md) 후속 조치 표에 이미 있던 항목) |
 | [정량목표_검증설계.md](../공유_문서/정량목표_검증설계.md) M4 행에 발송 채널 명시 | PM | 대기 |
 | [ADR-0012](0012-verifier-rules-and-closed-loop.md) 5절 전이표 5단계 "전달" 행에 채널 주석을 달지 판단. 제안 상태라 수정은 가능하다 | Tech Lead | 대기 |
-| 결정자 확인 후 상태를 승인으로 변경 | Tech Lead | 대기 |
+| 결정자 확인 후 상태를 승인으로 변경 | Tech Lead | 완료, 이 PR |

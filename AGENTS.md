@@ -69,7 +69,7 @@ Delivery is **PWA web push (FCM)**; the generated message goes out **verbatim, w
 | Routing | OpenStreetMap → **OSMnx + networkx** in-memory graph, per-link flood-risk grades R0–R3 (pre-computed static table). **The submitted plan names OSRM in two places; the finals build uses the A-plan and the correction is recorded in [docs/공유_문서/서비스_기획서.md](docs/공유_문서/서비스_기획서.md). OSRM migration is the first roadmap item after the finals.** |
 | Knowledge base | 행정안전부 국민행동요령 corpus, Chroma vector DB (corpus RAG); **event logs, no vector index** (guardian RAG) |
 | Generation/control | LangChain orchestration, HyperCLOVA X, guardrail prompts, claim-level log-matching verifier |
-| Delivery/accessibility | PWA web push (Firebase Cloud Messaging) as the **primary** channel — 카카오 알림톡 not adopted, in the preliminary round or the finals ([ADR-0005](docs/adr/0005-webpush-primary-channel.md)); the closed-loop **second dispatch rides the same FCM path and SMS is not adopted either** ([ADR-0014](docs/adr/0014-closed-loop-second-dispatch-channel.md), Proposed), TTS, multilingual translation |
+| Delivery/accessibility | PWA web push (Firebase Cloud Messaging) as the **primary** channel — 카카오 알림톡 not adopted, in the preliminary round or the finals ([ADR-0005](docs/adr/0005-webpush-primary-channel.md)); the closed-loop **second dispatch rides the same FCM path and SMS is not adopted either** ([ADR-0014](docs/adr/0014-closed-loop-second-dispatch-channel.md), Accepted 2026-08-25), TTS, multilingual translation |
 | Infra/ops | AWS **single VM** (Seoul region ap-northeast-2, CPU-only — HyperCLOVA X/embedding are external APIs, **no GPU**; backend + ai-engine via docker-compose, managed redundancy deferred — see [ADR-0003](docs/adr/0003-single-vm-seoul.md); the PWA is a static build served off-VM by Vercel — see [ADR-0008](docs/adr/0008-frontend-static-hosting.md)), log-based latency measurement, offline cache fallback mode |
 =
 
@@ -96,8 +96,8 @@ The team's differentiation strategy is that quality is proven by **reproducible 
   there is no second-dispatch-only channel, and SMS is adopted for neither**
   (same channel, different recipient device: first dispatch to the ward's,
   escalation to the guardian's, split by a role value in the contract)
-  ([ADR-0014](docs/adr/0014-closed-loop-second-dispatch-channel.md) **Proposed** —
-  결정자 확인 대기, 검토 중 until accepted),
+  ([ADR-0014](docs/adr/0014-closed-loop-second-dispatch-channel.md) **Accepted** —
+  2026-08-25 안은남·김도혁 확인, 확정),
   and the metric is measured from that path's `guardian_notified` event.
   기획서 2장 [그림 5]·5장의 「보호자 SMS(예정)」 is the stale wording that says otherwise;
   it is answered in the 정정 항목 표, not by adding a channel.
