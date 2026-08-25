@@ -1,7 +1,8 @@
 # ADR-0013: M1은 실기기 도달이 아니라 웹푸시 발송 접수까지 잰다
 
 - **상태**: 제안 (Proposed) - PR [#108](https://github.com/team-savers/savers-project/pull/108) 리뷰 문답에서 드러난 어긋남, 팀 확인 대기
-- **날짜**: 2026-08-23 (2026-08-24 개정: 시작 앵커 조항 추가, PR #110 리뷰 반영)
+- **날짜**: 2026-08-23
+  (개정: 2026-08-24 시작 앵커 조항 추가, 2026-08-25 계약 문구 후속 항목 추가 - 둘 다 PR #110 리뷰)
 - **결정자**: 신호정 (Tech Lead)
 - **관련 문서**: [정량목표_검증설계.md 1절](../공유_문서/정량목표_검증설계.md),
   [AGENTS.md](../../AGENTS.md) Quality bar,
@@ -130,9 +131,10 @@ M1 문구를 **코드가 실제로 보장하는 것**에 맞춘다. 측정 방�
 |---|---|---|
 | 정량목표_검증설계.md 1절 M1 행 문구 교체 | Tech Lead | 완료, 이 PR |
 | 공유_문서 README 색인 갱신 | Tech Lead | 완료, 이 PR |
-| 워킹_스켈레톤_설명.md 9절 `Dispatcher.send()` 행의 "실기기 도달이 지표의 전제" 표현 | Tech Lead | 완료, 이 PR |
+| 워킹_스켈레톤_설명.md 7절 `Delivery.latency_ms` 설명과 9절 `Dispatcher.send()` 행의 "실기기 도달이 지표의 전제" 표현 | Tech Lead | 완료, 이 PR |
 | 이벤트 이름 `push_accepted` 확정 | AI/RAG, PR #108 | 완료, 2026-08-24 머지 |
 | `DisasterEvent` 주석의 "`issued_at`이 KPI 시계 시작" 정정 (`backend_core/models.py`) | Backend | 대기 |
+| `GenerationContext.issuedAt` 설명의 "도달 속도 측정이 이 값 기준" 정정 (`packages/contracts/openapi.yaml`). **타임존 필수 규칙은 그대로 두고 근거만 바꾼다** - 이 값은 지표 기산점이 아니게 됐을 뿐, 화면의 판단 시각 표기로 계속 쓰이므로 KST/UTC가 섞이면 사용자에게 틀린 시각이 뜬다 | Tech Lead | 대기, PR #110 리뷰 |
 | 보호자 골든셋 40건에서 "전달" 표현 점검 | AI/RAG | 대기 |
 | 역할_일정의 "실기기 도달" 표현 | - | **손대지 않는다.** 그쪽은 8/22 수동 증빙 과제를 가리키며 지표 정의가 아니다 |
 | AGENTS.md Quality bar | - | 이미 "to personalized dispatch"라 이 결정과 일치한다. 변경 없음 |
