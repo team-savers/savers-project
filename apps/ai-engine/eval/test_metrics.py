@@ -648,6 +648,9 @@ class TestGuardianRuntimeMetricParity:
             "[도착 완료] 버튼을 여러 차례 누르셨습니다.",
             "그 후 [도착 완료] 버튼을 누르셨습니다.",
             "도착한 듯합니다.",
+            "현재 이동 중입니다.",
+            "현재 대피 중입니다.",
+            "대피소에 도착했습니다.",
         ],
     )
     def test_forbidden_wording_is_blocked_by_both(self, answer: str) -> None:

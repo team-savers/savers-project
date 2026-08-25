@@ -332,6 +332,7 @@ _GUARDIAN_EXTRA_FORBIDDEN = re.compile(
     r"듯합니다|추정됩니다|보입니다|"
     r"기록(?:이|은)\s*(?:없습니다|없었습니다)|하지\s*않았습니다"
 )
+_UNSUPPORTED_STATE = re.compile(r"이동\s*중입니다|대피\s*중입니다|도착했습니다")
 _BRACKETED_LABEL = re.compile(r"\[[^]]+\]")
 _NON_HAPSYO_ENDING = re.compile(r"(?:해요|했어요|맞아요|이네요|그렇죠|예요|아요|어요)(?=[.!?]|$)")
 
@@ -643,6 +644,8 @@ def guardian_violations(
     if len(claims) > _facts_cited(evidence):
         reasons.append("unsupported_claim")
     if _known_claim_has_no_matching_source(answer, evidence):
+        reasons.append("unsupported_claim")
+    if _UNSUPPORTED_STATE.search(answer) and "unsupported_claim" not in reasons:
         reasons.append("unsupported_claim")
 
     return _distinct(evidence_mismatches(evidence, events)) + reasons

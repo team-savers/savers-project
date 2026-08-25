@@ -331,10 +331,7 @@ def _answer_help(events: Sequence[Mapping[str, Any]]) -> tuple[str, tuple[Guardi
     sentences = []
     for event in help_events:
         time_text = format_event_time(event.at_utc)
-        if event.event_type == "help_request_selected":
-            sentences.append(f"{time_text}에 [도움이 필요해요]를 선택하셨습니다.")
-        else:
-            sentences.append(f"{time_text}에 119 전화 버튼을 누르셨습니다.")
+        sentences.append(f"{time_text}에 {_PROGRESS_TEMPLATES[event.event_type]}")
     return " ".join(sentences), tuple(event.evidence() for event in help_events)
 
 
@@ -349,7 +346,7 @@ def _answer_arrival(
         )
 
     arrival = arrivals[-1]
-    answer = f"{format_event_time(arrival.at_utc)}에 [도착 완료] 버튼을 누르셨습니다."
+    answer = f"{format_event_time(arrival.at_utc)}에 {_PROGRESS_TEMPLATES[arrival.event_type]}"
     return answer, (arrival.evidence(),)
 
 
