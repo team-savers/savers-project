@@ -251,7 +251,7 @@ def run_alert(
 
         # 1차 재난 알림은 ward 기기에만 나간다(ADR-0015 결정 2). guardian 기기는 30분 무응답
         # 뒤 2차 발송용이라 여기서 세지 않는다 — ward가 비면 이 주민은 1차 도달 불가다.
-        ward_devices = resident.devices["ward"]
+        ward_devices = ResidentRegistry.devices_for(resident, "ward")
         if not ward_devices:
             # Registered but unreachable on the ward channel: no ward token yet, or every ward
             # device was detached. Counted, not hidden — an alert nobody can receive is an

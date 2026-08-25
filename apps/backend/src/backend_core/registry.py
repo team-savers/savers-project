@@ -21,6 +21,15 @@ class RegistrationNotFoundError(LookupError):
     """No resident holds this registration token."""
 
 
+class GuardianNotRegisteredError(ValueError):
+    """A guardian device was posted for a ward whose profile has no guardian.
+
+    2차 발송은 guardian 기기에만 나가는데(ADR-0015 결정 2), 애초에 보호자가 없는 대상에게
+    guardian 토큰을 붙이면 아무 데도 도달하지 않는 기기가 조용히 쌓인다 — 등록 시점에 막는다
+    (ADR-0015 결정 3).
+    """
+
+
 def _empty_devices() -> dict[DeviceRole, list[str]]:
     # 두 역할 버킷을 항상 초기화한다(ADR-0015 결정 1, 안 A). 발송·조회 경로가 키 존재를
     # 검사하지 않고 바로 읽을 수 있게 하기 위해서다.
@@ -85,6 +94,8 @@ class ResidentRegistry:
         that is both the ward's and the guardian's phone); this appends only to `role`.
         """
         resident = self.by_registration_token(registration_token)
+        if role == "guardian" and resident.profile.guardian is None:
+            raise GuardianNotRegisteredError(registration_token)
         bucket = resident.devices[role]
         if fcm_token not in bucket:
             bucket.append(fcm_token)
@@ -108,8 +119,12 @@ class ResidentRegistry:
 
     @staticmethod
     def devices_for(resident: Resident, role: DeviceRole) -> list[str]:
-        """The tokens registered under one role — 1차 발송은 `ward`, 2차 발송은 `guardian`."""
-        return resident.devices[role]
+        """The tokens registered under one role — 1차 발송은 `ward`, 2차 발송은 `guardian`.
+
+        버킷이 누락된 Resident에도 `[]`로 안전 강등한다(직접 인덱싱 금지) — 발송 경로가
+        KeyError 500 대신 skipped_no_device로 집계할 수 있게 한다.
+        """
+        return resident.devices.get(role, [])
 
     def __len__(self) -> int:
         return len(self._by_user)

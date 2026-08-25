@@ -4,6 +4,7 @@ import pytest
 
 from backend_core.registry import (
     DEMO_DONG_CODE,
+    GuardianNotRegisteredError,
     RegistrationNotFoundError,
     ResidentRegistry,
     seed_registry,
@@ -18,12 +19,19 @@ def test_device_registration_is_idempotent(registry: ResidentRegistry) -> None:
 
 def test_devices_are_kept_separate_by_role(registry: ResidentRegistry) -> None:
     """1차(ward)·2차(guardian) 발송 대상이 갈리므로 버킷도 갈린다 — 한쪽 등록이 다른 쪽에 새지 않는다."""
-    resident = registry.register_device("r_demo_resident_p002", "fcm_ward", "ward")
-    registry.register_device("r_demo_resident_p002", "fcm_guardian", "guardian")
+    # 보호자가 있는 p001을 쓴다 — guardian 등록은 보호자 없는 대상에서 400으로 막히므로(ADR-0015 결정 3).
+    resident = registry.register_device("r_demo_resident_p001", "fcm_ward", "ward")
+    registry.register_device("r_demo_resident_p001", "fcm_guardian", "guardian")
     assert "fcm_ward" in resident.devices["ward"]
     assert "fcm_ward" not in resident.devices["guardian"]
     assert "fcm_guardian" in resident.devices["guardian"]
     assert "fcm_guardian" not in resident.devices["ward"]
+
+
+def test_guardian_device_rejected_when_no_guardian(registry: ResidentRegistry) -> None:
+    """보호자 없는 대상에 guardian 기기를 붙이면 아무 데도 도달하지 않으므로 등록 시점에 막는다(ADR-0015 결정 3)."""
+    with pytest.raises(GuardianNotRegisteredError):
+        registry.register_device("r_demo_resident_p002", "fcm_guardian", "guardian")
 
 
 def test_same_token_can_hold_both_roles_and_unregister_clears_both(

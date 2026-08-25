@@ -16,7 +16,11 @@ from fastapi import APIRouter, Depends
 from api.deps import registry
 from api.errors import ApiError
 from backend_core.models import Ack, DeviceRegisterRequest, DeviceUnregisterRequest
-from backend_core.registry import RegistrationNotFoundError, ResidentRegistry
+from backend_core.registry import (
+    GuardianNotRegisteredError,
+    RegistrationNotFoundError,
+    ResidentRegistry,
+)
 
 router = APIRouter(tags=["device"])
 
@@ -30,6 +34,8 @@ def register_device(
         residents.register_device(payload.registration_token, payload.fcm_token, payload.role)
     except RegistrationNotFoundError as exc:
         raise ApiError(400, "INVALID_REQUEST", "등록 토큰을 찾을 수 없습니다.") from exc
+    except GuardianNotRegisteredError as exc:
+        raise ApiError(400, "INVALID_REQUEST", "보호자가 등록되지 않은 대상입니다.") from exc
     return Ack(ok=True)
 
 

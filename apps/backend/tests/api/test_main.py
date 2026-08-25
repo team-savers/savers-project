@@ -132,6 +132,18 @@ def test_device_register_and_unregister(client: TestClient) -> None:
     assert client.request("DELETE", "/v1/devices", json=unregister).status_code == 200
 
 
+def test_device_register_guardian_without_guardian_is_rejected(client: TestClient) -> None:
+    """보호자 없는 대상(p002)에 guardian 기기 등록은 400 — 도달 불가 기기가 쌓이는 걸 막는다(ADR-0015 결정 3)."""
+    payload = {
+        "registrationToken": "r_demo_resident_p002",
+        "fcmToken": "fcm_guardian",
+        "role": "guardian",
+    }
+    response = client.post("/v1/devices", json=payload)
+    assert response.status_code == 400
+    assert response.json()["code"] == "INVALID_REQUEST"
+
+
 def test_device_register_requires_role(client: TestClient) -> None:
     """role은 기본값 없는 필수 — 생략하면 보호자 폰에 1차 알림이 조용히 갈 수 있어 422로 막는다."""
     payload = {"registrationToken": "r_demo_resident_p002", "fcmToken": "fcm_x"}
