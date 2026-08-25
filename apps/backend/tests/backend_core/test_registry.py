@@ -2,7 +2,12 @@
 
 import pytest
 
-from backend_core.registry import RegistrationNotFoundError, ResidentRegistry, seed_registry
+from backend_core.registry import (
+    DEMO_DONG_CODE,
+    RegistrationNotFoundError,
+    ResidentRegistry,
+    seed_registry,
+)
 
 
 def test_device_registration_is_idempotent(registry: ResidentRegistry) -> None:
@@ -47,7 +52,7 @@ def test_profile_projection_drops_identity(registry: ResidentRegistry) -> None:
 
 
 def test_seed_covers_both_demo_personas(registry: ResidentRegistry) -> None:
-    """반지하 고령자 + 외국인 근로자 — 출력이 달라지는 축을 모두 건드리는 2인(S2-E1)."""
-    assert len(registry) == 2
-    languages = {r.profile.language for r in registry.by_dong_codes(["1162064500"])}
-    assert languages == {"ko", "vi"}
+    """반지하 고령자 + 외국인 근로자 - 출력이 달라지는 축을 모두 건드리는 2인(S2-E1)."""
+    seowon = registry.by_dong_codes([DEMO_DONG_CODE])
+    assert len(seowon) == 2
+    assert {r.profile.language for r in seowon} == {"ko", "vi"}
