@@ -27,8 +27,26 @@ class _FakeMessage:
         self.kwargs = kwargs
 
 
+class _FakeWebpushConfig:
+    def __init__(self, *, headers: dict[str, str] | None = None) -> None:
+        self.headers = headers
+
+
+class _FakeUnregisteredError(Exception):
+    """Mirrors firebase_admin.messaging.UnregisteredError (this-token-dead verdict)."""
+
+
+class _FakeSenderIdMismatchError(Exception):
+    """Mirrors firebase_admin.messaging.SenderIdMismatchError."""
+
+
 class _FakeMessaging:
     """Stand-in for firebase_admin.messaging with a scripted `send`."""
+
+    # The adapter references these off the messaging module; the except tuple evaluates them
+    # on every send, so they must exist on the fake even when the scripted exc is unrelated.
+    UnregisteredError = _FakeUnregisteredError
+    SenderIdMismatchError = _FakeSenderIdMismatchError
 
     def __init__(self, *, result: object = "projects/x/messages/1", exc: Exception | None = None):
         self.result = result
@@ -37,6 +55,9 @@ class _FakeMessaging:
 
     def Message(self, **kwargs: object) -> _FakeMessage:  # noqa: N802 — mirrors SDK name
         return _FakeMessage(**kwargs)
+
+    def WebpushConfig(self, **kwargs: object) -> _FakeWebpushConfig:  # noqa: N802 — mirrors SDK
+        return _FakeWebpushConfig(**kwargs)
 
     def send(self, message: _FakeMessage) -> object:
         self.sent.append(message)
@@ -97,13 +118,36 @@ def test_accept_follows_returned_message_id(fake_messaging: _FakeMessaging) -> N
     assert FcmDispatcher("/creds.json").send(PAYLOAD) is True
 
 
-def test_send_failure_is_false_not_raise(monkeypatch: pytest.MonkeyPatch) -> None:
-    """FCM 예외는 어댑터가 삼켜 False로 돌린다 — 재시도는 폐루프의 일이지 어댑터의 일이 아니다."""
-    messaging = _FakeMessaging(exc=RuntimeError("unregistered token"))
+@pytest.mark.parametrize("exc_type", [_FakeUnregisteredError, _FakeSenderIdMismatchError])
+def test_device_confirmed_unreachable_is_false(
+    monkeypatch: pytest.MonkeyPatch, exc_type: type[Exception]
+) -> None:
+    """이 기기 수신 불가 확정(UnregisteredError/SenderIdMismatchError)은 정직한 미접수(False)."""
+    messaging = _FakeMessaging(exc=exc_type("dead token"))
     monkeypatch.setattr(
         dispatch, "_load_firebase", lambda: (_FakeAdmin(), _FakeCredentials(), messaging)
     )
     assert FcmDispatcher("/creds.json").send(PAYLOAD) is False
+
+
+def test_general_send_error_propagates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """수신 불가 확정이 아닌 오류(네트워크·쿼터 등)는 삼키지 않고 전파 — 파이프라인이 send_errors로 센다."""
+    messaging = _FakeMessaging(exc=RuntimeError("network down"))
+    monkeypatch.setattr(
+        dispatch, "_load_firebase", lambda: (_FakeAdmin(), _FakeCredentials(), messaging)
+    )
+    with pytest.raises(RuntimeError):
+        FcmDispatcher("/creds.json").send(PAYLOAD)
+
+
+def test_webpush_ttl_matches_injected_lifetime_with_high_urgency(
+    fake_messaging: _FakeMessaging,
+) -> None:
+    """webpush TTL을 주입 수명에 맞춰 stale 특보의 410 창을 닫고, Urgency는 high로 보낸다."""
+    FcmDispatcher("/creds.json", ttl_seconds=21600).send(PAYLOAD)
+
+    webpush = fake_messaging.sent[0].kwargs["webpush"]
+    assert webpush.headers == {"TTL": "21600", "Urgency": "high"}
 
 
 def test_app_is_initialized_once_across_sends(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -17,6 +17,12 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
+# Default webpush TTL. Matched to the session token lifetime (config.session_ttl_s, 6h): a
+# push FCM has not yet delivered outlives its session and lands on a dead link, so FCM should
+# drop it at the same horizon rather than wake a phone with the previous day's 특보. This PR
+# is unwired, so the value is self-contained here; the wiring PR passes the live setting in.
+_DEFAULT_WEBPUSH_TTL_S = 6 * 60 * 60
+
 
 @dataclass(frozen=True)
 class PushPayload:
@@ -87,13 +93,24 @@ class FcmDispatcher:
       is string-to-string, and all three values already are.
     - **`send()` returns acceptance, not delivery.** `True` means FCM returned a message id
       (push_accepted, ADR-0013), never that the device received it.
-    - **No retry here.** A failed send returns `False`; deciding whether to try again is the
-      closed loop's job, not the adapter's (one responsibility per layer).
+    - **`False` is device-confirmed unreachable, not any failure.** Only an FCM verdict that
+      *this token* cannot receive (unregistered / sender-id mismatch) is an honest 미접수 →
+      `False`. Every other fault (network, quota, config) propagates so the pipeline counts it
+      in `send_errors`, keeping a transport failure distinct from an honest rejection — folding
+      both into `False` would let a run of network errors pass as latency-sample-eligible 미접수
+      and quietly defeat the M1 도달-속도 표본. No retry here either; that is the closed loop's job.
     """
 
-    def __init__(self, service_account_path: str, *, app_name: str = "savers") -> None:
+    def __init__(
+        self,
+        service_account_path: str,
+        *,
+        app_name: str = "savers",
+        ttl_seconds: int = _DEFAULT_WEBPUSH_TTL_S,
+    ) -> None:
         self._path = service_account_path
         self._app_name = app_name
+        self._ttl_seconds = ttl_seconds
         self._messaging: Any | None = None
 
     def _ensure_messaging(self) -> Any:
@@ -108,9 +125,15 @@ class FcmDispatcher:
             try:
                 firebase_admin.get_app(self._app_name)
             except ValueError:
-                firebase_admin.initialize_app(
-                    credentials.Certificate(self._path), name=self._app_name
-                )
+                try:
+                    firebase_admin.initialize_app(
+                        credentials.Certificate(self._path), name=self._app_name
+                    )
+                except ValueError:
+                    # Lost an init race: another caller registered the app between our
+                    # get_app miss and this initialize_app. The app now exists, so adopt it
+                    # rather than let the duplicate-name ValueError escape as a config fault.
+                    firebase_admin.get_app(self._app_name)
             self._messaging = messaging
         return self._messaging
 
@@ -124,12 +147,21 @@ class FcmDispatcher:
                 "body": payload.body,
                 "url": _same_origin_path(payload.link),
             },
+            # TTL closes the 410-window: FCM drops the push at the session horizon instead of
+            # buffering it into the next day and waking a phone with a lapsed 특보. Urgency
+            # high — a disaster alert is exactly the case web-push urgency exists for.
+            webpush=messaging.WebpushConfig(
+                headers={"TTL": str(self._ttl_seconds), "Urgency": "high"},
+            ),
         )
         try:
             message_id = messaging.send(message)
-        except Exception:
-            # An FCM-side rejection (unregistered token, quota, transient) is a False, not a
-            # crash. Retry, if any, belongs to the coordination loop.
+        except (messaging.UnregisteredError, messaging.SenderIdMismatchError):
+            # FCM confirms *this token* cannot receive: unregistered (uninstalled/expired) or
+            # a sender-id mismatch. That is an honest 미접수 → False; the closed loop decides on
+            # the guardian escalation. Every other FirebaseError/network fault is deliberately
+            # NOT caught — it propagates so the pipeline counts it in `send_errors`, distinct
+            # from this False (see the class docstring; folding them together defeats M1).
             return False
         return bool(message_id)
 
