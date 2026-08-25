@@ -32,15 +32,15 @@ First-target disaster type for the MVP: 호우·도시침수 (heavy rain / urban
 
 ## Planned architecture — three layers, three core technologies
 
-> ⚠️ **The decisions below are 검토 중, not 확정 — only one of them has an ADR, and that ADR is still Proposed.**
+> ⚠️ **Row 1 is 확정 — [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) was accepted 2026-08-24. Rows 2 ~ 4 are 검토 중, not 확정: rows 2 ~ 3 have no ADR at all, and row 4's [ADR-0002](docs/adr/0002-frontloaded-tech-lead.md) amendment for the 2026-08-11 reshuffle is still pending.**
 > They are written as the working plan because the finals build follows them, and their source is the team's own
 > 기획서/검증설계 in `docs/공유_문서/` — which, per the "확정 source is an ADR number" rule under "Collaboration / Git",
 > does not qualify as a confirmation source. ADR promotion has been requested from the Tech Lead;
-> until each ADR lands (and is accepted), treat the item as 검토 중 and cite it that way in any outside-facing document.
+> until **those** ADRs land (and are accepted), treat rows 2 ~ 4 as 검토 중 and cite them that way in any outside-facing document.
 >
 > | # | Decision | Changes | Status |
 > |---|---|---|---|
-> | 1 | **M3 metric = 「위치정보 무저장·무로깅」** — the server *does* receive a coordinate on `/v1/shelters/search` and stores/logs it nowhere. Reworded twice: 「즉시 파기 준수율 100%」 → 「미수신」 (8/21) → 「무저장·무로깅」 (8/22); the client-side alternative (no coordinate endpoint) was considered and **rejected for the finals window** | Submitted metric + the location constraint below | [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) **Proposed** — Tech Lead 승인 대기 |
+> | 1 | **M3 metric = 「위치정보 무저장·무로깅」** — the server *does* receive a coordinate on `/v1/shelters/search` and stores/logs it nowhere. Reworded twice: 「즉시 파기 준수율 100%」 → 「미수신」 (8/21) → 「무저장·무로깅」 (8/22); the client-side alternative (no coordinate endpoint) was considered and **rejected for the finals window** | Submitted metric + the location constraint below | [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) **Accepted** — 2026-08-24 Tech Lead 승인 |
 > | 2 | Four modules → three layers + three core technologies | Architecture framing | 검토 중 — ADR 대기 |
 > | 3 | Route engine **OSMnx + networkx** instead of OSRM (2026-08-21) | Tech stack | 검토 중 — ADR 대기 |
 > | 4 | Tech Lead writes no code + infrastructure moves to PM (2026-08-11 reshuffle) | Role scope set by [ADR-0002](docs/adr/0002-frontloaded-tech-lead.md) | 검토 중 — ADR-0002 amendment 대기 |
@@ -69,7 +69,7 @@ Delivery is **PWA web push (FCM)**; the generated message goes out **verbatim, w
 | Routing | OpenStreetMap → **OSMnx + networkx** in-memory graph, per-link flood-risk grades R0–R3 (pre-computed static table). **The submitted plan names OSRM in two places; the finals build uses the A-plan and the correction is recorded in [docs/공유_문서/서비스_기획서.md](docs/공유_문서/서비스_기획서.md). OSRM migration is the first roadmap item after the finals.** |
 | Knowledge base | 행정안전부 국민행동요령 corpus, Chroma vector DB (corpus RAG); **event logs, no vector index** (guardian RAG) |
 | Generation/control | LangChain orchestration, HyperCLOVA X, guardrail prompts, claim-level log-matching verifier |
-| Delivery/accessibility | PWA web push (Firebase Cloud Messaging) as the **primary** channel — 카카오 알림톡 not adopted, in the preliminary round or the finals ([ADR-0005](docs/adr/0005-webpush-primary-channel.md)), TTS, multilingual translation |
+| Delivery/accessibility | PWA web push (Firebase Cloud Messaging) as the **primary** channel — 카카오 알림톡 not adopted, in the preliminary round or the finals ([ADR-0005](docs/adr/0005-webpush-primary-channel.md)); the closed-loop **second dispatch rides the same FCM path and SMS is not adopted either** ([ADR-0014](docs/adr/0014-closed-loop-second-dispatch-channel.md), Accepted 2026-08-25), TTS, multilingual translation |
 | Infra/ops | AWS **single VM** (Seoul region ap-northeast-2, CPU-only — HyperCLOVA X/embedding are external APIs, **no GPU**; backend + ai-engine via docker-compose, managed redundancy deferred — see [ADR-0003](docs/adr/0003-single-vm-seoul.md); the PWA is a static build served off-VM by Vercel — see [ADR-0008](docs/adr/0008-frontend-static-hosting.md)), log-based latency measurement, offline cache fallback mode |
 =
 
@@ -77,7 +77,7 @@ Delivery is **PWA web push (FCM)**; the generated message goes out **verbatim, w
 
 These came out of explicit risk mitigation decisions in the planning doc — don't casually "simplify" them away:
 
-- **No continuous location tracking — coordinates are received per request and stored or logged nowhere.** Location is read once, at notification-open time, and is session-scoped only. The 「밖이에요」 branch sends `lat`/`lng` with `POST /v1/shelters/search` (`ShelterSearchRequest` in `packages/contracts/openapi.yaml`); the route uses them inside that request (`hazard_match`, `repository.search`) and writes them to no session, event log, DB, or file. The claim is therefore 「받되 저장하지 않는다」 — **not** 「받지 않는다」, even though 기획서 v3 ch.4 says the stronger form; that discrepancy is recorded, not papered over, in [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) (Proposed). Moving 행정동 resolution and shelter selection client-side — which would remove the endpoint but also move the **server-side safety filter** (지하 시설 제외 under 호우·침수, 계단 이용 불가자 정렬 — [docs/공통_가이드/워킹_스켈레톤_설명.md](docs/공통_가이드/워킹_스켈레톤_설명.md) §2-3) — was considered and rejected for the finals window. Verification checks *that nothing was stored or logged*, by scan.
+- **No continuous location tracking — coordinates are received per request and stored or logged nowhere.** Location is read once, at notification-open time, and is session-scoped only. The 「밖이에요」 branch sends `lat`/`lng` with `POST /v1/shelters/search` (`ShelterSearchRequest` in `packages/contracts/openapi.yaml`); the route uses them inside that request (`hazard_match`, `repository.search`) and writes them to no session, event log, DB, or file. The claim is therefore 「받되 저장하지 않는다」 — **not** 「받지 않는다」, even though 기획서 v3 ch.4 says the stronger form; that discrepancy is recorded, not papered over, in [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) (Accepted, 2026-08-24). Moving 행정동 resolution and shelter selection client-side — which would remove the endpoint but also move the **server-side safety filter** (지하 시설 제외 under 호우·침수, 계단 이용 불가자 정렬 — [docs/공통_가이드/워킹_스켈레톤_설명.md](docs/공통_가이드/워킹_스켈레톤_설명.md) §2-3) — was considered and rejected for the finals window. Verification checks *that nothing was stored or logged*, by scan.
 - **SAVERS does not judge hazard itself.** The government's live assessment is authoritative; adding a self-derived warning would put the guidance ahead of the official 특보.
 - **Generation must be evidence-grounded.** The agentic LLM layer must answer only from retrieved 국민행동요령 source text; the guardrail prompt exists specifically to suppress hallucination, and its on/off effect is a measured KPI (see below) — don't remove or bypass it for convenience.
 - **Zero install burden on the vulnerable user.** Registration/setup is designed to be done by a guardian/복지관/지자체 on the person's behalf, not by the end user. Any feature that requires the vulnerable person to install an app or self-configure conflicts with this.
@@ -90,8 +90,17 @@ The team's differentiation strategy is that quality is proven by **reproducible 
 
 - **알림 도달 속도** — end-to-end latency from disaster API ingestion to personalized dispatch. Target ≤30s, measured as p95 over OTel end-to-end spans. **Requires real FCM sending**; with the recording dispatcher this metric cannot be measured at all.
 - **보호자 응답 정확도** — **zero statements not grounded in the log.** Scored against a 40-case guardian golden set (30 recommended questions + 10 free-form "기타"). When in doubt the system must refuse: under-refusal (answering something absent from the log) breaks the metric directly, over-refusal only costs coverage.
-- **위치정보 무저장·무로깅 (coordinates are stored or logged nowhere)** — target is **zero points where a coordinate is written to a session, event log, DB, or file**. The proof is `scripts/check_privacy.py` scanning the tree for storage/logging sites — **the script is merged and wired into CI**, running as part of the [`e2e.yml`](.github/workflows/e2e.yml) end-to-end job and publishing a `privacy-check-report` artifact (details in [docs/공통_가이드/개인정보_체크리스트.md](docs/공통_가이드/개인정보_체크리스트.md) §4). Reworded twice: from 「위치정보 즉시 파기 준수율 100%」 to 「미수신」 on **2026-08-21** (`SessionStore` has no delete/purge method, so "purged" cannot be proven), then to 「무저장·무로깅」 on **2026-08-22** because `/v1/shelters/search` does receive `lat`/`lng`, so 「미수신」 was refutable from `openapi.yaml` alone. Decision record: [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) (**Proposed**, Tech Lead 승인 대기 — 검토 중 until accepted); working rationale in [docs/공유_문서/정량목표_검증설계.md](docs/공유_문서/정량목표_검증설계.md) §3.
+- **위치정보 무저장·무로깅 (coordinates are stored or logged nowhere)** — target is **zero points where a coordinate is written to a session, event log, DB, or file**. The proof is `scripts/check_privacy.py` scanning the tree for storage/logging sites — **the script is merged and wired into CI**, running as part of the [`e2e.yml`](.github/workflows/e2e.yml) end-to-end job and publishing a `privacy-check-report` artifact (details in [docs/공통_가이드/개인정보_체크리스트.md](docs/공통_가이드/개인정보_체크리스트.md) §4). Reworded twice: from 「위치정보 즉시 파기 준수율 100%」 to 「미수신」 on **2026-08-21** (`SessionStore` has no delete/purge method, so "purged" cannot be proven), then to 「무저장·무로깅」 on **2026-08-22** because `/v1/shelters/search` does receive `lat`/`lng`, so 「미수신」 was refutable from `openapi.yaml` alone. Decision record: [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) (**Accepted**, 2026-08-24); working rationale in [docs/공유_문서/정량목표_검증설계.md](docs/공유_문서/정량목표_검증설계.md) §3.
 - **폐루프 2차 발송 성공률** — 100%. 30 minutes of no response must produce a guardian escalation that actually lands.
+  **The escalation goes out on the same web push (FCM) path as the first dispatch —
+  there is no second-dispatch-only channel, and SMS is adopted for neither**
+  (same channel, different recipient device: first dispatch to the ward's,
+  escalation to the guardian's, split by a role value in the contract)
+  ([ADR-0014](docs/adr/0014-closed-loop-second-dispatch-channel.md) **Accepted** —
+  2026-08-25 안은남·김도혁 확인, 확정),
+  and the metric is measured from that path's `guardian_notified` event.
+  기획서 2장 [그림 5]·5장의 「보호자 SMS(예정)」 is the stale wording that says otherwise;
+  it is answered in the 정정 항목 표, not by adding a channel.
 
 The shelter-suitability model is scored separately by the **3-fold validation** described above. Its third-stage (model) numbers are **not yet measured** — 기획서 [표3] currently carries target ranges quoted from comparable PU-learning studies, and they must be replaced with the team's own measurements before the finals. **If the model does not beat the rule-based second stage, that is recorded as a failure case** rather than dressed up; not packaging a rule-based result as a model is the line this team holds.
 
