@@ -1,0 +1,290 @@
+/* Home landing page layout — scoped to .home-page only.
+   Colors are a LOCAL SAVERS palette (matches /evacuation's
+   EvacuationFlow.css) defined as CSS custom properties here, deliberately
+   NOT touching lib/tokens.ts (navy/teal) so Register/Join/Ops/other
+   screens are unaffected. This is a desktop-first responsive page —
+   unlike the rest of this app, Home is not pinned to the 402px mobile
+   width (ADR-0004 exception agreed for this page only). */
+
+.home-page {
+  --h-blue: #1877F2;
+  --h-orange: #F8A008;
+  --h-red: #E5483F;
+  --h-bg: #F8F9FA;
+  --h-card: #FFFFFF;
+  --h-bg-soft: #EEF3F7;
+  --h-text: #111111;
+  --h-text-muted: #4B5563;
+  --h-line: #E5E9EE;
+  background: var(--h-bg);
+  color: var(--h-text);
+  font-family: 'Pretendard', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  overflow-x: hidden;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
+.home-page a:focus-visible,
+.home-page button:focus-visible {
+  outline: 3px solid var(--h-orange);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------- header */
+.home-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 24px;
+  background: var(--h-card);
+  border-bottom: 1px solid var(--h-line);
+}
+
+.home-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--h-text);
+}
+
+.home-header-nav {
+  display: flex;
+  align-items: center;
+  gap: 36px;
+}
+
+.home-header-nav a,
+.home-header-nav span {
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.home-header-nav a {
+  color: var(--h-text);
+}
+
+.home-header-nav span {
+  color: var(--h-text-muted);
+}
+
+@media (max-width: 900px) {
+  .home-header-nav {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------ hero */
+.home-hero {
+  padding: 56px 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.home-hero-grid {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 48px;
+  align-items: center;
+}
+
+@media (max-width: 900px) {
+  .home-hero-grid {
+    grid-template-columns: 1fr;
+    gap: 36px;
+  }
+}
+
+.home-hero-illustration {
+  width: 100%;
+  height: auto;
+  display: block;
+  object-fit: contain;
+}
+
+.home-hero-ctas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+@media (max-width: 480px) {
+  .home-hero-ctas {
+    flex-direction: column;
+  }
+}
+
+/* -------------------------------------------------------------- features */
+.home-features {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px 40px;
+}
+
+.home-features-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+
+@media (max-width: 1024px) {
+  .home-features-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .home-features-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --------------------------------------------------------- privacy bar */
+.home-privacy-wrap {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px 56px;
+}
+
+.home-privacy-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--h-card);
+  border: 1px solid var(--h-line);
+  border-radius: 14px;
+  padding: 16px 20px;
+}
+
+@media (max-width: 560px) {
+  .home-privacy-bar {
+    flex-wrap: wrap;
+  }
+}
+
+/* -------------------------------------------------------------- steps */
+.home-steps {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px 72px;
+}
+
+.home-steps-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.home-steps-item {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+}
+
+.home-steps-arrow {
+  flex: none;
+  color: var(--h-text-muted);
+  margin-top: 34px;
+}
+
+@media (max-width: 900px) {
+  .home-steps-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+
+  /* Fixed-width left column (icon) + flexible right column (text), so
+     every step's text starts at the same x regardless of icon markup.
+     align-items:flex-start (not center) keeps the icon top and the
+     title's first line top on the same line even when a step's
+     description wraps to a different number of lines than its
+     neighbours. */
+  .home-steps-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    text-align: left;
+  }
+
+  /* The icon wrapper's own inline style sets width/height:56px and
+     margin:0 auto (that margin is for the desktop centered-column
+     layout). In this row layout the auto margin has no free space to
+     distribute predictably and was nudging icons off a shared x —
+     overriding the inline style (needs !important) pins every icon's
+     left edge at 0, so all 5 centers land at the same x = 28px. */
+  .home-steps-item > div:first-child {
+    margin: 0 !important;
+  }
+
+  /* The text block's inline margin-top:14px is the desktop icon-to-title
+     gap (icon above, title below). In the row layout that only pushed
+     the title down relative to the icon's top — zero it so the title's
+     first line sits flush with the icon's top edge. */
+  .home-steps-item > div:last-child {
+    margin-top: 0 !important;
+  }
+
+  /* Arrow is a 20px-wide rotated icon; centering it under the 56px icon
+     (center x = 28px) means its own left edge must sit at 28 - 10 = 18px,
+     not the icon's own left edge. */
+  .home-steps-arrow {
+    align-self: flex-start;
+    margin: 2px 0 2px 18px;
+    transform: rotate(90deg);
+  }
+}
+
+/* -------------------------------------------------------------- footer */
+.home-footer {
+  background: var(--h-bg-soft);
+  border-top: 1px solid var(--h-line);
+  padding: 40px 24px 32px;
+}
+
+.home-footer-grid {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 36px;
+}
+
+.home-footer-links {
+  display: flex;
+  gap: 48px;
+  flex-wrap: wrap;
+}
+
+.home-footer-links a,
+.home-footer-links span {
+  display: block;
+  font-size: 14px;
+  line-height: 2;
+  text-decoration: none;
+}
+
+.home-footer-links a {
+  color: var(--h-text-muted);
+}
+
+.home-footer-links span {
+  color: #9AA3AE;
+}
+
+@media (max-width: 700px) {
+  .home-footer-grid {
+    flex-direction: column;
+  }
+
+  .home-footer-links {
+    flex-direction: column;
+    gap: 24px;
+  }
+}
