@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from backend_core.events import (
     ONCE_PER_SESSION,
     GuidanceStepPayload,
+    RecordedUserActionEvent,
     SessionEvent,
     UserActionEventCreate,
 )
@@ -144,3 +145,16 @@ def test_stored_event_enforces_type_payload_invariant() -> None:
         SessionEvent(type="alert_dispatched", at=now, payload={"lat": 37.5})
     with pytest.raises(ValidationError):  # guidance 타입에 guidanceStep이 없으면 거부
         SessionEvent(type="next_guidance_requested", at=now, payload={})
+
+
+def test_post_response_model_narrows_to_user_action_types() -> None:
+    """POST 200 전용 모델은 사용자 행동 12종만 허용한다 — 시스템 이벤트 타입은 거부.
+
+    `response_model`을 넓은 `SessionEvent`로 두면 자동 OpenAPI가 16종을 광고해 계약보다
+    넓어진다. 이 좁힘이 지워지면 여기서 걸린다. Z 직렬화와 불변식은 상속으로 그대로 온다.
+    """
+    now = datetime(2026, 8, 24, 3, 12, tzinfo=UTC)
+    ok = RecordedUserActionEvent(type="situation_check_selected", at=now)
+    assert ok.model_dump(by_alias=True)["at"].endswith("Z")
+    with pytest.raises(ValidationError):
+        RecordedUserActionEvent(type="alert_dispatched", at=now)

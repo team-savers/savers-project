@@ -129,6 +129,19 @@ class SessionEvent(ContractModel):
         return self
 
 
+class RecordedUserActionEvent(SessionEvent):
+    """POST /v1/session/{token}/events 200 응답 전용 모델.
+
+    이 경로가 돌려주는 것은 언제나 사용자 행동 12종 중 하나다 — 시스템 이벤트 4종은
+    파이프라인이 안에서만 남기고 이 응답에 오지 않는다(계약 `RecordedUserActionEvent`).
+    `response_model`을 `SessionEvent`로 두면 자동 OpenAPI가 16종을 광고해 계약 정본보다
+    넓어지므로, 여기서 `type`을 좁혀 서버가 내는 스키마와 계약을 일치시킨다.
+    `SessionEvent`를 상속하므로 `at`의 Z 직렬화와 type-payload 불변식은 그대로 따라온다.
+    """
+
+    type: UserActionEventType
+
+
 class UserActionEventCreate(RequestModel):
     """FE 기록 요청 DTO. `type`·`payload`만 받는다 — `at`·좌표·프로필·연락처를 보내면
     `RequestModel`의 extra forbid가 422로 거부한다(`at`은 서버가 찍는다).

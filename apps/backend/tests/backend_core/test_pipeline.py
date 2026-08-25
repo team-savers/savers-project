@@ -358,7 +358,9 @@ def test_system_event_times_follow_the_injected_clock(
     )
     record = sessions.get(run.deliveries[0].session_token, now=injected)
     events = {e.type: e.at for e in sessions.events_of(record)}
-    assert events["push_accepted"] >= events["alert_dispatched"] == injected
+    # 순서: 주입 시각 <= alert_dispatched(수신자 처리 시점) <= push_accepted. 셋 다 주입
+    # 기준이라 벽시계였다면 벌어질 "과거 리플레이에서 push_accepted가 앞서는" 역전이 없다.
+    assert injected <= events["alert_dispatched"] <= events["push_accepted"]
     assert events["push_accepted"] - injected < timedelta(seconds=10)
 
 
@@ -466,3 +468,43 @@ def test_one_raising_send_does_not_stop_the_run(
     # 어댑터 예외는 정직한 False와 구분돼 send_errors에 따로 남아야 한다.
     assert sorted(d.devices_notified for d in run.deliveries) == [0, 1]
     assert run.send_errors == 1
+    # M1: 접수된 세션만 도달 속도 표본에 든다. 터진 세션은 Delivery로 남지만 latency에서 빠진다.
+    assert run.accepted == 1
+    assert len(run.latencies_ms) == 1
+
+
+class _AllFailDispatcher:
+    """전 발송이 계약대로 False를 돌려주는 상황 — 예외가 아니라 정직한 미접수."""
+
+    def send(self, payload: PushPayload) -> bool:
+        return False
+
+
+def test_m1_latency_excludes_sessions_with_no_accepted_send(
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+) -> None:
+    """전 발송이 미접수면 도달이 0이므로 속도 KPI 표본이 비고 p95도 0이다.
+
+    실패 send는 실제 네트워크가 없어 빠르다. Delivery를 그대로 표본에 넣으면 도달하지 못한
+    세션이 p95를 낮춰 KPI가 실제보다 좋아 보인다 — 그 왜곡을 이 테스트가 막는다.
+    """
+    run = run_alert(
+        event,
+        registry=registry,
+        sessions=sessions,
+        ai=ai,
+        dispatcher=_AllFailDispatcher(),
+        shelters=shelter_repository,
+        public_base_url=BASE_URL,
+    )
+
+    assert len(run.deliveries) >= 1, "기기가 있는 수신자는 Delivery로 남아 도달률 보고에 든다"
+    assert all(d.devices_notified == 0 for d in run.deliveries)
+    assert run.accepted == 0
+    assert run.latencies_ms == []
+    assert run.p95_latency_ms == 0.0
+    assert run.mean_latency_ms == 0.0

@@ -20,7 +20,12 @@ from fastapi import APIRouter, Depends, Header, Response
 
 from api import errors
 from api.deps import sessions
-from backend_core.events import IdempotencyKeyConflictError, SessionEvent, UserActionEventCreate
+from backend_core.events import (
+    IdempotencyKeyConflictError,
+    RecordedUserActionEvent,
+    SessionEvent,
+    UserActionEventCreate,
+)
 from backend_core.sessions import SessionExpiredError, SessionNotFoundError, SessionStore
 
 router = APIRouter(tags=["session-log"])
@@ -38,7 +43,7 @@ IdempotencyKey = Annotated[
 ]
 
 
-@router.post(POST_PATH, response_model=SessionEvent)
+@router.post(POST_PATH, response_model=RecordedUserActionEvent)
 def post_session_event(
     token: str,
     payload: UserActionEventCreate,

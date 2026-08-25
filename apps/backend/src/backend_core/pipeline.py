@@ -108,8 +108,16 @@ class AlertRun:
     send_errors: int = 0
 
     @property
+    def accepted(self) -> int:
+        """Sessions where at least one device was accepted by the push service (도달)."""
+        return sum(1 for d in self.deliveries if d.devices_notified > 0)
+
+    @property
     def latencies_ms(self) -> list[float]:
-        return [d.latency_ms for d in self.deliveries]
+        # M1(알림 도달 속도)은 실제로 도달한 세션만 잰다. 전 기기 발송이 실패한 세션은
+        # `Delivery`로 남아 도달률 보고에는 들지만, 도달이 없었으므로 속도 표본에서는 뺀다 —
+        # 실패 send는 실제 네트워크가 없어 빠르므로 넣으면 p95를 좋아 보이는 쪽으로 왜곡한다.
+        return [d.latency_ms for d in self.deliveries if d.devices_notified > 0]
 
     @property
     def mean_latency_ms(self) -> float:
@@ -232,7 +240,14 @@ def run_alert(
             user_id=profile.user_id, stage=stage, message=message, event=event, now=started
         )
         # 발송을 시도한 시각. 전달 성공이 아니라 발송 요청이며, push_accepted와 구분한다.
-        sessions.append_system_event(session, "alert_dispatched", now=started)
+        # 수신자별 처리 시점으로 찍는다 — `started` 균일이면 배치 후반 수신자의 폐루프
+        # 30분 앵커가 실제 발송보다 이르게 고정된다. push_accepted와 같은 주입+단조 기준이라
+        # 리플레이에서 alert_dispatched < push_accepted 순서는 그대로 보장된다.
+        sessions.append_system_event(
+            session,
+            "alert_dispatched",
+            now=started + timedelta(seconds=perf_counter() - clock_start),
+        )
 
         if not resident.devices:
             # Registered but unreachable: no FCM token yet, or every device was detached.
