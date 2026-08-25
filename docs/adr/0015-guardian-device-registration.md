@@ -10,9 +10,16 @@
   [packages/contracts/openapi.yaml](../../packages/contracts/openapi.yaml) v0.7,
   [역할_일정/04-백엔드.md](../역할_일정/04-백엔드.md) 8/25
 
+> **표기 방침**: 미승인 문서의 상태는 위 관련 문서란에서 한 번 밝히고 본문 인용에서는 반복하지 않는다.
+> 저장소의 기존 관행이 그렇다 - [ADR-0012](0012-verifier-rules-and-closed-loop.md)도 미머지였던
+> ADR-0013 을 관련 문서란과 8절 표에서 상태 표기 없이 인용한다.
+> 반면 계약(`packages/contracts/openapi.yaml`)에는 인용마다 붙인다.
+> 그쪽은 Swagger UI 에서 필드 하나씩 조각으로 읽히므로 인용 옆에 상태가 없으면 확정으로 읽히고,
+> ADR 은 위에서 아래로 읽는 문서라 머리의 한 번이면 된다.
+
 ## 배경 (Context)
 
-[ADR-0014](0014-closed-loop-second-dispatch-channel.md)(제안)가 2차 발송을 1차와 같은 웹푸시 한 경로로 정했다.
+[ADR-0014](0014-closed-loop-second-dispatch-channel.md)가 2차 발송을 1차와 같은 웹푸시 한 경로로 정했다.
 그 ADR 이 승인되기 전까지 이 전제는 검토 중이고, 이 문서도 같은 등급이다.
 채널이 하나라는 것은 보호자에게 닿는 수단이 FCM 하나뿐이라는 뜻이고,
 FCM 으로 닿으려면 **보호자 기기가 이미 구독돼 있어야 한다.**
