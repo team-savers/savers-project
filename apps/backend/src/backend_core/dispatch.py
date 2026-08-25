@@ -112,28 +112,37 @@ class FcmDispatcher:
         self._app_name = app_name
         self._ttl_seconds = ttl_seconds
         self._messaging: Any | None = None
+        self._app: Any | None = None
 
     def _ensure_messaging(self) -> Any:
-        """Initialize the named app once, then reuse it. Config errors surface loudly.
+        """Initialize the named app once, cache both the app handle and messaging module.
 
         A bad credential path or a missing SDK raises here rather than being folded into a
         `False` return — those are deploy-time faults, and the pipeline's send-error belt
         counts them distinctly from an honest per-device rejection.
+
+        The app handle is captured (not just the module) because `messaging.send` must be
+        given `app=` explicitly: this is a *named* app, so a bare `send(message)` would look
+        up the non-existent default app and fail.
         """
         if self._messaging is None:
             firebase_admin, credentials, messaging = _load_firebase()
             try:
-                firebase_admin.get_app(self._app_name)
+                app = firebase_admin.get_app(self._app_name)
             except ValueError:
+                # Build the credential *outside* the init-race try below: a corrupted service
+                # account JSON raises ValueError from Certificate(), and if that were inside
+                # the try it would be swallowed and disguised as "app already exists" — a
+                # config fault masquerading as a benign race. Let it propagate loudly.
+                cred = credentials.Certificate(self._path)
                 try:
-                    firebase_admin.initialize_app(
-                        credentials.Certificate(self._path), name=self._app_name
-                    )
+                    app = firebase_admin.initialize_app(cred, name=self._app_name)
                 except ValueError:
                     # Lost an init race: another caller registered the app between our
                     # get_app miss and this initialize_app. The app now exists, so adopt it
                     # rather than let the duplicate-name ValueError escape as a config fault.
-                    firebase_admin.get_app(self._app_name)
+                    app = firebase_admin.get_app(self._app_name)
+            self._app = app
             self._messaging = messaging
         return self._messaging
 
@@ -155,7 +164,9 @@ class FcmDispatcher:
             ),
         )
         try:
-            message_id = messaging.send(message)
+            # app= is required: this is a named app, so an unbound send() would resolve the
+            # (non-existent) default app and fail. _ensure_messaging cached the handle.
+            message_id = messaging.send(message, app=self._app)
         except (messaging.UnregisteredError, messaging.SenderIdMismatchError):
             # FCM confirms *this token* cannot receive: unregistered (uninstalled/expired) or
             # a sender-id mismatch. That is an honest 미접수 → False; the closed loop decides on
