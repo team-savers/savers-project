@@ -5,7 +5,7 @@
 - **결정자**: 신호정 (Tech Lead) 작성 / 김도혁 (Backend), 김소원 (AI/RAG/프론트엔드) 확인 대기
 - **관련 문서**: [ADR-0005](0005-webpush-primary-channel.md) (1차 채널),
   [ADR-0012](0012-verifier-rules-and-closed-loop.md)(제안) 5절, 7절, 7-a절 (폐루프 상태, M4 분모와 분자.
-  7-a절은 [PR 120](https://github.com/team-savers/savers-project/pull/120) 개정, 제안),
+  7-a절은 [PR 120](https://github.com/team-savers/savers-project/pull/120) 개정분으로 머지됨. 상태는 제안),
   [ADR-0014](0014-closed-loop-second-dispatch-channel.md) (2차 발송 채널, 제안 - [PR 119](https://github.com/team-savers/savers-project/pull/119)),
   [packages/contracts/openapi.yaml](../../packages/contracts/openapi.yaml) v0.7,
   [역할_일정/04-백엔드.md](../역할_일정/04-백엔드.md) 8/25
