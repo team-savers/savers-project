@@ -36,6 +36,10 @@ Bearing = Literal["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 Locale = Literal["ko", "vi", "zh", "en"]
 MessageMode = Literal["grounded", "official_fallback"]
 RegisteredBy = Literal["self", "guardian", "welfare_center", "employer"]
+# 기기 역할. 1차 재난 알림은 ward에게만, 30분 무응답 뒤 2차 발송은 guardian에게만 나간다
+# (ADR-0015 결정 1·2). 기본값을 두지 않고 필수로 받는다 — 값이 틀리면 화면이 아니라 발송
+# 대상이 틀어지는 필드라, 생략을 ward로 해석하면 보호자 폰에 1차 알림이 조용히 함께 간다.
+DeviceRole = Literal["ward", "guardian"]
 ResponseChoice = Literal["home", "outside"]
 Availability = Literal["ok", "all_excluded", "cache_only", "upstream_unavailable"]
 HazardMatch = Literal["inside", "outside", "unknown"]
@@ -253,6 +257,20 @@ class ChatResponse(ContractModel):
 
 
 class DeviceRegisterRequest(RequestModel):
+    registration_token: str
+    fcm_token: str
+    role: DeviceRole
+    user_agent: str | None = None
+
+
+class DeviceUnregisterRequest(RequestModel):
+    """`DELETE /v1/devices`의 본문 — `role`이 없다(ADR-0015 계약 리뷰).
+
+    FCM 토큰이 기기마다 유일해 역할 없이도 대상이 정해지고, 이 경로는 없는 토큰의 해제도
+    200이라 역할을 틀리게 실으면 아무것도 떼지 못한 채 성공을 받는다. 해제 뒤 그 토큰이
+    어느 역할로도 남아 있지 않으면 된다 — ward·guardian 양쪽에서 제거한다.
+    """
+
     registration_token: str
     fcm_token: str
     user_agent: str | None = None
