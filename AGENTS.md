@@ -88,7 +88,17 @@ These came out of explicit risk mitigation decisions in the planning doc — don
 
 The team's differentiation strategy is that quality is proven by **reproducible automated scripts**, submitted alongside the code, not by human surveys. 기획서 v3 names **four metrics**, and the scoring script, eval set, and training code ship with them:
 
-- **알림 도달 속도** — end-to-end latency from disaster API ingestion to personalized dispatch. Target ≤30s, measured as p95 over OTel end-to-end spans. **Requires real FCM sending**; with the recording dispatcher this metric cannot be measured at all.
+- **알림 도달 속도** — end-to-end latency from `alert_dispatched`, the moment the pipeline starts handling that alert,
+  to `push_accepted`, the moment FCM accepts the send request.
+  Target ≤30s, measured as p95 over OTel end-to-end spans.
+  Both ends are event names in the contract, not roles.
+  Acceptance is **not** device arrival —
+  `push_delivered` is deliberately not used, since it reads acceptance as delivery.
+  The start is **not** 특보 발령 (`DisasterEvent.issued_at`),
+  so the intake delay before the pipeline sees the alert sits outside the 30 seconds:
+  public-API polling is deferred past the finals, so that delay cannot be measured yet
+  ([ADR-0013](docs/adr/0013-m1-measures-push-acceptance.md) **Accepted** — 2026-08-26 Tech Lead 승인).
+  **Requires real FCM sending**; with the recording dispatcher this metric cannot be measured at all.
 - **보호자 응답 정확도** — **zero statements not grounded in the log.** Scored against a 40-case guardian golden set (30 recommended questions + 10 free-form "기타"). When in doubt the system must refuse: under-refusal (answering something absent from the log) breaks the metric directly, over-refusal only costs coverage.
 - **위치정보 무저장·무로깅 (coordinates are stored or logged nowhere)** — target is **zero points where a coordinate is written to a session, event log, DB, or file**. The proof is `scripts/check_privacy.py` scanning the tree for storage/logging sites — **the script is merged and wired into CI**, running as part of the [`e2e.yml`](.github/workflows/e2e.yml) end-to-end job and publishing a `privacy-check-report` artifact (details in [docs/공통_가이드/개인정보_체크리스트.md](docs/공통_가이드/개인정보_체크리스트.md) §4). Reworded twice: from 「위치정보 즉시 파기 준수율 100%」 to 「미수신」 on **2026-08-21** (`SessionStore` has no delete/purge method, so "purged" cannot be proven), then to 「무저장·무로깅」 on **2026-08-22** because `/v1/shelters/search` does receive `lat`/`lng`, so 「미수신」 was refutable from `openapi.yaml` alone. Decision record: [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) (**Accepted**, 2026-08-24); working rationale in [docs/공유_문서/정량목표_검증설계.md](docs/공유_문서/정량목표_검증설계.md) §3.
 - **폐루프 2차 발송 성공률** — 100%. 30 minutes of no response must produce a guardian escalation that actually lands.
