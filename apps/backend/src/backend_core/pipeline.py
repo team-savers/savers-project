@@ -102,10 +102,22 @@ class AlertRun:
     matched: int
     deliveries: list[Delivery] = field(default_factory=list)
     skipped_no_device: list[str] = field(default_factory=list)
+    # Sends where the adapter *raised* instead of returning False. Kept separate so a broken
+    # adapter (auth misconfig, network fault) is distinguishable from an honest "not
+    # accepted" — folding the two together would hide a real FCM outage from the run report.
+    send_errors: int = 0
+
+    @property
+    def accepted(self) -> int:
+        """Sessions where at least one device was accepted by the push service (도달)."""
+        return sum(1 for d in self.deliveries if d.devices_notified > 0)
 
     @property
     def latencies_ms(self) -> list[float]:
-        return [d.latency_ms for d in self.deliveries]
+        # M1(알림 도달 속도)은 실제로 도달한 세션만 잰다. 전 기기 발송이 실패한 세션은
+        # `Delivery`로 남아 도달률 보고에는 들지만, 도달이 없었으므로 속도 표본에서는 뺀다 —
+        # 실패 send는 실제 네트워크가 없어 빠르므로 넣으면 p95를 좋아 보이는 쪽으로 왜곡한다.
+        return [d.latency_ms for d in self.deliveries if d.devices_notified > 0]
 
     @property
     def mean_latency_ms(self) -> float:
@@ -227,6 +239,15 @@ def run_alert(
         session = sessions.create(
             user_id=profile.user_id, stage=stage, message=message, event=event, now=started
         )
+        # 발송을 시도한 시각. 전달 성공이 아니라 발송 요청이며, push_accepted와 구분한다.
+        # 수신자별 처리 시점으로 찍는다 — `started` 균일이면 배치 후반 수신자의 폐루프
+        # 30분 앵커가 실제 발송보다 이르게 고정된다. push_accepted와 같은 주입+단조 기준이라
+        # 리플레이에서 alert_dispatched < push_accepted 순서는 그대로 보장된다.
+        sessions.append_system_event(
+            session,
+            "alert_dispatched",
+            now=started + timedelta(seconds=perf_counter() - clock_start),
+        )
 
         if not resident.devices:
             # Registered but unreachable: no FCM token yet, or every device was detached.
@@ -236,18 +257,40 @@ def run_alert(
             continue
 
         link = deep_link(public_base_url, session.token, stage)
-        notified = sum(
-            dispatcher.send(
-                PushPayload(
-                    device_token=token,
-                    title=message.title,
-                    # Verbatim. No slot substitution layer exists (ADR-0005/0006).
-                    body=message.body,
-                    link=link,
-                )
+        notified = 0
+        for token in resident.devices:
+            payload = PushPayload(
+                device_token=token,
+                title=message.title,
+                # Verbatim. No slot substitution layer exists (ADR-0005/0006).
+                body=message.body,
+                link=link,
             )
-            for token in resident.devices
-        )
+            try:
+                accepted = dispatcher.send(payload)
+            except Exception:
+                # The Dispatcher contract signals failure with False; this guard is for an
+                # adapter that raises instead (real FCM: network error, bad token). One
+                # recipient's failure must never silence everyone still waiting — the same
+                # no-silent-stop principle as the offline fallbacks. Not accepted for the
+                # log (no `push_accepted`; the absence is the recorded fact), but counted in
+                # `send_errors` so an adapter fault stays distinguishable from an honest
+                # False in the run report.
+                run.send_errors += 1
+                accepted = False
+            if accepted:
+                if notified == 0:
+                    # First device the push service accepted. Recorded once — no device or an
+                    # all-failed send leaves this event absent, which is itself a fact.
+                    # Stamped on the same injected+monotonic basis as `started`/`finished_at`,
+                    # never the wall clock: mixing the two could order this before
+                    # `alert_dispatched` when `now` is a replayed past time.
+                    sessions.append_system_event(
+                        session,
+                        "push_accepted",
+                        now=started + timedelta(seconds=perf_counter() - clock_start),
+                    )
+                notified += 1
 
         run.deliveries.append(
             Delivery(
