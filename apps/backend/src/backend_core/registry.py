@@ -14,11 +14,26 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from backend_core.models import Guardian, Profile
+from backend_core.models import DeviceRole, Guardian, Profile
 
 
 class RegistrationNotFoundError(LookupError):
     """No resident holds this registration token."""
+
+
+class GuardianNotRegisteredError(ValueError):
+    """A guardian device was posted for a ward whose profile has no guardian.
+
+    2차 발송은 guardian 기기에만 나가는데(ADR-0015 결정 2), 애초에 보호자가 없는 대상에게
+    guardian 토큰을 붙이면 아무 데도 도달하지 않는 기기가 조용히 쌓인다 — 등록 시점에 막는다
+    (ADR-0015 결정 3).
+    """
+
+
+def _empty_devices() -> dict[DeviceRole, list[str]]:
+    # 두 역할 버킷을 항상 초기화한다(ADR-0015 결정 1, 안 A). 발송·조회 경로가 키 존재를
+    # 검사하지 않고 바로 읽을 수 있게 하기 위해서다.
+    return {"ward": [], "guardian": []}
 
 
 @dataclass
@@ -29,11 +44,15 @@ class Resident:
     holds. It is deliberately *not* the session token — session tokens are minted at
     dispatch time, so requiring one to register a device would mean needing a push before
     you could receive a push (the circular dependency ADR-0005 flagged).
+
+    `devices` is keyed by role: 1차 재난 알림은 `ward` 기기에만, 2차 발송은 `guardian`
+    기기에만 나간다(ADR-0015 결정 2). 같은 토큰이 두 역할에 모두 등록될 수 있고, 해제는
+    양쪽에서 뗀다.
     """
 
     profile: Profile
     registration_token: str
-    devices: list[str] = field(default_factory=list)
+    devices: dict[DeviceRole, list[str]] = field(default_factory=_empty_devices)
 
 
 class ResidentRegistry:
@@ -67,23 +86,45 @@ class ResidentRegistry:
         wanted = set(dong_codes)
         return [r for r in self._by_user.values() if r.profile.dong_code in wanted]
 
-    def register_device(self, registration_token: str, fcm_token: str) -> Resident:
+    def register_device(
+        self, registration_token: str, fcm_token: str, role: DeviceRole
+    ) -> Resident:
+        """Attach a device under one role. Idempotent per role — re-posting the same token
+        to the same role is a no-op. The same token may hold both roles (a shared handset
+        that is both the ward's and the guardian's phone); this appends only to `role`.
+        """
         resident = self.by_registration_token(registration_token)
-        if fcm_token not in resident.devices:
-            resident.devices.append(fcm_token)
+        if role == "guardian" and resident.profile.guardian is None:
+            raise GuardianNotRegisteredError(registration_token)
+        bucket = resident.devices[role]
+        if fcm_token not in bucket:
+            bucket.append(fcm_token)
         return resident
 
     def unregister_device(self, registration_token: str, fcm_token: str) -> Resident:
-        """Detach a device. Idempotent — an already-absent token is still a success.
+        """Detach a device from *every* role. Idempotent — an already-absent token is still
+        a success.
 
-        Lost/replaced handsets, shared 복지관 terminals and withdrawn consent all end here;
-        making the caller distinguish "removed" from "was not there" adds no information
-        and invites retry loops.
+        The unregister contract carries no role (`DeviceUnregisterRequest`): an FCM token is
+        unique per device, so it identifies the target without one, and "gone from any role"
+        is the whole point. Lost/replaced handsets, shared 복지관 terminals and withdrawn
+        consent all end here; making the caller distinguish "removed" from "was not there"
+        adds no information and invites retry loops.
         """
         resident = self.by_registration_token(registration_token)
-        if fcm_token in resident.devices:
-            resident.devices.remove(fcm_token)
+        for bucket in resident.devices.values():
+            if fcm_token in bucket:
+                bucket.remove(fcm_token)
         return resident
+
+    @staticmethod
+    def devices_for(resident: Resident, role: DeviceRole) -> list[str]:
+        """The tokens registered under one role — 1차 발송은 `ward`, 2차 발송은 `guardian`.
+
+        버킷이 누락된 Resident에도 `[]`로 안전 강등한다(직접 인덱싱 금지) — 발송 경로가
+        KeyError 500 대신 skipped_no_device로 집계할 수 있게 한다.
+        """
+        return resident.devices.get(role, [])
 
     def __len__(self) -> int:
         return len(self._by_user)
@@ -137,7 +178,11 @@ def seed_registry() -> ResidentRegistry:
                     registered_by="guardian",
                 ),
                 registration_token="r_demo_resident_p001",  # noqa: S106 - 가공 데모 값
-                devices=["fcm_demo_device_p001"],
+                # p001은 보호자(김미영, 딸)를 가진 유일한 시드라 2차 발송 대상이 있다. ward
+                # 기기 1 + guardian 기기 1을 심어 폐루프 시연 경로를 세운다(ADR-0015).
+                # ⚠️ 두 토큰 모두 가공값 — 실발송 전환 후에는 접수되지 않으므로 리허설 때
+                #    실제 FCM 토큰으로 교체해야 한다(ADR-0015 "심는 토큰은 실제여야 한다").
+                devices={"ward": ["fcm_demo_device_p001"], "guardian": ["fcm_demo_guardian_p001"]},
             ),
             Resident(
                 profile=Profile(
@@ -158,7 +203,8 @@ def seed_registry() -> ResidentRegistry:
                     registered_by="employer",
                 ),
                 registration_token="r_demo_resident_p002",  # noqa: S106 - 가공 데모 값
-                devices=["fcm_demo_device_p002"],
+                # guardian이 null이라 결정 8번대로 2단계에 안 들어간다 — guardian 기기 없음.
+                devices={"ward": ["fcm_demo_device_p002"], "guardian": []},
             ),
             Resident(
                 profile=Profile(
@@ -179,7 +225,7 @@ def seed_registry() -> ResidentRegistry:
                     registered_by="welfare_center",
                 ),
                 registration_token="r_demo_resident_p003",  # noqa: S106 - 가공 데모 값
-                devices=["fcm_demo_device_p003"],
+                devices={"ward": ["fcm_demo_device_p003"], "guardian": []},
             ),
         ]
     )
