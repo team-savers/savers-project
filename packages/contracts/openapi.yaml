@@ -22,9 +22,19 @@ openapi: 3.1.0
 
 info:
   title: SAVERS API
-  version: 0.7.0-draft
+  version: 0.8.0-draft
   description: |
     재난 취약계층 대상 무설치 대피 안내 서비스의 모듈 간 계약 초안입니다.
+
+    > **변경 이력(v0.8)**: 웹푸시 발송 페이로드(`WebPushPayload`)를 명문화했습니다
+    > ([#15](https://github.com/team-savers/savers-project/issues/15) 1번).
+    > **발송은 data-only 고정이고 `notification` 블록은 금지**입니다 - SDK가 자체 표시해
+    > 알림이 2건 뜨고, 그중 하나는 `data.url`이 없어 딥링크가 죽습니다.
+    > 백엔드와 서비스워커 양쪽 주석에만 있던 규칙을 계약으로 올린 것입니다.
+    > 금지는 설명이 아니라 스키마가 강제합니다 - 최상위·`data` 양쪽이
+    > `additionalProperties: false`라 `notification`은 검증에서 걸립니다.
+    > v0.7이 1차·2차 발송을 `role`로 갈라 놓았지만 **페이로드의 모양은 하나**이고,
+    > 이 스키마가 그 하나를 정합니다.
 
     > **변경 이력(v0.6)**: 보호자 Q&A 신설(`POST /v1/guardian/{token}/ask`).
     > **v0.7보다 늦게 들어옵니다** — 합의한 머지 순서가 PR 122 다음이 PR 104였고,
@@ -127,6 +137,10 @@ tags:
     description: |
       웹푸시 토큰 등록·해제. 피보호자 기기와 보호자 기기를 `role`로 구분하며,
       1차 발송은 `ward`에게만, 2차 발송은 `guardian`에게만 갑니다.
+
+      **어느 쪽으로 나가든 발송 페이로드의 모양은 하나이고, `WebPushPayload`
+      스키마가 정합니다** — 서비스하는 경로는 없지만 백엔드와 서비스워커가
+      맞춰야 하는 계약이라 이 파일에 둡니다.
   - name: guardian
     description: 보호자 상태 페이지와 보호자 기기 갱신
   - name: session-log
@@ -2183,6 +2197,70 @@ components:
           description: FCM 등록 토큰.
         userAgent:
           type: [string, 'null']
+
+    WebPushPayload:
+      type: object
+      required: [data]
+      additionalProperties: false
+      description: |
+        **발송 페이로드의 모양.** 이 저장소가 서비스하는 경로가 아니라
+        백엔드가 FCM에 넣고 서비스워커(`apps/frontend/src/sw.ts`)가 꺼내 읽는
+        메시지의 계약입니다. 양쪽 코드에 이미 같은 규칙이 주석으로 적혀 있었으나
+        계약에는 없어, 새 발송부가 생기면 아무것도 막지 못하는 상태였습니다.
+
+        ⚠️ **`notification` 블록을 넣지 않습니다. 발송은 data-only 고정입니다.**
+        FCM SDK는 `notification` 블록이 있는 백그라운드 메시지를 **자체적으로 한 번
+        표시**합니다. 서비스워커의 `showNotification`과 겹쳐 알림이 2건 뜨고,
+        더 나쁜 쪽은 클릭 동작입니다 - SDK가 표시한 알림에는 우리가 넣은 `data.url`이
+        없어, 탭하면 딥링크가 아니라 origin 기본 페이지로 갑니다.
+        **알림 2개 중 하나는 딥링크가 죽은 채로 뜹니다.**
+
+        그래서 최상위도 `additionalProperties: false`로 닫혀 있습니다 - 허용되는
+        최상위 키는 `data` 하나뿐이며, `notification`을 포함한 다른 키는 스키마
+        검증에서 걸립니다. 금지를 설명에만 적어 두면 새 발송부를 막지 못합니다.
+
+        서비스워커가 `payload.notification`을 폴백으로 읽는 방어를 두고 있지만,
+        그것은 계약 위반의 면죄부가 아니라 한 통이라도 살리기 위한 안전망입니다.
+
+        FCM `data`의 값은 **문자열만 허용**되므로 숫자·불린을 넣지 않습니다.
+      properties:
+        data:
+          type: object
+          required: [title, body, url]
+          additionalProperties: false
+          properties:
+            title:
+              type: string
+              description: 알림 제목. `[세이버스] {행정동} {특보명}` 형태입니다.
+              example: '[세이버스] 서원동 호우경보'
+            body:
+              type: string
+              description: |
+                **생성된 문안 그대로입니다.** 자르지도, 슬롯에 끼우지도 않습니다
+                ([ADR-0005](../../docs/adr/0005-webpush-primary-channel.md) -
+                렌더링 어댑터는 폐기했고 재도입하지 않습니다).
+            url:
+              type: string
+              description: |
+                딥링크. 서비스워커의 `notificationclick`이 이 값으로 이동합니다.
+                **받는 사람에 따라 두 형태**이고, 그 외의 경로는 없습니다.
+
+                - 본인 알림: `/a?t={세션 토큰}&s={stage}`
+                - 보호자 알림(폐루프 2차 발송): `/g/{보호자 토큰}`
+                  - `GET /v1/guardian/{token}`이 받는 그 토큰입니다.
+
+                ⚠️ **같은 origin으로 풀려야 합니다.** 서비스워커는 이 값을 자기 origin
+                기준으로 파싱해, 다른 origin이거나 파싱에 실패하면 `/`로 접습니다
+                (`sw.ts`의 `notificationclick`). 알림은 뜨는데 탭하면 첫 화면으로
+                가므로, 어긋나도 발송 로그에는 성공으로 남습니다.
+
+                **경로 형태(상대)와 절대 URL을 모두 받습니다.** 상대 경로는 origin이
+                끼어들 자리가 없어 이 제약을 무조건 만족하므로, 새로 만드는 발송부는
+                상대 경로를 씁니다(`/g/g_4e8b1c7d..`). 절대 URL로 넣는 경우
+                `PUBLIC_BASE_URL`과 origin이 같아야 하며, 이미 그렇게 만드는 자리가
+                하나 있습니다 - `backend_core/dispatch.py`의 `deep_link()`가 본인 알림
+                링크를 `{base_url}/a?t=..&s=..`로 조립합니다.
+              example: /a?t=s_9f2c8a1b4e7d&s=2
 
     RegistrationTarget:
       type: object
