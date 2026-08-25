@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends
 
 from api.deps import registry
 from api.errors import ApiError
-from backend_core.models import Ack, DeviceRegisterRequest
+from backend_core.models import Ack, DeviceRegisterRequest, DeviceUnregisterRequest
 from backend_core.registry import RegistrationNotFoundError, ResidentRegistry
 
 router = APIRouter(tags=["device"])
@@ -27,7 +27,7 @@ def register_device(
     residents: Annotated[ResidentRegistry, Depends(registry)],
 ) -> Ack:
     try:
-        residents.register_device(payload.registration_token, payload.fcm_token)
+        residents.register_device(payload.registration_token, payload.fcm_token, payload.role)
     except RegistrationNotFoundError as exc:
         raise ApiError(400, "INVALID_REQUEST", "등록 토큰을 찾을 수 없습니다.") from exc
     return Ack(ok=True)
@@ -35,10 +35,11 @@ def register_device(
 
 @router.delete("/v1/devices", response_model=Ack)
 def unregister_device(
-    payload: DeviceRegisterRequest,
+    payload: DeviceUnregisterRequest,
     residents: Annotated[ResidentRegistry, Depends(registry)],
 ) -> Ack:
-    """Idempotent — 200 even if the token was already gone (contract)."""
+    """Idempotent — 200 even if the token was already gone (contract). Role-free: the token
+    is detached from every role (`DeviceUnregisterRequest` carries no `role`)."""
     try:
         residents.unregister_device(payload.registration_token, payload.fcm_token)
     except RegistrationNotFoundError as exc:

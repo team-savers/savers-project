@@ -11,20 +11,41 @@ from backend_core.registry import (
 
 
 def test_device_registration_is_idempotent(registry: ResidentRegistry) -> None:
-    resident = registry.register_device("r_demo_resident_p002", "fcm_new")
-    registry.register_device("r_demo_resident_p002", "fcm_new")
-    assert resident.devices.count("fcm_new") == 1
+    resident = registry.register_device("r_demo_resident_p002", "fcm_new", "ward")
+    registry.register_device("r_demo_resident_p002", "fcm_new", "ward")
+    assert resident.devices["ward"].count("fcm_new") == 1
+
+
+def test_devices_are_kept_separate_by_role(registry: ResidentRegistry) -> None:
+    """1차(ward)·2차(guardian) 발송 대상이 갈리므로 버킷도 갈린다 — 한쪽 등록이 다른 쪽에 새지 않는다."""
+    resident = registry.register_device("r_demo_resident_p002", "fcm_ward", "ward")
+    registry.register_device("r_demo_resident_p002", "fcm_guardian", "guardian")
+    assert "fcm_ward" in resident.devices["ward"]
+    assert "fcm_ward" not in resident.devices["guardian"]
+    assert "fcm_guardian" in resident.devices["guardian"]
+    assert "fcm_guardian" not in resident.devices["ward"]
+
+
+def test_same_token_can_hold_both_roles_and_unregister_clears_both(
+    registry: ResidentRegistry,
+) -> None:
+    """공용 단말은 ward이자 guardian일 수 있고, 해제는 역할 없이 양쪽에서 뗀다(계약 DeviceUnregisterRequest)."""
+    registry.register_device("r_demo_resident_p001", "fcm_shared", "ward")
+    registry.register_device("r_demo_resident_p001", "fcm_shared", "guardian")
+    resident = registry.unregister_device("r_demo_resident_p001", "fcm_shared")
+    assert "fcm_shared" not in resident.devices["ward"]
+    assert "fcm_shared" not in resident.devices["guardian"]
 
 
 def test_unregistering_a_missing_token_still_succeeds(registry: ResidentRegistry) -> None:
     """분실·교체·동의 철회 경로는 재시도 루프를 만들지 않아야 한다."""
     resident = registry.unregister_device("r_demo_resident_p001", "never_registered")
-    assert "never_registered" not in resident.devices
+    assert all("never_registered" not in bucket for bucket in resident.devices.values())
 
 
 def test_unknown_registration_token_is_rejected(registry: ResidentRegistry) -> None:
     with pytest.raises(RegistrationNotFoundError):
-        registry.register_device("r_not_issued", "fcm_x")
+        registry.register_device("r_not_issued", "fcm_x", "ward")
 
 
 def test_registration_token_is_stable_per_person() -> None:

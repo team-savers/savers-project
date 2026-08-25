@@ -249,16 +249,20 @@ def run_alert(
             now=started + timedelta(seconds=perf_counter() - clock_start),
         )
 
-        if not resident.devices:
-            # Registered but unreachable: no FCM token yet, or every device was detached.
-            # Counted, not hidden — an alert nobody can receive is an operational fact the
-            # 도달률 report has to show.
+        # 1차 재난 알림은 ward 기기에만 나간다(ADR-0015 결정 2). guardian 기기는 30분 무응답
+        # 뒤 2차 발송용이라 여기서 세지 않는다 — ward가 비면 이 주민은 1차 도달 불가다.
+        ward_devices = resident.devices["ward"]
+        if not ward_devices:
+            # Registered but unreachable on the ward channel: no ward token yet, or every ward
+            # device was detached. Counted, not hidden — an alert nobody can receive is an
+            # operational fact the 도달률 report has to show. guardian 전용 주민이 여기서
+            # skipped_no_device에 들면 notified=0 Delivery라는 집계 구멍이 생기지 않는다.
             run.skipped_no_device.append(profile.user_id)
             continue
 
         link = deep_link(public_base_url, session.token, stage)
         notified = 0
-        for token in resident.devices:
+        for token in ward_devices:
             payload = PushPayload(
                 device_token=token,
                 title=message.title,

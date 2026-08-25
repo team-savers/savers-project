@@ -119,11 +119,29 @@ def test_chat_returns_sources_when_grounded(client: TestClient) -> None:
 
 
 def test_device_register_and_unregister(client: TestClient) -> None:
-    payload = {"registrationToken": "r_demo_resident_p002", "fcmToken": "fcm_new_device"}
-    assert client.post("/v1/devices", json=payload).json() == {"ok": True}
-    assert client.request("DELETE", "/v1/devices", json=payload).json() == {"ok": True}
+    register = {
+        "registrationToken": "r_demo_resident_p002",
+        "fcmToken": "fcm_new_device",
+        "role": "ward",
+    }
+    # 해제 본문에는 role이 없다(DeviceUnregisterRequest).
+    unregister = {"registrationToken": "r_demo_resident_p002", "fcmToken": "fcm_new_device"}
+    assert client.post("/v1/devices", json=register).json() == {"ok": True}
+    assert client.request("DELETE", "/v1/devices", json=unregister).json() == {"ok": True}
     # 이미 없는 토큰의 해제도 200 — 재시도 루프를 만들지 않는다.
-    assert client.request("DELETE", "/v1/devices", json=payload).status_code == 200
+    assert client.request("DELETE", "/v1/devices", json=unregister).status_code == 200
+
+
+def test_device_register_requires_role(client: TestClient) -> None:
+    """role은 기본값 없는 필수 — 생략하면 보호자 폰에 1차 알림이 조용히 갈 수 있어 422로 막는다."""
+    payload = {"registrationToken": "r_demo_resident_p002", "fcmToken": "fcm_x"}
+    assert client.post("/v1/devices", json=payload).status_code == 422
+
+
+def test_device_unregister_forbids_role(client: TestClient) -> None:
+    """해제 본문은 role을 받지 않는다 — 실으면 아무것도 못 뗀 채 성공을 받는 함정을 422로 막는다."""
+    payload = {"registrationToken": "r_demo_resident_p002", "fcmToken": "fcm_x", "role": "ward"}
+    assert client.request("DELETE", "/v1/devices", json=payload).status_code == 422
 
 
 def test_registration_lookup_exposes_only_identification(client: TestClient) -> None:
