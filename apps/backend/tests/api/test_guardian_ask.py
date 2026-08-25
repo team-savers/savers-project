@@ -65,19 +65,45 @@ def test_guardian_ask_delivers_three_supported_questions(
     assert "payload" not in str(body)
 
 
-def test_guardian_ask_without_relevant_event_is_whole_refusal(client: TestClient) -> None:
+@pytest.mark.parametrize(
+    ("question_id", "expected_types"),
+    [
+        (
+            "evacuation_progress",
+            {
+                "situation_check_selected",
+                "profile_review_started",
+                "profile_review_completed",
+                "profile_review_skipped",
+                "choice_screen_viewed",
+                "help_request_selected",
+                "direct_evacuation_selected",
+                "evacuation_guidance_viewed",
+                "route_guidance_started",
+                "next_guidance_requested",
+                "emergency_call_119_selected",
+                "arrival_confirmed_by_user",
+            },
+        ),
+        ("help_request", {"help_request_selected", "emergency_call_119_selected"}),
+        ("arrival_status", {"arrival_confirmed_by_user"}),
+    ],
+)
+def test_guardian_ask_without_relevant_event_returns_absence_evidence(
+    client: TestClient, question_id: str, expected_types: set[str]
+) -> None:
     delivery = dispatch(client)
     response = client.post(
         f"/v1/guardian/{delivery['guardianToken']}/ask",
-        json={"questionId": "arrival_status"},
+        json={"questionId": question_id},
     )
     assert response.status_code == 200
-    assert response.json() == {
-        "questionId": "arrival_status",
-        "answer": None,
-        "sources": [],
-        "refusalReason": "no_evidence",
-    }
+    body = response.json()
+    assert body["questionId"] == question_id
+    assert body["answer"]
+    assert body["refusalReason"] is None
+    assert {source["type"] for source in body["sources"]} == expected_types
+    assert all(source["present"] is False and source["at"] is None for source in body["sources"])
 
 
 def test_guardian_ask_unknown_token_is_404(client: TestClient) -> None:

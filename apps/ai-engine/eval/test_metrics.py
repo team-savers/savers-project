@@ -12,6 +12,7 @@ deterministic.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 
 import metrics
 import pytest
@@ -630,6 +631,78 @@ class TestGuardianRuntimeMetricParity:
         tampered = response.model_copy(update={"sources": (wrong_source,)})
         assert _parity_verdict(GuardianQuestionId.ARRIVAL_STATUS, tampered, events) == (True, True)
 
+    def test_same_instant_with_different_offset_is_allowed_by_both(self) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "situation_check_selected", "at": "2026-08-24T03:13:41Z", "payload": {}}
+        ]
+        response = answer_guardian_question(GuardianQuestionId.EVACUATION_PROGRESS, events)
+        source = GuardianEvidence(
+            type="situation_check_selected", present=True, at="2026-08-24T12:13:41+09:00"
+        )
+        equivalent = response.model_copy(update={"sources": (source,)})
+        assert _parity_verdict(GuardianQuestionId.EVACUATION_PROGRESS, equivalent, events) == (
+            False,
+            False,
+        )
+
+    @pytest.mark.parametrize(
+        ("question_id", "event_type", "positive_answer", "absence_answer", "at"),
+        [
+            (
+                GuardianQuestionId.EVACUATION_PROGRESS,
+                "choice_screen_viewed",
+                "10시 14분에 상황 선택 화면을 보셨습니다.",
+                "상황 선택 화면을 본 사실은 기록에서 확인되지 않습니다.",
+                "2026-08-24T01:14:00Z",
+            ),
+            (
+                GuardianQuestionId.EVACUATION_PROGRESS,
+                "route_guidance_started",
+                "10시 18분에 경로 안내를 시작하셨습니다.",
+                "경로 안내를 시작한 사실은 기록에서 확인되지 않습니다.",
+                "2026-08-24T01:18:00Z",
+            ),
+            (
+                GuardianQuestionId.HELP_REQUEST,
+                "help_request_selected",
+                "10시 15분에 [도움이 필요해요]를 선택하셨습니다.",
+                "[도움이 필요해요]를 선택한 사실은 기록에서 확인되지 않습니다.",
+                "2026-08-24T01:15:00Z",
+            ),
+            (
+                GuardianQuestionId.ARRIVAL_STATUS,
+                "arrival_confirmed_by_user",
+                "10시 42분에 [도착 완료] 버튼을 누르셨습니다.",
+                "[도착 완료] 버튼을 누른 사실은 기록에서 확인되지 않습니다.",
+                "2026-08-24T01:42:00Z",
+            ),
+        ],
+    )
+    def test_claim_polarity_swap_is_blocked_by_both(
+        self,
+        question_id: GuardianQuestionId,
+        event_type: str,
+        positive_answer: str,
+        absence_answer: str,
+        at: str,
+    ) -> None:
+        absent = GuardianLogAnswer(
+            question_id=question_id,
+            answer=positive_answer,
+            sources=(GuardianEvidence(type=event_type, present=False),),  # type: ignore[arg-type]
+            refusal_reason=None,
+        )
+        assert _parity_verdict(question_id, absent, []) == (True, True)
+
+        events: list[dict[str, object]] = [{"type": event_type, "at": at, "payload": {}}]
+        present = GuardianLogAnswer(
+            question_id=question_id,
+            answer=absence_answer,
+            sources=(GuardianEvidence(type=event_type, present=True, at=at),),  # type: ignore[arg-type]
+            refusal_reason=None,
+        )
+        assert _parity_verdict(question_id, present, events) == (True, True)
+
     def test_present_and_absence_mismatches_are_blocked_by_both(self) -> None:
         event_row: dict[str, object] = {
             "type": "arrival_confirmed_by_user",
@@ -679,6 +752,29 @@ class TestGuardianRuntimeMetricParity:
             True,
             True,
         ), category
+
+    @pytest.mark.parametrize(
+        "answer",
+        ["[행동하지 않았습니다]", "아무 행동도 하지 않으셨습니다."],
+    )
+    def test_real_world_absence_former_one_way_gaps_keep_forbidden_reason(
+        self, answer: str
+    ) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "arrival_confirmed_by_user", "at": "2026-08-24T01:42:00Z", "payload": {}}
+        ]
+        response = answer_guardian_question(GuardianQuestionId.ARRIVAL_STATUS, events)
+        tampered = response.model_copy(update={"answer": answer})
+        runtime_reasons = verify_guardian_answer_detailed(
+            GuardianQuestionId.ARRIVAL_STATUS, tampered, events
+        ).violations
+        metric_reasons = metrics.guardian_violations(
+            answer=answer,
+            evidence=[source.model_dump(mode="python") for source in response.sources],
+            events=events,
+        )
+        assert "forbidden_phrase" in runtime_reasons
+        assert "forbidden_phrase" in metric_reasons
 
     def test_overlapping_unsupported_paths_report_reason_once(self) -> None:
         events: list[dict[str, object]] = [
@@ -747,6 +843,68 @@ class TestGuardianRuntimeMetricParity:
             False,
             False,
         )
+
+
+@pytest.mark.parametrize(
+    ("example_name", "question_id", "event_type", "at", "expected_answer"),
+    [
+        (
+            "진행_상태_최근_행동",
+            GuardianQuestionId.EVACUATION_PROGRESS,
+            "choice_screen_viewed",
+            "2026-08-24T03:05:00Z",
+            "12시 05분에 상황 선택 화면을 보셨습니다.",
+        ),
+        (
+            "도착_확인까지_끝난_상태",
+            GuardianQuestionId.EVACUATION_PROGRESS,
+            "arrival_confirmed_by_user",
+            "2026-08-24T03:31:02Z",
+            "12시 31분에 [도착 완료] 버튼을 누르셨습니다.",
+        ),
+        (
+            "확인되지_않음",
+            GuardianQuestionId.ARRIVAL_STATUS,
+            None,
+            None,
+            "[도착 완료] 버튼을 누른 사실은 기록에서 확인되지 않습니다.",
+        ),
+    ],
+)
+def test_latest_openapi_guardian_examples_are_clean(
+    example_name: str,
+    question_id: GuardianQuestionId,
+    event_type: str | None,
+    at: str | None,
+    expected_answer: str,
+) -> None:
+    spec = (Path(__file__).parents[3] / "packages" / "contracts" / "openapi.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert f"                {example_name}:" in spec
+    assert expected_answer in spec
+
+    events: list[dict[str, object]] = (
+        [] if event_type is None else [{"type": event_type, "at": at, "payload": {}}]
+    )
+    response = answer_guardian_question(question_id, events)
+    assert response.answer == expected_answer
+    assert _parity_verdict(question_id, response, events) == (False, False)
+
+
+def test_latest_openapi_guardian_refusal_example_is_clean() -> None:
+    spec = (Path(__file__).parents[3] / "packages" / "contracts" / "openapi.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert "                거절:" in spec
+    assert "                    answer: null" in spec
+    response = GuardianLogAnswer(
+        question_id=GuardianQuestionId.HELP_REQUEST,
+        answer=None,
+        sources=(),
+        refusal_reason="no_evidence",
+    )
+    assert _parity_verdict(GuardianQuestionId.HELP_REQUEST, response, []) == (False, False)
 
 
 class TestGuardianAccuracy:

@@ -38,7 +38,7 @@ UNSUPPORTED_STATE = re.compile(
     r"안전합니다|괜찮습니다|무사합니다|이상 없습니다|이동 중입니다|대피 중입니다|도착했습니다"
 )
 REAL_WORLD_ABSENCE = re.compile(
-    r"기록(?:이|은)\s*(?:없습니다|없었습니다)|하지\s*않았습니다|누르지\s*않|"
+    r"기록(?:이|은)\s*(?:없습니다|없었습니다)|하지\s*않|누르지\s*않|"
     r"선택하지\s*않|행동하지\s*않"
 )
 POLITE_NON_HAPSYO = re.compile(
@@ -409,14 +409,21 @@ def _source_violation(
         return "absent_claim_mismatch" if matching else None
     if not matching:
         return "present_claim_mismatch"
-    if any(event.get("at") == source.at for event in matching):
-        return None
-    if not any(
-        isinstance(event.get("at"), str) and RFC3339_DATE_TIME.fullmatch(event["at"]) is not None
-        for event in matching
-    ):
+
+    if source.at is None:
         return "malformed_evidence"
-    return "time_mismatch"
+    _, source_at = _parse_rfc3339(source.at)
+    source_minute = source_at.replace(second=0, microsecond=0)
+    event_minutes: set[datetime] = set()
+    for event in matching:
+        try:
+            _, event_at = _parse_rfc3339(event.get("at"))
+        except ValueError:
+            continue
+        event_minutes.add(event_at.replace(second=0, microsecond=0))
+    if not event_minutes:
+        return "malformed_evidence"
+    return None if source_minute in event_minutes else "time_mismatch"
 
 
 def _canonical_claim(source: GuardianEvidence) -> str | None:

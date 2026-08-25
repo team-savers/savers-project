@@ -476,6 +476,47 @@ def test_verifier_rejects_tampered_source_time() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "source_at",
+    ["2026-08-24T12:13:41+09:00", "2026-08-24T03:13:59Z"],
+)
+def test_verifier_compares_source_time_by_utc_minute(source_at: str) -> None:
+    events = [event("situation_check_selected", "2026-08-24T03:13:41Z")]
+    response = answer_guardian_question("evacuation_progress", events)
+    source = GuardianEvidence(type="situation_check_selected", present=True, at=source_at)
+    tampered = response.model_copy(update={"sources": (source,)})
+
+    assert verify_guardian_answer_detailed("evacuation_progress", tampered, events).deliverable
+
+
+def test_verifier_rejects_source_time_in_different_utc_minute() -> None:
+    events = [event("situation_check_selected", "2026-08-24T03:13:41Z")]
+    response = answer_guardian_question("evacuation_progress", events)
+    source = GuardianEvidence(
+        type="situation_check_selected", present=True, at="2026-08-24T03:14:00Z"
+    )
+    tampered = response.model_copy(
+        update={"answer": "12시 14분에 [상황 확인하기] 버튼을 누르셨습니다.", "sources": (source,)}
+    )
+
+    verification = verify_guardian_answer_detailed("evacuation_progress", tampered, events)
+    assert "time_mismatch" in verification.violations
+
+
+def test_verifier_accepts_one_matching_minute_among_same_type_events() -> None:
+    events = [
+        event("situation_check_selected", "2026-08-24T03:10:00Z"),
+        event("situation_check_selected", "2026-08-24T03:13:41Z"),
+    ]
+    response = answer_guardian_question("evacuation_progress", events)
+    source = GuardianEvidence(
+        type="situation_check_selected", present=True, at="2026-08-24T12:13:59+09:00"
+    )
+    tampered = response.model_copy(update={"sources": (source,)})
+
+    assert verify_guardian_answer_detailed("evacuation_progress", tampered, events).deliverable
+
+
 def test_verifier_rejects_source_outside_question_scope() -> None:
     response = GuardianLogAnswer.model_construct(
         question_id=GuardianQuestionId.ARRIVAL_STATUS,

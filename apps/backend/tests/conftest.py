@@ -48,6 +48,15 @@ GROUNDED_BODY = (
     "지금 바로 관악구민종합체육관(으)로 이동할 준비를 하세요."
 )
 
+_GUARDIAN_ABSENCE_ANSWERS = {
+    "evacuation_progress": "현재 세션의 사용자 행동은 기록에서 확인되지 않습니다.",
+    "help_request": (
+        "[도움이 필요해요]를 선택한 사실은 기록에서 확인되지 않습니다. "
+        "119 전화 버튼을 누른 사실은 기록에서 확인되지 않습니다."
+    ),
+    "arrival_status": "[도착 완료] 버튼을 누른 사실은 기록에서 확인되지 않습니다.",
+}
+
 
 class FakeAiEngine:
     """Contract-shaped stand-in.
@@ -100,7 +109,15 @@ class FakeAiEngine:
         self.seen_guardian_events.append(wire_events)
         matching = [event for event in events if event.type in GUARDIAN_CITATION_SCOPE[question_id]]
         if not matching:
-            return GuardianAnswer.no_evidence(question_id)
+            return GuardianAnswer(
+                question_id=question_id,
+                answer=_GUARDIAN_ABSENCE_ANSWERS[question_id],
+                sources=[
+                    GuardianEvidence(type=event_type, present=False, at=None)
+                    for event_type in sorted(GUARDIAN_CITATION_SCOPE[question_id])
+                ],
+                refusal_reason=None,
+            )
         latest = matching[-1]
         at = latest.model_dump(mode="json", by_alias=True)["at"]
         return GuardianAnswer(
