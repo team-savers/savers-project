@@ -315,8 +315,14 @@ def _answer_progress(
     latest = progress[-1]
     time_text = format_event_time(latest.at_utc)
     action = _PROGRESS_TEMPLATES[latest.event_type]
+    answer = f"{time_text}에 {action}"
+    sources = [latest.evidence()]
 
-    return f"{time_text}에 {action}", (latest.evidence(),)
+    if not any(event.get("type") == "arrival_confirmed_by_user" for event in events):
+        answer = f"{answer} {_ABSENCE_TEMPLATES['arrival_confirmed_by_user']}"
+        sources.append(GuardianEvidence(type="arrival_confirmed_by_user", present=False))
+
+    return answer, tuple(sources)
 
 
 def _answer_help(events: Sequence[Mapping[str, Any]]) -> tuple[str, tuple[GuardianEvidence, ...]]:

@@ -205,6 +205,8 @@ def test_progress_answers_from_latest_relevant_user_action(
     events: list[dict[str, Any]], expected: str
 ) -> None:
     result = answer_guardian_question(GuardianQuestionId.EVACUATION_PROGRESS, events)
+    if events:
+        expected = f"{expected} [도착 완료] 버튼을 누른 사실은 기록에서 확인되지 않습니다."
     assert result.answer == expected
 
 
@@ -215,7 +217,10 @@ def test_progress_ignores_later_system_event_and_input_order() -> None:
         event("profile_review_completed", "2026-08-24T01:14:00Z"),
     ]
     result = answer_guardian_question("evacuation_progress", events)
-    assert result.answer == "10시 18분에 경로 안내를 시작하셨습니다."
+    assert result.answer == (
+        "10시 18분에 경로 안내를 시작하셨습니다. "
+        "[도착 완료] 버튼을 누른 사실은 기록에서 확인되지 않습니다."
+    )
     assert result.sources[0].type == "route_guidance_started"
     assert result.sources[0].present is True
 
@@ -229,6 +234,51 @@ def test_progress_reflects_choice_change_by_latest_timestamp() -> None:
     assert result.answer is not None
     assert "[일단 대피할게요]를 선택하셨습니다." in result.answer
     assert result.sources[0].type == "direct_evacuation_selected"
+
+
+def test_progress_adds_arrival_absence_when_session_has_no_arrival() -> None:
+    events = [event("help_request_selected", "2026-08-24T01:16:00Z")]
+    result = answer_guardian_question("evacuation_progress", events)
+
+    assert result.answer == (
+        "10시 16분에 [도움이 필요해요]를 선택하셨습니다. "
+        "[도착 완료] 버튼을 누른 사실은 기록에서 확인되지 않습니다."
+    )
+    assert result.sources == (
+        GuardianEvidence(type="help_request_selected", present=True, at="2026-08-24T01:16:00Z"),
+        GuardianEvidence(type="arrival_confirmed_by_user", present=False),
+    )
+    assert not any(phrase in result.answer for phrase in ("그 뒤로", "이후", "계속", "몇 분 동안"))
+    assert "누르지 않았습니다" not in result.answer
+    assert verify_guardian_answer_detailed("evacuation_progress", result, events).deliverable
+
+
+def test_progress_with_latest_arrival_has_no_arrival_absence() -> None:
+    events = [event("arrival_confirmed_by_user", "2026-08-24T01:42:00Z")]
+    result = answer_guardian_question("evacuation_progress", events)
+
+    assert result.answer == "10시 42분에 [도착 완료] 버튼을 누르셨습니다."
+    assert result.sources == (
+        GuardianEvidence(type="arrival_confirmed_by_user", present=True, at="2026-08-24T01:42:00Z"),
+    )
+
+
+def test_progress_with_earlier_arrival_and_later_119_has_no_arrival_absence() -> None:
+    events = [
+        event("arrival_confirmed_by_user", "2026-08-24T01:42:00Z"),
+        event("emergency_call_119_selected", "2026-08-24T01:43:00Z"),
+    ]
+    result = answer_guardian_question("evacuation_progress", events)
+
+    assert result.answer == "10시 43분에 119 전화 버튼을 누르셨습니다."
+    assert result.sources == (
+        GuardianEvidence(
+            type="emergency_call_119_selected", present=True, at="2026-08-24T01:43:00Z"
+        ),
+    )
+    verification = verify_guardian_answer_detailed("evacuation_progress", result, events)
+    assert verification.deliverable
+    assert "absent_claim_mismatch" not in verification.violations
 
 
 def test_help_absent_uses_no_record_wording() -> None:
@@ -316,7 +366,10 @@ def test_backend_wire_user_event_is_accepted() -> None:
         "evacuation_progress",
         [event("route_guidance_started", "2026-08-24T01:18:00Z")],
     )
-    assert result.answer == "10시 18분에 경로 안내를 시작하셨습니다."
+    assert result.answer == (
+        "10시 18분에 경로 안내를 시작하셨습니다. "
+        "[도착 완료] 버튼을 누른 사실은 기록에서 확인되지 않습니다."
+    )
 
 
 def test_unknown_event_type_is_rejected_at_input_boundary() -> None:
@@ -484,7 +537,7 @@ def test_verifier_compares_source_time_by_utc_minute(source_at: str) -> None:
     events = [event("situation_check_selected", "2026-08-24T03:13:41Z")]
     response = answer_guardian_question("evacuation_progress", events)
     source = GuardianEvidence(type="situation_check_selected", present=True, at=source_at)
-    tampered = response.model_copy(update={"sources": (source,)})
+    tampered = response.model_copy(update={"sources": (source, *response.sources[1:])})
 
     assert verify_guardian_answer_detailed("evacuation_progress", tampered, events).deliverable
 
@@ -496,7 +549,13 @@ def test_verifier_rejects_source_time_in_different_utc_minute() -> None:
         type="situation_check_selected", present=True, at="2026-08-24T03:14:00Z"
     )
     tampered = response.model_copy(
-        update={"answer": "12시 14분에 [상황 확인하기] 버튼을 누르셨습니다.", "sources": (source,)}
+        update={
+            "answer": (
+                "12시 14분에 [상황 확인하기] 버튼을 누르셨습니다. "
+                "[도착 완료] 버튼을 누른 사실은 기록에서 확인되지 않습니다."
+            ),
+            "sources": (source, *response.sources[1:]),
+        }
     )
 
     verification = verify_guardian_answer_detailed("evacuation_progress", tampered, events)
@@ -512,7 +571,7 @@ def test_verifier_accepts_one_matching_minute_among_same_type_events() -> None:
     source = GuardianEvidence(
         type="situation_check_selected", present=True, at="2026-08-24T12:13:59+09:00"
     )
-    tampered = response.model_copy(update={"sources": (source,)})
+    tampered = response.model_copy(update={"sources": (source, *response.sources[1:])})
 
     assert verify_guardian_answer_detailed("evacuation_progress", tampered, events).deliverable
 
@@ -616,6 +675,7 @@ def test_verifier_allows_empty_progress_with_twelve_absence_sources() -> None:
     assert len(result.sources) == 12
     assert all(source.present is False and source.at is None for source in result.sources)
     assert result.refusal_reason is None
+    assert verify_guardian_answer_detailed("evacuation_progress", result, []).deliverable
 
 
 def test_verifier_rejects_claim_source_type_swap_as_unsupported() -> None:
@@ -688,7 +748,10 @@ def test_verifier_allows_midnight_and_source_seconds() -> None:
     events = [event("route_guidance_started", "2026-08-23T15:05:41Z")]
     result = answer_guardian_question("evacuation_progress", events)
 
-    assert result.answer == "00시 05분에 경로 안내를 시작하셨습니다."
+    assert result.answer == (
+        "00시 05분에 경로 안내를 시작하셨습니다. "
+        "[도착 완료] 버튼을 누른 사실은 기록에서 확인되지 않습니다."
+    )
     assert result.sources[0].at == "2026-08-23T15:05:41Z"
 
 

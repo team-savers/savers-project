@@ -639,7 +639,7 @@ class TestGuardianRuntimeMetricParity:
         source = GuardianEvidence(
             type="situation_check_selected", present=True, at="2026-08-24T12:13:41+09:00"
         )
-        equivalent = response.model_copy(update={"sources": (source,)})
+        equivalent = response.model_copy(update={"sources": (source, *response.sources[1:])})
         assert _parity_verdict(GuardianQuestionId.EVACUATION_PROGRESS, equivalent, events) == (
             False,
             False,
@@ -844,6 +844,69 @@ class TestGuardianRuntimeMetricParity:
             False,
         )
 
+    @pytest.mark.parametrize(
+        "events",
+        [
+            [{"type": "help_request_selected", "at": "2026-08-24T01:16:00Z", "payload": {}}],
+            [
+                {
+                    "type": "arrival_confirmed_by_user",
+                    "at": "2026-08-24T01:42:00Z",
+                    "payload": {},
+                }
+            ],
+            [
+                {
+                    "type": "arrival_confirmed_by_user",
+                    "at": "2026-08-24T01:42:00Z",
+                    "payload": {},
+                },
+                {
+                    "type": "emergency_call_119_selected",
+                    "at": "2026-08-24T01:43:00Z",
+                    "payload": {},
+                },
+            ],
+            [],
+        ],
+    )
+    def test_progress_arrival_absence_policy_is_allowed_by_both(
+        self, events: list[dict[str, object]]
+    ) -> None:
+        response = answer_guardian_question(GuardianQuestionId.EVACUATION_PROGRESS, events)
+        assert _parity_verdict(GuardianQuestionId.EVACUATION_PROGRESS, response, events) == (
+            False,
+            False,
+        )
+
+    def test_progress_arrival_absence_source_flip_or_removal_is_blocked_by_both(self) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "help_request_selected", "at": "2026-08-24T01:16:00Z", "payload": {}}
+        ]
+        response = answer_guardian_question(GuardianQuestionId.EVACUATION_PROGRESS, events)
+        flipped = response.model_copy(
+            update={
+                "sources": (
+                    response.sources[0],
+                    GuardianEvidence(
+                        type="arrival_confirmed_by_user",
+                        present=True,
+                        at="2026-08-24T01:42:00Z",
+                    ),
+                )
+            }
+        )
+        removed = response.model_copy(update={"sources": response.sources[:1]})
+
+        assert _parity_verdict(GuardianQuestionId.EVACUATION_PROGRESS, flipped, events) == (
+            True,
+            True,
+        )
+        assert _parity_verdict(GuardianQuestionId.EVACUATION_PROGRESS, removed, events) == (
+            True,
+            True,
+        )
+
 
 @pytest.mark.parametrize(
     ("example_name", "question_id", "event_type", "at", "expected_answer"),
@@ -887,8 +950,17 @@ def test_latest_openapi_guardian_examples_are_clean(
     events: list[dict[str, object]] = (
         [] if event_type is None else [{"type": event_type, "at": at, "payload": {}}]
     )
-    response = answer_guardian_question(question_id, events)
-    assert response.answer == expected_answer
+    source = (
+        GuardianEvidence(type="arrival_confirmed_by_user", present=False)
+        if event_type is None
+        else GuardianEvidence(type=event_type, present=True, at=at)  # type: ignore[arg-type]
+    )
+    response = GuardianLogAnswer(
+        question_id=question_id,
+        answer=expected_answer,
+        sources=(source,),
+        refusal_reason=None,
+    )
     assert _parity_verdict(question_id, response, events) == (False, False)
 
 
