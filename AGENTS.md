@@ -69,7 +69,7 @@ Delivery is **PWA web push (FCM)**; the generated message goes out **verbatim, w
 | Routing | OpenStreetMap → **OSMnx + networkx** in-memory graph, per-link flood-risk grades R0–R3 (pre-computed static table). **The submitted plan names OSRM in two places; the finals build uses the A-plan and the correction is recorded in [docs/공유_문서/서비스_기획서.md](docs/공유_문서/서비스_기획서.md). OSRM migration is the first roadmap item after the finals.** |
 | Knowledge base | 행정안전부 국민행동요령 corpus, Chroma vector DB (corpus RAG); **event logs, no vector index** (guardian RAG) |
 | Generation/control | LangChain orchestration, HyperCLOVA X, guardrail prompts, claim-level log-matching verifier |
-| Delivery/accessibility | PWA web push (Firebase Cloud Messaging) as the **primary** channel — 카카오 알림톡 not adopted, in the preliminary round or the finals ([ADR-0005](docs/adr/0005-webpush-primary-channel.md)), TTS, multilingual translation |
+| Delivery/accessibility | PWA web push (Firebase Cloud Messaging) as the **primary** channel — 카카오 알림톡 not adopted, in the preliminary round or the finals ([ADR-0005](docs/adr/0005-webpush-primary-channel.md)); the closed-loop **second dispatch rides the same FCM path and SMS is not adopted either** ([ADR-0014](docs/adr/0014-closed-loop-second-dispatch-channel.md), Accepted 2026-08-25), TTS, multilingual translation |
 | Infra/ops | AWS **single VM** (Seoul region ap-northeast-2, CPU-only — HyperCLOVA X/embedding are external APIs, **no GPU**; backend + ai-engine via docker-compose, managed redundancy deferred — see [ADR-0003](docs/adr/0003-single-vm-seoul.md); the PWA is a static build served off-VM by Vercel — see [ADR-0008](docs/adr/0008-frontend-static-hosting.md)), log-based latency measurement, offline cache fallback mode |
 =
 
@@ -92,6 +92,15 @@ The team's differentiation strategy is that quality is proven by **reproducible 
 - **보호자 응답 정확도** — **zero statements not grounded in the log.** Scored against a 40-case guardian golden set (30 recommended questions + 10 free-form "기타"). When in doubt the system must refuse: under-refusal (answering something absent from the log) breaks the metric directly, over-refusal only costs coverage.
 - **위치정보 무저장·무로깅 (coordinates are stored or logged nowhere)** — target is **zero points where a coordinate is written to a session, event log, DB, or file**. The proof is `scripts/check_privacy.py` scanning the tree for storage/logging sites — **the script is merged and wired into CI**, running as part of the [`e2e.yml`](.github/workflows/e2e.yml) end-to-end job and publishing a `privacy-check-report` artifact (details in [docs/공통_가이드/개인정보_체크리스트.md](docs/공통_가이드/개인정보_체크리스트.md) §4). Reworded twice: from 「위치정보 즉시 파기 준수율 100%」 to 「미수신」 on **2026-08-21** (`SessionStore` has no delete/purge method, so "purged" cannot be proven), then to 「무저장·무로깅」 on **2026-08-22** because `/v1/shelters/search` does receive `lat`/`lng`, so 「미수신」 was refutable from `openapi.yaml` alone. Decision record: [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) (**Proposed**, Tech Lead 승인 대기 — 검토 중 until accepted); working rationale in [docs/공유_문서/정량목표_검증설계.md](docs/공유_문서/정량목표_검증설계.md) §3.
 - **폐루프 2차 발송 성공률** — 100%. 30 minutes of no response must produce a guardian escalation that actually lands.
+  **The escalation goes out on the same web push (FCM) path as the first dispatch —
+  there is no second-dispatch-only channel, and SMS is adopted for neither**
+  (same channel, different recipient device: first dispatch to the ward's,
+  escalation to the guardian's, split by a role value in the contract)
+  ([ADR-0014](docs/adr/0014-closed-loop-second-dispatch-channel.md) **Accepted** —
+  2026-08-25 안은남·김도혁 확인, 확정),
+  and the metric is measured from that path's `guardian_notified` event.
+  기획서 2장 [그림 5]·5장의 「보호자 SMS(예정)」 is the stale wording that says otherwise;
+  it is answered in the 정정 항목 표, not by adding a channel.
 
 The shelter-suitability model is scored separately by the **3-fold validation** described above. Its third-stage (model) numbers are **not yet measured** — 기획서 [표3] currently carries target ranges quoted from comparable PU-learning studies, and they must be replaced with the team's own measurements before the finals. **If the model does not beat the rule-based second stage, that is recorded as a failure case** rather than dressed up; not packaging a rule-based result as a model is the line this team holds.
 
