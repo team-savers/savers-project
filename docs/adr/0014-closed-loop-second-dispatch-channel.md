@@ -4,7 +4,7 @@
 - **번호**: 초안은 ADR-0012로 썼으나 [ADR-0012](0012-verifier-rules-and-closed-loop.md)(검증기 대조 규칙, 폐루프 상태, PR #106)가 먼저 머지됐고 0013은 [PR #110](https://github.com/team-savers/savers-project/pull/110)이 쓰고 있어 0014로 잡는다. [ADR-0011](0011-m3-no-storage-not-no-receipt.md)에서 같은 충돌이 한 번 났다
 - **날짜**: 2026-08-24 (작성) / 2026-08-25 (승인)
 - **결정자**: 신호정 (Tech Lead) 작성 / 안은남 (PM), 김도혁 (Backend) 확인
-- **관련 문서**: [ADR-0005](0005-webpush-primary-channel.md) (1차 채널), [ADR-0012](0012-verifier-rules-and-closed-loop.md) 5절, 7절 (폐루프 상태와 M4 분모, 분자), [ADR-0013](https://github.com/team-savers/savers-project/pull/110) (M1은 발송 접수까지, 제안), `packages/contracts/openapi.yaml` (`FollowupDueEvent`, `GuardianNotifiedEvent`), [서비스_기획서.md](../공유_문서/서비스_기획서.md) 정정 항목 표 4번, [정량목표_검증설계.md](../공유_문서/정량목표_검증설계.md) M4, [역할_일정/04-백엔드.md](../역할_일정/04-백엔드.md) 8/25
+- **관련 문서**: [ADR-0005](0005-webpush-primary-channel.md) (1차 채널), [ADR-0012](0012-verifier-rules-and-closed-loop.md) 5절, 7절 (폐루프 상태와 M4 분모, 분자), [ADR-0013](https://github.com/team-savers/savers-project/pull/110) (M1은 발송 접수까지, 제안), [ADR-0015](0015-guardian-device-registration.md) (제안, 보호자 기기 등록과 `role` 구분), `packages/contracts/openapi.yaml` (`FollowupDueEvent`, `GuardianNotifiedEvent`, `DeviceRegisterRequest.role`), [서비스_기획서.md](../공유_문서/서비스_기획서.md) 정정 항목 표 4번, [정량목표_검증설계.md](../공유_문서/정량목표_검증설계.md) M4, [역할_일정/04-백엔드.md](../역할_일정/04-백엔드.md) 8/25
 
 ## 배경 (Context)
 
@@ -36,7 +36,7 @@ ADR-0005 본문에는 2차 발송도 SMS 미채택도 없다. 인용이 문서�
 
 ## 결정 (Decision)
 
-1. **폐루프 2차 발송은 1차와 같은 웹푸시(FCM) 경로로 보낸다.** 2차 전용 채널을 두지 않는다. 채널이 하나라는 것은 **받는 사람이 같다는 뜻이 아니다** - 1차는 피보호자 기기로, 2차는 보호자 기기로 간다. 그 구분은 채널이 아니라 계약의 역할 값이 한다(보호자 기기 등록 계약, 별도 PR 진행 중).
+1. **폐루프 2차 발송은 1차와 같은 웹푸시(FCM) 경로로 보낸다.** 2차 전용 채널을 두지 않는다. 채널이 하나라는 것은 **받는 사람이 같다는 뜻이 아니다** - 1차는 피보호자 기기로, 2차는 보호자 기기로 간다. 그 구분은 채널이 아니라 계약의 역할 값이 한다 - `DeviceRegisterRequest.role`의 `ward`와 `guardian`이고, 2차 발송은 `role: guardian` 기기로만 나간다([ADR-0015](0015-guardian-device-registration.md)(제안)와 계약이 PR #122로 병합됐다).
 2. **SMS는 1차, 2차 모두 채택하지 않는다.** 본선 구현 범위에 SMS 발송 코드, 대행사 계약, 발신번호 등록은 없다.
 3. **M4(폐루프 2차 발송 성공률)는 그 경로의 `guardian_notified` 이벤트로만 측정한다.** 분모와 분자의 정의는 [ADR-0012](0012-verifier-rules-and-closed-loop.md) 7절을 따르고 이 문서가 바꾸지 않는다. 채점 함수는 이미 `apps/ai-engine/eval/metrics.py`의 `followup_delivery_rate`로 들어와 있다(PR #106).
 4. **대외 설명은 "웹푸시 알림 링크"로 통일한다.** "문자", "문자 속 링크"라고 말하지 않는다.
