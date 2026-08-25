@@ -30,6 +30,12 @@ def session_expired() -> NoReturn:
     raise ApiError(410, "SESSION_EXPIRED", "만료된 링크입니다.")
 
 
+def idempotency_conflict() -> NoReturn:
+    raise ApiError(
+        409, "IDEMPOTENCY_KEY_CONFLICT", "이미 다른 요청에 사용된 Idempotency-Key입니다."
+    )
+
+
 async def api_error_handler(request: Request, exc: Exception) -> JSONResponse:
     """Render ApiError (and any other HTTPException) in the contract's error shape."""
     if isinstance(exc, ApiError):
@@ -51,6 +57,8 @@ def _code_for(status_code: int) -> ErrorCode:
         return "SESSION_NOT_FOUND"
     if status_code == 410:
         return "SESSION_EXPIRED"
+    if status_code == 409:
+        return "IDEMPOTENCY_KEY_CONFLICT"
     if status_code == 429:
         return "RATE_LIMITED"
     if 400 <= status_code < 500:
