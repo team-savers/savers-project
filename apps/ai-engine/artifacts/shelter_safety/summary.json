@@ -1,0 +1,243 @@
+{
+  "artifact": {
+    "model_path": "apps/ai-engine/artifacts/shelter_safety/shelter_suitability_lgbm.txt",
+    "model_sha256": "f226743109a9c82c1f7c7abd4df597521193a8145ee60c2d929c38ef936d3333",
+    "summary_path": "apps/ai-engine/artifacts/shelter_safety/summary.json"
+  },
+  "cv": {
+    "fold_metrics": [
+      {
+        "f1": 0.02220988339811216,
+        "flood_baseline_expected_recall_at_top_20_percent": 0.2570739064856712,
+        "fold": 1,
+        "lift_over_flood_baseline": 3.889931940858953,
+        "model_top_20_boundary_expected_positive_hits": 0.0,
+        "model_top_20_boundary_tie_positive": 0,
+        "model_top_20_boundary_tie_size": 1,
+        "model_top_20_boundary_tie_slots": 1,
+        "model_top_20_fractional_tie_applied": false,
+        "non_school_recall_at_top_20_percent": 1.0,
+        "precision": 0.011229646266142616,
+        "pu_counts": {
+          "held_out": 31,
+          "positive": 53,
+          "reliable_negative": 340,
+          "spies": 8,
+          "unlabeled": 32531,
+          "unlabeled_subsampled": 371
+        },
+        "pu_threshold": 0.0019013397393582156,
+        "recall": 1.0,
+        "roc_auc": 0.9898788561769264,
+        "train_groups": [
+          "11650",
+          "11740"
+        ],
+        "train_rows": 32612,
+        "validation_group": "11680",
+        "validation_non_school_positive": 5,
+        "validation_positive": 20,
+        "validation_rows": 21327
+      },
+      {
+        "f1": 0.11176470588235295,
+        "flood_baseline_expected_recall_at_top_20_percent": 0.2609018095520617,
+        "fold": 2,
+        "lift_over_flood_baseline": 2.4390924595586334,
+        "model_top_20_boundary_expected_positive_hits": 0.0,
+        "model_top_20_boundary_tie_positive": 0,
+        "model_top_20_boundary_tie_size": 148,
+        "model_top_20_boundary_tie_slots": 104,
+        "model_top_20_fractional_tie_applied": true,
+        "non_school_recall_at_top_20_percent": 0.6363636363636364,
+        "precision": 0.060897435897435896,
+        "pu_counts": {
+          "held_out": 14,
+          "positive": 45,
+          "reliable_negative": 301,
+          "spies": 7,
+          "unlabeled": 36250,
+          "unlabeled_subsampled": 315
+        },
+        "pu_threshold": 0.0011744109757072401,
+        "recall": 0.6785714285714286,
+        "roc_auc": 0.9340104513759082,
+        "train_groups": [
+          "11650",
+          "11680"
+        ],
+        "train_rows": 36322,
+        "validation_group": "11740",
+        "validation_non_school_positive": 11,
+        "validation_positive": 28,
+        "validation_rows": 17617
+      },
+      {
+        "f1": 0.015415821501014199,
+        "flood_baseline_expected_recall_at_top_20_percent": 0.2385132058287796,
+        "fold": 3,
+        "lift_over_flood_baseline": 1.5722399885446996,
+        "model_top_20_boundary_expected_positive_hits": 0.0,
+        "model_top_20_boundary_tie_positive": 0,
+        "model_top_20_boundary_tie_size": 1,
+        "model_top_20_boundary_tie_slots": 1,
+        "model_top_20_fractional_tie_applied": false,
+        "non_school_recall_at_top_20_percent": 0.375,
+        "precision": 0.00778688524590164,
+        "pu_counts": {
+          "held_out": 103,
+          "positive": 48,
+          "reliable_negative": 233,
+          "spies": 7,
+          "unlabeled": 38875,
+          "unlabeled_subsampled": 336
+        },
+        "pu_threshold": 3.278048894125849e-05,
+        "recall": 0.76,
+        "roc_auc": 0.9284223901558216,
+        "train_groups": [
+          "11680",
+          "11740"
+        ],
+        "train_rows": 38944,
+        "validation_group": "11650",
+        "validation_non_school_positive": 8,
+        "validation_positive": 25,
+        "validation_rows": 14995
+      }
+    ],
+    "folds": 3,
+    "group_column": "시군구코드",
+    "max_lift_over_flood_baseline": 3.889931940858953,
+    "max_non_school_recall_at_top_20_percent": 1.0,
+    "mean_f1": 0.04979680359382643,
+    "mean_flood_baseline_expected_recall_at_top_20_percent": 0.2521629739555042,
+    "mean_lift_over_flood_baseline": 2.633754796320762,
+    "mean_non_school_recall_at_top_20_percent": 0.6704545454545454,
+    "mean_precision": 0.026637989136493383,
+    "mean_recall": 0.8128571428571428,
+    "mean_roc_auc": 0.9507705659028854,
+    "method": "GroupKFold",
+    "min_lift_over_flood_baseline": 1.5722399885446996,
+    "min_non_school_recall_at_top_20_percent": 0.375,
+    "spatial_leakage_check": true,
+    "spatial_leakage_details": {
+      "checked_fold_count": 3,
+      "train_validation_overlap_count": 0,
+      "validation_groups": [
+        "11680",
+        "11740",
+        "11650"
+      ]
+    },
+    "std_lift_over_flood_baseline": 0.9561534275316674,
+    "std_non_school_recall_at_top_20_percent": 0.2562913609702617,
+    "valid_lift_folds": 3,
+    "valid_non_school_recall_at_20_folds": 3,
+    "valid_roc_auc_folds": 3
+  },
+  "data": {
+    "columns": 46,
+    "excluded_emergency_shelters": 38,
+    "groups": [
+      "11650",
+      "11680",
+      "11740"
+    ],
+    "held_out": 12,
+    "path": "apps/ai-engine/data/raw/building_registry_3districts_20260805.csv",
+    "positive": 73,
+    "positive_safe_shelters": 73,
+    "reliable_negative": 499,
+    "rows": 53939,
+    "sha256": "099ea6765405a556c48178ade27e6a3c73cb48f095312e514c87f666be5becfc",
+    "total_designated_shelters": 111,
+    "unlabeled": 53828
+  },
+  "features": {
+    "columns": [
+      "대지면적(㎡)",
+      "건축면적(㎡)",
+      "건폐율(%)",
+      "연면적(㎡)",
+      "용적률산정연면적(㎡)",
+      "용적률(%)",
+      "세대수(세대)",
+      "가구수(가구)",
+      "높이(m)",
+      "지상층수",
+      "지하층수",
+      "승용승강기수",
+      "사용승인연도"
+    ],
+    "count": 13,
+    "excluded_validation_only": [
+      "침수구역내",
+      "침수심등급",
+      "최근접펌프장거리_m"
+    ],
+    "infinite_values": 0,
+    "nan_counts": {
+      "가구수(가구)": 0,
+      "건축면적(㎡)": 0,
+      "건폐율(%)": 0,
+      "높이(m)": 0,
+      "대지면적(㎡)": 0,
+      "사용승인연도": 519,
+      "세대수(세대)": 0,
+      "승용승강기수": 0,
+      "연면적(㎡)": 0,
+      "용적률(%)": 0,
+      "용적률산정연면적(㎡)": 0,
+      "지상층수": 0,
+      "지하층수": 0
+    }
+  },
+  "final_lightgbm": {
+    "colsample_bytree": 0.9,
+    "learning_rate": 0.03,
+    "min_child_samples": 10,
+    "n_estimators": 300,
+    "num_leaves": 15,
+    "reg_lambda": 1.0,
+    "seed": 42,
+    "subsample": 0.9,
+    "subsample_freq": 1,
+    "top_fraction": 0.2
+  },
+  "generated_at": "2026-08-24T01:59:11.896892+00:00",
+  "lift_definition": {
+    "baseline": "expected non-school Positive recall among top 20% ranked by ascending flood-depth grade; boundary ties use expected recall",
+    "formula": "model recall@top20 / flood-depth baseline expected recall@top20",
+    "model": "non-school Positive recall among top 20% by final model score",
+    "status": "operational definition introduced by this training pipeline; not a previously fixed formula in the project documents"
+  },
+  "pu": {
+    "counts": {
+      "held_out": 12,
+      "positive": 73,
+      "reliable_negative": 499,
+      "spies": 11,
+      "unlabeled": 53828,
+      "unlabeled_subsampled": 511
+    },
+    "seed": 42,
+    "spy_ratio": 0.15,
+    "subsample_multiplier": 7.0,
+    "threshold": 0.006713935161520552,
+    "threshold_percentile": 10.0
+  },
+  "reproducibility": {
+    "checked": true,
+    "model_identical": true,
+    "passed": true,
+    "summary_identical": true
+  },
+  "seed": 42,
+  "versions": {
+    "lightgbm": "4.7.0",
+    "numpy": "2.5.1",
+    "pandas": "3.0.5",
+    "scikit-learn": "1.9.0"
+  }
+}

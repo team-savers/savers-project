@@ -87,14 +87,15 @@ bash scripts/run-tests.sh        # 전체 앱 lint + mypy + pytest
 
 ## 팀
 
+> 6인 접수 → 2인 중도 하차로 4인 체제. 없어진 두 역할은 다른 포지션에 흡수됐습니다 —
+> Frontend/UX는 AI/RAG가, QA/Security와 Infra는 PM이 가져갔습니다. 상세: [docs/역할_가이드/README.md](docs/역할_가이드/README.md).
+
 | 이름 | 역할 | 담당 |
 |---|---|---|
-| 안은남 | PM | 마일스톤·통합·최종 데모 |
+| 안은남 | PM · QA/보안 · 인프라 | 마일스톤·통합·최종 데모, 품질/보안 판정, 인프라·배포, 임계값 실험 |
 | 신호정 | Tech Lead | 아키텍처·모듈 간 계약·워킹 스켈레톤·가드레일 설계 |
-| 김소원 | AI/RAG | 국민행동요령 전처리·청킹, Chroma 인덱싱, 검색 튜닝 |
-| 최혜리 (겸임) | Frontend/UX | PWA·웹푸시(FCM), 챗봇 UI, 접근성(다국어·쉬운 말·음성) |
-| 김도혁 | Backend/Infra | 공공 API 연동, 위치 매칭 엔진, 인프라·오프라인 폴백 |
-| 최혜리 | QA/Security | 최소수집·암호화, 가드레일 검증, E2E 테스트 |
+| 김소원 | AI 모델 · RAG · 프론트엔드 | 대피소 부합도 모델, 행동 로그 기반 보호자 QA·검증, PWA 사용자·보호자 프론트엔드 |
+| 김도혁 | Backend | 재난 Open API 연동, 침수 회피 경로(OSMnx+networkx), 이벤트 로그 파이프라인, FCM 발송·폐루프 오케스트레이션 |
 
 ## 문서
 

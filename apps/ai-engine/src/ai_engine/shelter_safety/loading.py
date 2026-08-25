@@ -31,6 +31,37 @@ class UnparseableAreaError(ValueError):
     schema.py의 포맷 가정이 실제 데이터와 다르다는 신호."""
 
 
+def designated_shelter_keys(frame: pd.DataFrame, *, address_col: str, shelter_col: str) -> set[str]:
+    """지정 대피소 라벨을 가진 필지 키를 검증 후 반환한다."""
+    missing = {address_col, shelter_col} - set(frame.columns)
+    if missing:
+        raise ValueError(f"대피소 보존 필수 컬럼 누락: {sorted(missing)!r}")
+    if frame[address_col].isna().any():
+        raise ValueError(f"대피소 보존 필지 키에 결측이 있음: {address_col}")
+    shelter_values = frame[shelter_col]
+    if shelter_values.isna().any() or not shelter_values.isin([0, 1]).all():
+        raise ValueError(f"대피소 보존 기준은 결측 없는 0/1이어야 함: {shelter_col}")
+    return set(frame.loc[shelter_values.eq(1), address_col].astype(str))
+
+
+def assert_shelter_keys_preserved(
+    before: pd.DataFrame,
+    after: pd.DataFrame,
+    *,
+    address_col: str,
+    shelter_col: str,
+) -> None:
+    """대표행 선정이 지정 대피소 필지를 조용히 U로 바꾸지 않았는지 검사한다."""
+    lost_keys = designated_shelter_keys(
+        before, address_col=address_col, shelter_col=shelter_col
+    ) - designated_shelter_keys(after, address_col=address_col, shelter_col=shelter_col)
+    if lost_keys:
+        raise ValueError(
+            f"주건축물 선정에서 대피소 필지 {len(lost_keys)}건의 라벨이 탈락 "
+            f"(예: {sorted(lost_keys)[:5]}) - 라벨이 조용히 U로 흡수되므로 여기서 멈춘다"
+        )
+
+
 def _clean_area_values(area_series: pd.Series) -> pd.Series:
     """연면적 문자열에서 천단위 콤마와 흔한 단위 접미사(㎡/m²/m2)를 제거한다.
 
@@ -95,9 +126,13 @@ def select_primary_building(
     *,
     area_col: str = schema.REGISTRY_TOTAL_FLOOR_AREA_COL,
     address_col: str = schema.REGISTRY_ROAD_ADDRESS_CODE_COL,
+    shelter_col: str | None = None,
 ) -> pd.DataFrame:
-    """필지(`address_col`)당 표제부가 여러 행일 때, 연면적(`area_col`)이 가장 큰
-    행을 주건축물로 선정해 1행으로 축소한다.
+    """필지(`address_col`)당 표제부가 여러 행일 때 대표 1행으로 축소한다.
+
+    `shelter_col`을 주면 지정 대피소 행을 먼저 보존하고, 같은 지정 여부 안에서
+    연면적(`area_col`)이 가장 큰 행을 선택한다. 지정/비지정 행이 섞인 필지에서
+    면적만으로 대피소 라벨이 사라지는 것을 막기 위한 우선순위다.
 
     키워드 인자 기본값은 레거시(mock) 스키마 — 실제 통합 건축물대장 파일은
     `pipeline.run_pu_pipeline_from_unified_registry()`에서 `UNIFIED_REGISTRY_*`
@@ -120,6 +155,15 @@ def select_primary_building(
     """
     import pandas as pd
 
+    required = {address_col, area_col}
+    if shelter_col is not None:
+        required.add(shelter_col)
+    missing = required - set(registry_df.columns)
+    if missing:
+        raise ValueError(f"주건축물 선정 필수 컬럼 누락: {sorted(missing)!r}")
+    if shelter_col is not None:
+        designated_shelter_keys(registry_df, address_col=address_col, shelter_col=shelter_col)
+
     working = registry_df.copy()
     original_na_count = working[area_col].isna().sum()
 
@@ -135,8 +179,23 @@ def select_primary_building(
             f"{len(offenders)}건 있음 — 예: {offenders.head(5).to_dict('records')!r}"
         )
 
-    sorted_df = working.sort_values(area_col, ascending=False, na_position="last")
-    return sorted_df.drop_duplicates(subset=[address_col], keep="first").reset_index(drop=True)
+    if not working[address_col].duplicated().any():
+        return working.sort_values(area_col, ascending=False, na_position="last").reset_index(
+            drop=True
+        )
+
+    sort_columns = [area_col]
+    ascending = [False]
+    if shelter_col is not None:
+        sort_columns.insert(0, shelter_col)
+        ascending.insert(0, False)
+    sorted_df = working.sort_values(sort_columns, ascending=ascending, na_position="last")
+    selected = sorted_df.drop_duplicates(subset=[address_col], keep="first")
+    # 대표행 선택 우선순위와 반환 순서를 분리한다. 반환은 기존 면적 내림차순을
+    # 유지해 중복이 없는 데이터의 학습 샘플링 순서가 불필요하게 바뀌지 않게 한다.
+    return selected.sort_values(area_col, ascending=False, na_position="last").reset_index(
+        drop=True
+    )
 
 
 def join_shelters_with_registry(
