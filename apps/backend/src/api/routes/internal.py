@@ -42,7 +42,13 @@ class AlertRunSummary(ContractModel):
 
     event_id: str
     matched: int
+    # `dispatched`: 기기가 있어 발송을 시도한 세션 수. `accepted`: 그중 한 대라도 접수된
+    # 세션 수(도달). `send_errors`: 어댑터가 예외를 던진 발송 건수 — 정직한 False(미접수)와
+    # 구분해 운영자에게 보인다. 셋을 함께 내야 어댑터 고장(전건 예외)이 정상 미접수와
+    # 같은 값으로 묻히지 않는다. 지연 KPI는 accepted 세션만으로 계산된다.
     dispatched: int
+    accepted: int
+    send_errors: int
     skipped_no_device: list[str]
     mean_latency_ms: float
     p95_latency_ms: float
@@ -77,6 +83,8 @@ def dispatch_alert(
         event_id=run.event_id,
         matched=run.matched,
         dispatched=len(run.deliveries),
+        accepted=run.accepted,
+        send_errors=run.send_errors,
         skipped_no_device=run.skipped_no_device,
         mean_latency_ms=round(run.mean_latency_ms, 2),
         p95_latency_ms=round(run.p95_latency_ms, 2),

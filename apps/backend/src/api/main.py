@@ -7,12 +7,24 @@ Contract: packages/contracts/openapi.yaml — both the frontend-facing paths ser
 and the `generation` 태그 paths this app calls on apps/ai-engine (ADR-0006).
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from api.deps import settings
 from api.errors import api_error_handler
-from api.routes import chat, devices, guardian, internal, registration, session, shelters
+from api.routes import (
+    chat,
+    devices,
+    guardian,
+    internal,
+    registration,
+    session,
+    session_events,
+    shelters,
+)
+from backend_core.models import ErrorBody
 
 app = FastAPI(title="savers-project")
 
@@ -25,6 +37,28 @@ ALLOW_METHODS = ["GET", "POST", "DELETE", "OPTIONS"]
 # The contract's error shape is {code, message}; FastAPI's default is {"detail": ...}.
 # Registering on HTTPException covers ApiError (a subclass) and FastAPI's own aborts.
 app.add_exception_handler(HTTPException, api_error_handler)
+
+
+async def validation_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Render request-validation failures (body/header 422) in the contract's error shape.
+
+    FastAPI's default for `RequestValidationError` is `{"detail": [...]}`, but the contract
+    says 422 is `{code, message}` like every other error. Collapse the first failure into a
+    short sentence so the wire shape is uniform and a caller does not branch on two formats.
+    """
+    detail = exc.errors() if isinstance(exc, RequestValidationError) else []
+    first = detail[0] if detail else {}
+    loc = ".".join(str(part) for part in first.get("loc", ()))
+    msg = first.get("msg", "요청이 유효하지 않습니다.")
+    message = f"{loc}: {msg}" if loc else msg
+    return JSONResponse(
+        status_code=422,
+        content=ErrorBody(code="INVALID_REQUEST", message=message).model_dump(by_alias=True),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+app.add_exception_handler(RequestValidationError, validation_error_handler)
 
 
 def configure_cors(application: FastAPI, origins: list[str]) -> bool:
@@ -49,7 +83,9 @@ def configure_cors(application: FastAPI, origins: list[str]) -> bool:
         # credentials. Enabling it would make one wrong origin entry far more dangerous.
         allow_credentials=False,
         allow_methods=ALLOW_METHODS,
-        allow_headers=["Content-Type"],
+        # Idempotency-Key: the browser sends it on the event-record POST, so it must be
+        # allowed in preflight or the request is dropped before the server sees it.
+        allow_headers=["Content-Type", "Idempotency-Key"],
         # Preflight cache. The alert path is latency-sensitive (≤30s KPI) and someone who
         # opens the link makes several calls in a row.
         max_age=600,
@@ -60,6 +96,7 @@ def configure_cors(application: FastAPI, origins: list[str]) -> bool:
 configure_cors(app, settings().cors_origins)
 
 app.include_router(session.router)
+app.include_router(session_events.router)
 app.include_router(shelters.router)
 app.include_router(chat.router)
 app.include_router(devices.router)
