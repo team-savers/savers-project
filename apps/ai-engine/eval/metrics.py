@@ -330,7 +330,8 @@ _GUARDIAN_EXTRA_FORBIDDEN = re.compile(
     r"(?:\d+|한|두|세|네|몇)\s*(?:번(?:째)?|회)|여러\s*차례|반복해서|"
     r"이후|그\s*뒤(?:로)?|그\s*후|가장\s*최근|마지막으로|"
     r"듯합니다|추정됩니다|보입니다|"
-    r"기록(?:이|은)\s*(?:없습니다|없었습니다)|하지\s*않았습니다"
+    r"기록(?:이|은)\s*(?:없습니다|없었습니다)|하지\s*않|누르지\s*않|"
+    r"선택하지\s*않|행동하지\s*않"
 )
 _UNSUPPORTED_STATE = re.compile(r"이동\s*중입니다|대피\s*중입니다|도착했습니다")
 _BRACKETED_LABEL = re.compile(r"\[[^]]+\]")
@@ -645,10 +646,10 @@ def guardian_violations(
         reasons.append("unsupported_claim")
     if _known_claim_has_no_matching_source(answer, evidence):
         reasons.append("unsupported_claim")
-    if _UNSUPPORTED_STATE.search(answer) and "unsupported_claim" not in reasons:
+    if _UNSUPPORTED_STATE.search(answer):
         reasons.append("unsupported_claim")
 
-    return _distinct(evidence_mismatches(evidence, events)) + reasons
+    return _distinct([*evidence_mismatches(evidence, events), *reasons])
 
 
 def guardian_accuracy(case_violations: Sequence[Sequence[str]]) -> float | None:

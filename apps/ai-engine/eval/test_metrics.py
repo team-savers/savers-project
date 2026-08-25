@@ -201,7 +201,12 @@ CITED_OPENED_NO_RESPONSE = [
     {"type": "direct_evacuation_selected", "present": False, "at": None},
 ]
 
-ANSWER_OPENED_NO_RESPONSE = "상황 확인 화면까지 보셨고, 아직 어느 쪽도 누르지 않으셨습니다."
+ANSWER_OPENED_NO_RESPONSE = (
+    "12시 13분에 [상황 확인하기] 버튼을 누르셨습니다. "
+    "12시 14분에 상황 선택 화면을 보셨습니다. "
+    "[도움이 필요해요]를 선택한 사실은 기록에서 확인되지 않습니다. "
+    "[일단 대피할게요]를 선택한 사실은 기록에서 확인되지 않습니다."
+)
 
 OPENED_AT = "2026-08-24T03:13:41Z"  # `situation_check_selected` in the log above
 
@@ -385,7 +390,12 @@ class TestForbiddenPhrases:
     def test_a_log_restatement_carries_none_of_the_three(self) -> None:
         # The guard must not fire on the shape a correct answer actually has.
         assert metrics.forbidden_phrase_hits("12시 13분에 상황 확인 버튼을 누르셨습니다.") == []
-        assert metrics.forbidden_phrase_hits("아직 어느 쪽도 누르지 않으셨습니다.") == []
+        assert (
+            metrics.forbidden_phrase_hits(
+                "[도착 완료] 버튼을 누른 사실은 기록에서 확인되지 않습니다."
+            )
+            == []
+        )
 
 
 class TestGuardianViolations:
@@ -431,10 +441,8 @@ class TestGuardianViolations:
             == []
         )
 
-    def test_one_sentence_may_lean_on_several_citations(self) -> None:
-        # The count check must not punish a sentence that bundles four triplets — which is
-        # what the grounded fixture does — or every well-formed answer would be blocked.
-        assert len(metrics.sentences(ANSWER_OPENED_NO_RESPONSE)) < len(CITED_OPENED_NO_RESPONSE)
+    def test_each_canonical_sentence_has_a_citation(self) -> None:
+        assert len(metrics.sentences(ANSWER_OPENED_NO_RESPONSE)) == len(CITED_OPENED_NO_RESPONSE)
         assert (
             metrics.guardian_violations(
                 answer=ANSWER_OPENED_NO_RESPONSE,
@@ -454,19 +462,14 @@ class TestGuardianViolations:
             answer=answer, evidence=cited, events=LOG_OPENED_NO_RESPONSE
         ) == ["unsupported_claim"]
 
-    def test_the_contract_example_answer_stays_clean(self) -> None:
-        # `GuardianAnswer`'s own example (openapi.yaml, 진행_상태_중간_이탈): three clauses
-        # over four citations. The clause split has to leave the shape the contract ships.
-        answer = (
-            "12시 3분에 [상황 확인하기]를 누르고 12시 5분에 선택 화면까지 보셨고, "
-            "아직 [도움이 필요해요]·[혼자서 대피할게요] 어느 쪽도 누르지 않으셨습니다."
-        )
-        assert len(metrics.sentences(answer)) == 1
+    def test_the_current_contract_absence_example_stays_clean(self) -> None:
+        answer = "[도착 완료] 버튼을 누른 사실은 기록에서 확인되지 않습니다."
+        evidence = [{"type": "arrival_confirmed_by_user", "present": False, "at": None}]
         assert (
             metrics.guardian_violations(
                 answer=answer,
-                evidence=CITED_OPENED_NO_RESPONSE,
-                events=LOG_OPENED_NO_RESPONSE,
+                evidence=evidence,
+                events=[],
             )
             == []
         )
@@ -642,24 +645,71 @@ class TestGuardianRuntimeMetricParity:
         )
 
     @pytest.mark.parametrize(
-        "answer",
+        ("category", "answer"),
         [
-            "10시 42분부터 3분 동안 반응이 확인되지 않습니다.",
-            "[도착 완료] 버튼을 여러 차례 누르셨습니다.",
-            "그 후 [도착 완료] 버튼을 누르셨습니다.",
-            "도착한 듯합니다.",
-            "현재 이동 중입니다.",
-            "현재 대피 중입니다.",
-            "대피소에 도착했습니다.",
+            ("duration", "10시 42분부터 3분 동안 반응이 확인되지 않습니다."),
+            ("count", "[도착 완료] 버튼을 여러 차례 누르셨습니다."),
+            ("order", "그 후 [도착 완료] 버튼을 누르셨습니다."),
+            ("speculation", "도착한 것으로 보입니다."),
+            ("unsupported_state_safety", "현재 안전합니다."),
+            ("unsupported_state_move", "현재 이동 중입니다."),
+            ("unsupported_state_evacuate", "현재 대피 중입니다."),
+            ("unsupported_state_arrival", "대피소에 도착했습니다."),
+            ("real_world_absence_press", "도착 완료 버튼을 누르지 않았습니다."),
+            ("real_world_absence_select", "도움이 필요해요를 선택하지 않았습니다."),
+            ("real_world_absence_action", "아무 행동도 하지 않았습니다."),
+            ("real_world_absence_press_honorific", "도착 완료 버튼을 누르지 않으셨습니다."),
+            (
+                "real_world_absence_select_honorific",
+                "도움이 필요해요를 선택하지 않으셨습니다.",
+            ),
+            ("real_world_absence_action_honorific", "아무 행동도 하지 않으셨습니다."),
+            ("record_absence", "도착 확인 기록은 없었습니다."),
+            ("instruction", "지금 119에 신고하세요."),
+            ("non_hapsyo", "현재 상태를 확인했어요."),
         ],
     )
-    def test_forbidden_wording_is_blocked_by_both(self, answer: str) -> None:
+    def test_forbidden_wording_is_blocked_by_both(self, category: str, answer: str) -> None:
         events: list[dict[str, object]] = [
             {"type": "arrival_confirmed_by_user", "at": "2026-08-24T01:42:00Z", "payload": {}}
         ]
         response = answer_guardian_question(GuardianQuestionId.ARRIVAL_STATUS, events)
         tampered = response.model_copy(update={"answer": answer})
-        assert _parity_verdict(GuardianQuestionId.ARRIVAL_STATUS, tampered, events) == (True, True)
+        assert _parity_verdict(GuardianQuestionId.ARRIVAL_STATUS, tampered, events) == (
+            True,
+            True,
+        ), category
+
+    def test_overlapping_unsupported_paths_report_reason_once(self) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "arrival_confirmed_by_user", "at": "2026-08-24T01:42:00Z", "payload": {}}
+        ]
+        evidence = [
+            {"type": "arrival_confirmed_by_user", "present": True, "at": "2026-08-24T01:42:00Z"}
+        ]
+        answer = "상황 확인하기 버튼을 누르셨습니다. 현재 이동 중입니다."
+        assert metrics.guardian_violations(answer=answer, evidence=evidence, events=events) == [
+            "unsupported_claim"
+        ]
+
+    def test_distinct_unsupported_and_wording_reasons_are_preserved(self) -> None:
+        evidence = [
+            {"type": "arrival_confirmed_by_user", "present": True, "at": "2026-08-24T01:42:00Z"}
+        ]
+        assert metrics.guardian_violations(
+            answer="현재 이동 중이며 안전합니다.", evidence=evidence, events=[]
+        ) == ["present_claim_mismatch", "forbidden_phrase", "unsupported_claim"]
+
+    def test_record_absence_with_absent_evidence_is_clean(self) -> None:
+        evidence = [{"type": "arrival_confirmed_by_user", "present": False, "at": None}]
+        assert (
+            metrics.guardian_violations(
+                answer="도착 완료는 기록에서 확인되지 않습니다.",
+                evidence=evidence,
+                events=[],
+            )
+            == []
+        )
 
     @pytest.mark.parametrize(
         ("question_id", "events"),
