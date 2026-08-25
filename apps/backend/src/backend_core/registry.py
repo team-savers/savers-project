@@ -104,6 +104,8 @@ DEMO_DONG_NAME = "서원동"
 #    11620 접두만 실제, 뒤 4자리 미검증). 실 코드 매칭 테이블(Backend S1-1)이 들어오면 교체한다.
 UNDERGROUND_ONLY_DONG_CODE = "1162066500"
 UNDERGROUND_ONLY_DONG_NAME = "신림동"
+# QA 인계: 데모 특보는 이 동을 안 덮는다. all_excluded 관통은
+# affectedDongCodes: ["1162066500"] 이벤트를 /internal/alerts/dispatch에 실어야 p003 세션이 나온다.
 
 
 def seed_registry() -> ResidentRegistry:

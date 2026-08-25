@@ -132,14 +132,15 @@ def test_all_excluded_is_distinct_from_no_data() -> None:
     assert result.excluded[0].count == 1
 
 
-def test_underground_only_seed_dong_is_all_excluded_from_the_fixture() -> None:
+def test_underground_only_seed_dong_is_all_excluded_from_the_fixture(
+    shelter_repository: ShelterRepository,
+) -> None:
     """지하 대피소만 있는 시드 행정동 — 안전필터가 후보를 전부 빼 all_excluded를 관통한다.
 
     LiveSource를 조립하는 test_all_excluded_is_distinct_from_no_data와 달리, 배포되는
     픽스처(shelters.jsonl)만으로 이 경로가 성립하는지 고정한다 — e2e가 이 시드를 이어받는다.
     """
-    repository = ShelterRepository(UnavailableShelterSource(), CachedShelterSource.from_jsonl())
-    result = repository.search(
+    result = shelter_repository.search(
         dong_code=UNDERGROUND_ONLY_DONG_CODE,
         disaster_type="flood",
         hazard="inside",
