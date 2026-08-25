@@ -32,11 +32,11 @@ First-target disaster type for the MVP: 호우·도시침수 (heavy rain / urban
 
 ## Planned architecture — three layers, three core technologies
 
-> ⚠️ **The decisions below are 검토 중, not 확정 — only one of them has an ADR, and that ADR is still Proposed.**
+> ⚠️ **Row 1 is 확정 — [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) was accepted 2026-08-24. Rows 2 ~ 4 are 검토 중, not 확정: they have no ADR of their own.**
 > They are written as the working plan because the finals build follows them, and their source is the team's own
 > 기획서/검증설계 in `docs/공유_문서/` — which, per the "확정 source is an ADR number" rule under "Collaboration / Git",
 > does not qualify as a confirmation source. ADR promotion has been requested from the Tech Lead;
-> until each ADR lands (and is accepted), treat the item as 검토 중 and cite it that way in any outside-facing document.
+> until **those** ADRs land (and are accepted), treat rows 2 ~ 4 as 검토 중 and cite them that way in any outside-facing document.
 >
 > | # | Decision | Changes | Status |
 > |---|---|---|---|
