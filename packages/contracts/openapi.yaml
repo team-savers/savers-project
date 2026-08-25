@@ -22,9 +22,36 @@ openapi: 3.1.0
 
 info:
   title: SAVERS API
-  version: 0.5.0-draft
+  version: 0.7.0-draft
   description: |
     재난 취약계층 대상 무설치 대피 안내 서비스의 모듈 간 계약 초안입니다.
+
+    > **변경 이력(v0.7)**: 보호자 기기 등록 신설
+    > (`DeviceRegisterRequest.role`, `POST`·`DELETE /v1/guardian/{token}/device`,
+    > `GuardianStatus.pushEnabled`).
+    > 2차 발송 채널이 1차와 같은 웹푸시 하나뿐이므로(ADR-0014, 제안 — PR 119),
+    > **보호자 기기가 먼저 구독돼 있지 않으면 2차 발송이 닿을 자리가 없습니다.**
+    > 그런데 기존 `POST /v1/devices`에는 피보호자 기기와 보호자 기기를 구분할 칸이
+    > 없어, 보호자 기기를 붙이는 순간 1차 알림까지 보호자에게 나갔습니다.
+    > 등록 경로를 수명이 다른 둘로 나눕니다 — **최초 구독은 사전등록 시점의 등록
+    > 토큰**(`POST /v1/devices` + `role: guardian`), **갱신은 `/g/` 진입 시의 보호자
+    > 토큰**(`POST /v1/guardian/{token}/device`)입니다. 보호자 토큰은 세션마다 새로
+    > 발급되므로 그것만 두면 첫 재난에서 링크를 받을 방법이 없습니다.
+    > **1차 발송은 `role: ward` 기기에만, 2차 발송은 `role: guardian` 기기에만**
+    > 나갑니다.
+    >
+    > 함께 **`followup_unreachable` 이벤트를 신설**해 시스템 이벤트가 4종에서 5종이
+    > 됩니다(v0.5의 표현은 그 시점 기록이므로 고치지 않습니다). 보낼 보호자 기기가
+    > 없어 2차 발송을 건너뛴 경우로, `followup_due`와 배타이고 세션당 1회입니다.
+    > 재진입 사실은 로그에 남기되 `followup_due`를 분모로 세는 집계는 그 세션을
+    > 비켜 가게 하려는 것이며, 분모·분자 규칙의 정본은 ADR-0012(제안) 7절·7-a절입니다
+    > — 7-a절은 PR 120 개정분입니다(머지됨, 상태는 제안).
+    >
+    > **v0.6은 보호자 Q&A 계약(`POST /v1/guardian/{token}/ask`, PR 104)이 쓰고 있어
+    > 이 변경을 v0.7로 잡습니다.** ⚠️ **머지는 이 계약이 먼저입니다** — 보호자 Q&A 쪽이
+    > `GuardianEvidenceType`을 여기서 늘어난 이벤트 17종에 맞췄기 때문입니다. 순서가
+    > 뒤집히면 존재하지 않는 이벤트를 가리키는 근거 타입이 잠시 남습니다. 이 계약이
+    > 먼저 들어가면 버전은 0.5에서 0.7로 건너뜁니다.
 
     > **변경 이력(v0.5)**: 사용자 행동 기반 보호자 상태 확인을 위한
     > 기존 세션의 `events` 배열과 `SessionEvent` 계약, 사용자 행동 기록용
@@ -84,9 +111,11 @@ tags:
   - name: chat
     description: Interactive Care 챗봇 (1·2단계 전용)
   - name: device
-    description: 웹푸시 토큰 등록·해제
+    description: |
+      웹푸시 토큰 등록·해제. 피보호자 기기와 보호자 기기를 `role`로 구분하며,
+      1차 발송은 `ward`에게만, 2차 발송은 `guardian`에게만 갑니다.
   - name: guardian
-    description: 보호자 상태 페이지
+    description: 보호자 상태 페이지와 보호자 기기 갱신
   - name: session-log
     description: |
       사용자 브라우저의 행동 기록과 Backend·Guardian Q&A·Verifier의 내부 조회 계약.
@@ -231,7 +260,7 @@ paths:
       security: []
       description: |
         사용자 브라우저 FE가 현재 세션에서 관측한 화면 진입·버튼 선택 1건을 기록합니다.
-        시스템 이벤트 4종은 Backend·푸시 시스템이 직접 생성하므로 이 기록 요청으로
+        시스템 이벤트 5종은 Backend·푸시 시스템이 직접 생성하므로 이 기록 요청으로
         받지 않습니다. 기존 `/v1/session/{token}`과 같은 세션 토큰 모델을 사용합니다.
         브라우저 호출에 필요한 CORS와 실제 Backend 구현은 이 계약의 범위 밖입니다.
 
@@ -609,6 +638,23 @@ paths:
         알림 권한은 사용자 제스처에서만 요청하므로, 이 호출도 그 흐름에서만 발생합니다.
         위치 정보는 포함하지 않습니다.
 
+        **피보호자 기기와 보호자 기기를 `role`로 구분한다.** 둘은 같은 등록 토큰을
+        쓰지만 받는 알림이 다르다 — 1차 재난 알림은 `ward`에게만 가고, 30분 무응답
+        뒤의 2차 발송은 `guardian`에게만 간다. 이 칸이 없으면 보호자 기기를 붙이는
+        순간 1차 알림이 보호자에게도 그대로 나가고, 그것은 「보호자에게 알린다」가
+        아니라 「같은 알림을 두 사람이 받는다」이다.
+
+        **보호자 기기의 최초 구독 자리가 여기다.** 보호자는 대리등록 화면에서 이미
+        자기 기기를 쓰고 있고 등록 토큰을 손에 들고 있다. 2차 발송 채널이 웹푸시
+        하나뿐이므로(ADR-0014 — 제안, PR 119. main 에는 아직 없습니다), 보호자가 그 전에
+        구독해 두지 않으면 2차 발송을 받을
+        링크 자체를 받을 방법이 없다 — `POST /v1/guardian/{token}/device`는 이미
+        구독한 보호자의 **갱신** 경로이지 최초 진입로가 아니다.
+
+        `role: guardian`은 그 등록 토큰의 프로필에 보호자가 있을 때만 받는다.
+        `Profile.guardian`이 `null`인 사람에게 보호자 기기가 붙으면 그 기기가 누구
+        대신 받는 것인지 계약이 답할 수 없다 — 400 `INVALID_REQUEST`.
+
         **순환 의존 해소**: 이전 초안에서 FCM 토큰 등록에 세션 토큰을 요구했으나,
         세션 토큰은 발송 시점에 발급되므로 "첫 푸시를 받으려면 이미 푸시를 받았어야
         하는" 순환이 생겼다. 이에 토큰을 두 종류로 분리한다:
@@ -664,15 +710,26 @@ paths:
         - **보호자 변경**: 기존 보호자 단말에 남은 토큰을 무효화한다.
 
         이 해제가 일어나지 않으면 분실·폐기된 기기로 재난 알림이 계속 도달하여
-        대상자·보호자 모두에게 혼란을 준다. `POST /v1/devices`와 같은 본문 키를 쓴다
-        (`registrationToken`, `fcmToken`) — 등록과 해제가 같은 좌표 공간에서 일어난다.
+        대상자·보호자 모두에게 혼란을 준다.
+
+        **본문은 `registrationToken`과 `fcmToken` 둘뿐이고 `role`을 받지 않는다.**
+        등록은 어느 목록에 넣을지 정해야 하므로 역할이 필요하지만, 해제는 그렇지 않다 —
+        FCM 토큰이 기기마다 유일하므로 역할 없이도 대상이 정해진다. 요구하면 틀릴 수
+        있는 자리만 하나 늘고, 그 자리는 **조용히 실패한다**: 이 경로는 「이미 없는
+        토큰의 해제도 200」이므로 역할을 잘못 실은 요청은 아무것도 떼지 못한 채 200을
+        받는다. 위 목록의 「보호자 변경」이 그렇게 실패하면 기존 보호자 단말로 알림이
+        계속 간다. **해제는 역할과 무관하게 그 토큰을 지운 결과가 되면 된다** — 어떻게
+        찾을지는 구현의 몫이고 계약이 지시하지 않는다.
+
+        보호자 기기가 없어지면 그 세션은 2차 발송 대상에서 빠진다
+        (`GuardianStatus.pushEnabled: false`).
       operationId: unregisterDevice
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/DeviceRegisterRequest'
+              $ref: '#/components/schemas/DeviceUnregisterRequest'
       responses:
         '200':
           description: 해제 완료(토큰이 이미 없었어도 200)
@@ -788,6 +845,149 @@ paths:
                 $ref: '#/components/schemas/Error'
         '410':
           description: 토큰 만료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/guardian/{token}/device:
+    post:
+      tags: [guardian, device]
+      summary: 보호자 기기 웹푸시 토큰 갱신
+      description: |
+        보호자가 `/g/{token}`에 처음 들어와 푸시 권한을 허용했을 때, 그 기기의 FCM
+        토큰을 올립니다. 위치 정보는 포함하지 않습니다.
+
+        ⚠️ **최초 구독 경로가 아니라 갱신 경로입니다.** 최초 구독은 사전등록 시점의
+        `POST /v1/devices`(`role: guardian`)이고, 이 경로는 그 뒤에 기기를 바꿨거나
+        FCM 토큰이 로테이션된 보호자가 상태 페이지를 연 김에 다시 붙이는 자리입니다.
+        다만 이것은 **어느 자리가 정상 경로인지에 대한 설명이지 거부 조건이 아닙니다** —
+        이 경로로 그 보호자의 첫 구독이 들어와도 거부하지 않습니다. 복지관·지자체가
+        대리등록한 경우 보호자에게는 등록 토큰이 없어 이 경로밖에 없습니다.
+
+        둘로 나눈 이유는 인증에 쓰는 토큰의 수명이 다르기 때문입니다.
+        보호자 토큰(`g_…`)은 **세션마다 새로 발급되고 세션 TTL로 만료됩니다.**
+        그래서 이 경로만 두면 첫 재난에서 보호자는 `/g/` 링크를 받을 방법이 없습니다 —
+        보호자에게 닿는 채널이 웹푸시 하나뿐인데(ADR-0014 — 제안, PR 119) 그 웹푸시를 받으려면 이미
+        구독돼 있어야 하기 때문입니다. `POST /v1/devices`가 세션 토큰 대신 등록 토큰을
+        쓰기로 한 것과 같은 순환이고, 같은 방식으로 끊습니다.
+
+        **등록은 세션이 아니라 피보호자의 보호자 레코드에 붙습니다.** 인증에 쓴 보호자
+        토큰이 만료돼도 등록은 남아 다음 재난의 2차 발송에 그대로 쓰입니다. 반대로
+        만료된 토큰으로는 인증할 수 없으므로 410입니다.
+
+        같은 FCM 토큰을 다시 올려도 200입니다(멱등).
+      operationId: registerGuardianDevice
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: 보호자 페이지 토큰.
+          schema:
+            type: string
+            example: g_4e8b1c7d2a9f5036e8b1c7d2a9f5036e8b1c7d2a
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuardianDeviceRegisterRequest'
+      responses:
+        '200':
+          description: 등록 완료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ack'
+        '400':
+          description: |
+            본문 검증 실패, 또는 이 세션의 피보호자에게 보호자가 없는 경우
+            (`Profile.guardian: null`). 뒤쪽은 잘못된 호출이 아니라 **보호자 없이
+            등록된 사람**이며, 프론트는 `/g/` 화면에서 구독 버튼 자체를 렌더하지
+            않는 것으로 이 응답을 만나지 않게 합니다.
+
+            **이 분기는 폐루프와 무관합니다.** 보호자 토큰은 보호자 유무와 관계없이
+            세션마다 발급되므로 `/g/` 화면 자체는 열립니다. 반면 폐루프는 보호자가
+            없으면 2단계에 들어가지 않습니다(`FollowupUnreachableEvent` 참고).
+            앞은 화면 접근, 뒤는 루프 진입이라 서로 다른 층이며, 이 400은 그 화면에
+            누군가 도달했을 때를 위한 방어입니다.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 토큰 부재
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: 토큰 만료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: 요청 한도 초과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags: [guardian, device]
+      summary: 보호자 기기 웹푸시 토큰 해제
+      description: |
+        보호자가 상태 페이지에서 알림 수신을 중단할 때 호출합니다.
+        `DELETE /v1/devices`와 같은 시나리오(기기 교체·공용 단말·동의 철회)를 다루되,
+        **등록 토큰을 손에 들고 있지 않은 보호자**를 위한 경로입니다 — 복지관·지자체가
+        대리등록한 경우 보호자가 가진 자격 증명은 `/g/` 링크뿐이고, 그 경우 이 경로가
+        없으면 보호자가 스스로 수신을 끌 방법이 없습니다.
+
+        해제된 뒤 그 세션은 2차 발송 대상에서 빠집니다
+        (`GuardianStatus.pushEnabled: false`).
+      operationId: unregisterGuardianDevice
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: 보호자 페이지 토큰.
+          schema:
+            type: string
+            example: g_4e8b1c7d2a9f5036e8b1c7d2a9f5036e8b1c7d2a
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuardianDeviceRegisterRequest'
+      responses:
+        '200':
+          description: 해제 완료(토큰이 이미 없었어도 200)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ack'
+        '400':
+          description: 잘못된 요청(본문 검증 실패)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 토큰 부재
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: 토큰 만료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: 요청 한도 초과
           content:
             application/json:
               schema:
@@ -1262,6 +1462,7 @@ components:
         - $ref: '#/components/schemas/AlertDispatchedEvent'
         - $ref: '#/components/schemas/PushAcceptedEvent'
         - $ref: '#/components/schemas/FollowupDueEvent'
+        - $ref: '#/components/schemas/FollowupUnreachableEvent'
         - $ref: '#/components/schemas/GuardianNotifiedEvent'
       discriminator:
         propertyName: type
@@ -1281,11 +1482,12 @@ components:
           alert_dispatched: '#/components/schemas/AlertDispatchedEvent'
           push_accepted: '#/components/schemas/PushAcceptedEvent'
           followup_due: '#/components/schemas/FollowupDueEvent'
+          followup_unreachable: '#/components/schemas/FollowupUnreachableEvent'
           guardian_notified: '#/components/schemas/GuardianNotifiedEvent'
       description: |
         보호자 상태 확인과 폐루프 측정의 근거가 되는 세션 단위 저장 이벤트입니다.
         사용자 행동 12종은 서비스가 직접 관측한 화면 진입·버튼 선택을, 시스템 이벤트
-        4종은 Backend·푸시 시스템이 관측한 발송 및 폐루프 상태를 표현합니다.
+        5종은 Backend·푸시 시스템이 관측한 발송 및 폐루프 상태를 표현합니다.
 
         이 계약은 실제 이동 중·경로 추종·경로 이탈·실제 대피소 도착을 표현하지
         않습니다. 특히 `arrival_confirmed_by_user`는 GPS 검증 결과가 아니라 사용자가
@@ -1298,9 +1500,11 @@ components:
         `route_guidance_started`, `next_guidance_requested`,
         `emergency_call_119_selected`. 화면 재진입·재선택은 새 행동으로 모두 기록합니다.
 
-        **세션당 1회:** `arrival_confirmed_by_user`와 시스템 이벤트 4종. 도착 완료
-        선택이나 최초·2차 발송 계측을 중복 집계하지 않습니다. 시스템 이벤트 4종이
+        **세션당 1회:** `arrival_confirmed_by_user`와 시스템 이벤트 5종. 도착 완료
+        선택이나 최초·2차 발송 계측을 중복 집계하지 않습니다. 시스템 이벤트 5종이
         이미 존재하면 새 이벤트를 쓰지 않고 최초 이벤트의 `at`을 유지합니다.
+        `followup_unreachable`도 같습니다 — 30분마다 다시 남기면 TTL 6시간 동안 최대
+        12건이 쌓여, 한 세션의 「보낼 곳이 없었다」가 열두 번 있었던 일처럼 읽힙니다.
         이 의미 제약과 별개로 모든 POST 재시도는 `Idempotency-Key`로 중복 제거하며,
         실제 반복 행동에는 매번 새 키를 사용합니다. 특히 `profile_review_completed`는
         사용자가 정보를 수정한 뒤 다시 확인·완료할 수 있으므로 서로 다른 키로 여러 건
@@ -1323,7 +1527,7 @@ components:
       description: |
         사용자 행동 기록 POST가 성공했을 때 반환하는 저장 이벤트입니다. 요청에서 허용한
         사용자 행동 12종에 서버가 생성한 UTC `at`을 더한 결과만 허용하며, 시스템 이벤트
-        4종은 이 응답에 포함하지 않습니다.
+        5종은 이 응답에 포함하지 않습니다.
 
     SituationCheckSelectedEvent:
       type: object
@@ -1491,6 +1695,41 @@ components:
       additionalProperties: false
       properties:
         type: { type: string, const: followup_due }
+        at: { $ref: '#/components/schemas/EventTimestamp' }
+        payload: { $ref: '#/components/schemas/EmptyEventPayload' }
+
+    FollowupUnreachableEvent:
+      type: object
+      description: |
+        `followup_due`와 같은 조건에 도달했으나 **보낼 보호자 기기가 없어 2차 발송을
+        하지 않고 건너뛴 기록.** 뜻하는 것은 **`GuardianStatus.pushEnabled: false`
+        하나뿐입니다** — 보호자는 등록돼 있는데 그 기기가 구독하지 않은 경우입니다.
+
+        **보호자가 아예 없는 사람(`Profile.guardian: null`)은 이 이벤트를 남기지
+        않습니다.** 보낼 대상이 정의되지 않은 루프이므로 재진입 자체가 성립하지 않고,
+        폐루프는 관측에서 끝납니다. 둘을 같은 이벤트로 묶으면 이 이벤트 수를 「보호자
+        알림이 닿지 못한 사람 수」로 보고할 때 **설계상 정상인 경우와 메울 수 있는 운영
+        공백이 한 숫자에 섞입니다.** 앞의 수는 등록 정보에서 세면 되고 로그가 답할
+        질문이 아닙니다.
+
+        **`followup_due`와 배타입니다.** 한 번의 재진입 판정에서 둘 중 하나만 남습니다 —
+        보낼 곳이 있으면 `followup_due`, 없으면 이 이벤트입니다. 그래서 재진입 사실은
+        로그에 남고, `followup_due`를 분모로 세는 집계는 이 세션을 자동으로 비켜 갑니다.
+        **M4(폐루프 2차 발송 성공률)의 분모·분자 규칙의 정본은 ADR-0012(제안) 7절·7-a절이며
+        이 계약이 정하지 않습니다.** 7-a절은 PR 120 개정분입니다(머지됨, 상태는 제안).
+
+        분모 소속은 그 판정 시점에 고정되고 이후 이벤트가 바꾸지 않습니다(같은 7-a절).
+        보호자가 나중에 구독해 소급 발송이 나가면 그 세션의 로그는 `followup_due` 없이
+        `guardian_notified`만 갖는 모양이 되며, 그것이 소속을 되돌리지는 않습니다.
+        그 소급 발송은 실패해도 이벤트를 남기지 않고 다음 관측에서 다시 시도하므로
+        (7-a절의 at-least-once), **로그에 재시도 흔적이 없는 것은 결함이 아닙니다.**
+
+        ⚠️ **아무것도 보내지 않은 기록입니다.** 보호자가 통보받았다는 뜻이 아니고,
+        피보호자의 안전과도 무관합니다.
+      required: [type, at, payload]
+      additionalProperties: false
+      properties:
+        type: { type: string, const: followup_unreachable }
         at: { $ref: '#/components/schemas/EventTimestamp' }
         payload: { $ref: '#/components/schemas/EmptyEventPayload' }
 
@@ -1701,8 +1940,24 @@ components:
 
     DeviceRegisterRequest:
       type: object
-      required: [registrationToken, fcmToken]
+      required: [registrationToken, fcmToken, role]
       properties:
+        role:
+          type: string
+          enum: [ward, guardian]
+          description: |
+            이 기기가 누구의 것인지. **기본값을 두지 않고 필수로 받는다.**
+            생략을 `ward`로 해석하면 보호자 기기가 조용히 피보호자 기기로 등록되고,
+            그 결과는 「1차 재난 알림이 보호자 폰에도 그대로 간다」로 나타난다.
+            값이 틀렸을 때 화면이 아니라 **발송 대상**이 틀어지는 필드이므로,
+            호출자가 매번 의사를 밝히게 한다.
+
+            - `ward` — 피보호자 기기. **1차 재난 알림만** 받는다.
+            - `guardian` — 보호자 기기. **30분 무응답 뒤의 2차 발송만** 받는다.
+              `Profile.guardian`이 `null`이면 400이다.
+
+            한 사람에게 각 역할의 기기를 여러 대 붙일 수 있다(공용 단말, 기기 교체 중
+            겹치는 기간). 같은 값을 다시 올리면 멱등이다.
         registrationToken:
           type: string
           description: |
@@ -1712,6 +1967,41 @@ components:
 
             ⚠️ 만료·재발급 정책(TTL, 1인당 발급 매수, 분실 시 재발급 절차)은
             **미정이며 팀 결정이 필요하다.**
+        fcmToken:
+          type: string
+          description: FCM 등록 토큰.
+        userAgent:
+          type: [string, 'null']
+
+    DeviceUnregisterRequest:
+      type: object
+      description: |
+        `DELETE /v1/devices`의 본문. **`role`이 없다.**
+        FCM 토큰이 기기마다 유일해 역할 없이도 대상이 정해지고, 이 경로는 없는 토큰의
+        해제도 200이므로 역할을 틀리게 실으면 아무것도 떼지 못한 채 성공을 받는다.
+        해제 뒤 그 토큰이 어느 역할로도 남아 있지 않으면 된다 — 조회 방법은 구현의 몫이다.
+      required: [registrationToken, fcmToken]
+      properties:
+        registrationToken:
+          type: string
+          description: 등록 토큰. `DeviceRegisterRequest.registrationToken`과 같은 값이다.
+        fcmToken:
+          type: string
+          description: 해제할 FCM 등록 토큰.
+        userAgent:
+          type: [string, 'null']
+
+    GuardianDeviceRegisterRequest:
+      type: object
+      description: |
+        `POST`·`DELETE /v1/guardian/{token}/device`의 본문.
+        **`role`도 `registrationToken`도 없다** — 경로의 보호자 토큰이 둘 다 답한다.
+        역할은 경로가 이미 `guardian`으로 고정하고, 대상자는 서버가 그 토큰으로
+        내부 조회한다. 보호자에게 등록 토큰도 세션 토큰도 건네지 않는 기존 분리를
+        그대로 유지하기 위한 것으로, `GET /v1/guardian/{token}`이 보호자 토큰 하나로
+        답하는 것과 같은 이유다.
+      required: [fcmToken]
+      properties:
         fcmToken:
           type: string
           description: FCM 등록 토큰.
@@ -1760,6 +2050,7 @@ components:
         - openedAt
         - respondedAt
         - safetyStatus
+        - pushEnabled
       properties:
         wardName:
           type: string
@@ -1812,6 +2103,33 @@ components:
             이 필드는 향후 안전 확인 채널(구조대 확인 통보 등)이 정의되면
             `safe`·`in_rescue` 같은 값으로 확장될 자리다 — 지금은 확정할 값을
             가지고 있지 않으므로 `unknown`으로 둔다.
+        pushEnabled:
+          type: boolean
+          description: |
+            이 피보호자에게 붙은 **보호자 기기가 하나 이상 있는지.**
+            단위는 **피보호자**이며 브라우저가 아닙니다. FCM 토큰 값은 내려가지
+            않습니다 — 이 값이 답하는 질문은 「이 사람에게 2차 발송이 나갈 수 있는가」
+            하나이고, 토큰 자체는 그 답에 필요하지 않습니다. `Guardian` 스키마에 기기
+            필드를 두지 않은 것도 같은 이유입니다(`Profile.guardian`은 피보호자
+            브라우저로 내려가는 값입니다).
+
+            ⚠️ **「이 브라우저가 구독했는가」가 아닙니다.** 한 사람에게 보호자 기기를
+            여러 대 붙일 수 있으므로(`DeviceRegisterRequest.role` 참고), 다른 보호자
+            폰이 구독돼 있으면 지금 보고 있는 브라우저가 구독하지 않았어도 `true`가
+            내려옵니다. **[알림 받기]를 감출지는 이 값이 아니라 브라우저 쪽 상태
+            (알림 권한과 이 기기의 FCM 토큰)로 정합니다** — 서버는 그것을 알지 못합니다.
+            이 값으로 버튼을 감추면 그 브라우저는 영영 구독하지 못합니다.
+
+            이 값이 `false`면 30분이 지나도
+            **2차 발송이 나갈 기기가 없고**, 그 세션의 로그에는 `followup_due` 대신
+            `followup_unreachable`이 남습니다 — 2차 발송은 `role: guardian` 기기로만
+            나가기 때문입니다. **M4(폐루프 2차 발송 성공률)의 분모와 분자 정의는
+            ADR-0012(제안) 7절·7-a절을 따르며 이 계약은 그것을 바꾸지 않습니다.**
+            7-a절은 PR 120 개정분입니다(머지됨, 상태는 제안).
+
+            ⚠️ **`true`가 전달을 보장하지 않습니다.** 구독된 기기가 있다는 사실일 뿐,
+            푸시 접수·전달·열람 어느 것도 뜻하지 않습니다 — `push_accepted`가
+            접수까지만 뜻하는 것과 같은 선입니다. 안전 상태와도 무관합니다.
         acknowledgedByGuardian:
           type: boolean
           description: 보호자가 [내가 확인했음]을 눌렀는지.
