@@ -1,6 +1,10 @@
 # ADR-0013: M1은 실기기 도달이 아니라 웹푸시 발송 접수까지 잰다
 
-- **상태**: 제안 (Proposed) - PR [#108](https://github.com/team-savers/savers-project/pull/108) 리뷰 문답에서 드러난 어긋남, 팀 확인 대기
+- **상태**: 승인 (Accepted) - 2026-08-26 Tech Lead 승인.
+  PR [#108](https://github.com/team-savers/savers-project/pull/108) 리뷰 문답에서 드러난 어긋남을 정정한 것이며,
+  [PR 110](https://github.com/team-savers/savers-project/pull/110) 리뷰에 안은남 (PM) 승인이 남아 있다.
+  김도혁 (Backend) 은 같은 PR 에 코멘트만 남겼고 승인 리뷰는 없다.
+  M1 을 소비하는 쪽이 PM 의 p95 측정과 Backend 의 발송 경로 둘이므로 그 범위에서 확인된 것으로 본다
 - **날짜**: 2026-08-23
   (개정: 2026-08-24 시작 앵커 조항 추가, 2026-08-25 계약 문구 후속 항목 추가 - 둘 다 PR #110 리뷰)
 - **결정자**: 신호정 (Tech Lead)
@@ -8,7 +12,7 @@
   [AGENTS.md](../../AGENTS.md) Quality bar,
   [ADR-0005](0005-webpush-primary-channel.md), [ADR-0011](0011-m3-no-storage-not-no-receipt.md),
   [ADR-0012](0012-verifier-rules-and-closed-loop.md) 2절
-  (**제안 상태**, PR #106으로 `main`에 반영됐으나 아직 승인 전이다),
+  (**승인**, 2026-08-26),
   [packages/contracts/openapi.yaml](../../packages/contracts/openapi.yaml)
   (`PushAcceptedEvent`, `AlertDispatchedEvent` - PR #108),
   `apps/backend/src/backend_core/dispatch.py`,
@@ -113,7 +117,7 @@ M1 문구를 **코드가 실제로 보장하는 것**에 맞춘다. 측정 방�
 - `AGENTS.md`와 `정량목표_검증설계.md`가 같은 것을 말하게 된다.
 - 지표값이 오프라인 단말 비율에 흔들리지 않는다. 표본이 발송 시도 전건으로 고정된다.
 - 검증기와 폐루프가 읽는 이벤트 로그가 그대로 M1의 입력이 된다
-  ([ADR-0012](0012-verifier-rules-and-closed-loop.md), 제안 상태).
+  ([ADR-0012](0012-verifier-rules-and-closed-loop.md), 승인).
   지표 전용 계측을 따로 만들지 않는다.
 
 **부정 / 완화**
