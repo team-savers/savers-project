@@ -7,7 +7,9 @@
   M1 을 소비하는 쪽이 PM 의 p95 측정과 Backend 의 발송 경로 둘이므로 그 범위에서 확인된 것으로 본다
 - **날짜**: 2026-08-23
   (개정: 2026-08-24 시작 앵커 조항 추가, 2026-08-25 계약 문구 후속 항목 추가 - 둘 다 PR #110 리뷰.
-  2026-08-26 시작점을 `alert_dispatched` 에서 run 시작으로 정정 - [PR 153](https://github.com/team-savers/savers-project/pull/153) 리뷰)
+  2026-08-26 시작점을 `alert_dispatched` 에서 run 시작으로 정정하고,
+  끝점을 첫 `push_accepted` 로 좁혀 계측과 벌어지는 자리를 후속 조치로 배정 -
+  둘 다 [PR 153](https://github.com/team-savers/savers-project/pull/153) 리뷰)
 - **결정자**: 신호정 (Tech Lead) 작성 /
   안은남 (PM) 확인 ([PR 110](https://github.com/team-savers/savers-project/pull/110) 승인).
   김도혁 (Backend) 은 같은 PR 에 코멘트만 남겨 승인 리뷰가 없다 - 위 상태 절 참고
@@ -90,6 +92,15 @@ M1 문구를 **코드가 실제로 보장하는 것**에 맞춘다. 측정 방�
   이 ADR은 역할이 아니라 이름으로 못 박는다
   (`packages/contracts/openapi.yaml`의 `PushAcceptedEvent`).
   `push_delivered`는 접수를 전달로 읽히게 해 쓰지 않는다.
+- **끝점은 그 수신자의 `push_accepted` 한 건, 곧 첫 기기가 접수된 시각이다.**
+  한 사람에게 기기가 여러 대여도 그 사람에게 알림이 나간 시각은 첫 접수 시점이고,
+  둘째 기기의 처리 시간은 그 사람의 도달 속도가 아니다.
+  `pipeline.py`도 이 이벤트를 첫 접수 한 번만 찍는다(290 ~ 296행).
+  **다만 현재 계측은 이 정의보다 뒤에서 끝난다** -
+  `Delivery.latency_ms`는 그 수신자의 기기 루프가 다 끝난 뒤에 계산되므로(307행),
+  ward 기기가 두 대 이상이면 정의보다 큰 값이 나온다.
+  정의가 아니라 계측을 옮긴다. 후속 조치 표에 Backend 항목으로 넣었다.
+  [PR 153](https://github.com/team-savers/savers-project/pull/153) 리뷰(김소원)에서 드러났다.
 - **"접수"는 FCM이 요청을 받아들였다는 뜻이다.** 단말이 알림을 띄웠다는 뜻이 아니다.
 - 시작점은 **파이프라인이 그 특보의 처리를 시작한 시각**이고,
   코드로는 `run_alert` 진입의 `clock_start`(`AlertRun.started_at`)다.
@@ -158,10 +169,14 @@ M1 문구를 **코드가 실제로 보장하는 것**에 맞춘다. 측정 방�
 | 워킹_스켈레톤_설명.md 7절 `Delivery.latency_ms` 설명과 9절 `Dispatcher.send()` 행의 "실기기 도달이 지표의 전제" 표현 | Tech Lead | 완료, 이 PR |
 | 이벤트 이름 `push_accepted` 확정 | AI/RAG, PR #108 | 완료, 2026-08-24 머지 |
 | `DisasterEvent` 주석의 "`issued_at`이 KPI 시계 시작" 정정 (`backend_core/models.py`) | Backend | 대기 |
-| `GenerationContext.issuedAt` 설명의 "도달 속도 측정이 이 값 기준" 정정 (`packages/contracts/openapi.yaml`). **타임존 필수 규칙은 그대로 두고 근거만 바꾼다** - 이 값은 지표 기산점이 아니게 됐을 뿐, 화면의 판단 시각 표기로 계속 쓰이므로 KST/UTC가 섞이면 사용자에게 틀린 시각이 뜬다 | Tech Lead | 대기, PR #110 리뷰 |
+| `GenerationContext.issuedAt` 설명의 "도달 속도 측정이 이 값 기준" 정정 (`packages/contracts/openapi.yaml`). **타임존 필수 규칙은 그대로 두고 근거만 바꾼다** - 이 값은 지표 기산점이 아니게 됐을 뿐, 화면의 판단 시각 표기로 계속 쓰이므로 KST/UTC가 섞이면 사용자에게 틀린 시각이 뜬다 | Tech Lead | 완료, 이 PR |
+| `Delivery.latency_ms` 계산 시점을 첫 `push_accepted` 시각으로 옮긴다 (`pipeline.py` 307행). 지금은 그 수신자의 기기 루프가 끝난 뒤라 다중 ward 기기에서만 정의와 벌어진다 | Backend | 대기, PR #153 리뷰 |
+| `run_latency_eval.py`의 표본을 `devicesNotified > 0`으로 좁혀 Backend `AlertRun.latencies_ms`와 같은 기준으로 맞춘다. 지금은 `deliveries` 전건을 담아 전 기기 실패 세션이 eval p95만 낮춘다. 응답 스키마에 `devicesNotified`가 이미 있다 | AI/RAG | 대기, PR #153 리뷰 |
+| M1 정의를 잠그는 테스트 - ward 기기 1대, 여러 대(첫 접수 기준인지), 전건 실패(속도 표본에서 빠지는지). Backend p95와 eval p95가 같은 입력에서 같은 값인지도 함께 | Backend | 대기, PR #153 리뷰 |
+| `test_pipeline.py` 250행 docstring "KPI 기산점은 특보 발표 시각이다" 정정. 단언 자체(`record.issued_at == event.issued_at`)는 옳다 - 세션이 특보 발효 시각을 그대로 지니는지 보는 테스트이고, 기산점 문장만 어긋난다 | Backend | 대기, PR #153 리뷰 |
 | 보호자 골든셋 40건에서 "전달" 표현 점검 | AI/RAG | 대기 |
 | 역할_일정의 "실기기 도달" 표현 | - | **손대지 않는다.** 그쪽은 8/22 수동 증빙 과제를 가리키며 지표 정의가 아니다 |
-| AGENTS.md Quality bar | - | 이미 "to personalized dispatch"라 이 결정과 일치한다. 변경 없음 |
+| AGENTS.md Quality bar M1 항목 | Tech Lead | 완료, 이 PR - 시작점 문구와 함께 "p95 over OTel end-to-end spans"도 고쳤다. 저장소에 `opentelemetry`가 없어 실제 계측은 `Delivery.latency_ms`다 |
 | 팀 확인 | 팀 | 대기 |
 
 ## 재검토 조건

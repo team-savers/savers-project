@@ -89,9 +89,12 @@ These came out of explicit risk mitigation decisions in the planning doc — don
 The team's differentiation strategy is that quality is proven by **reproducible automated scripts**, submitted alongside the code, not by human surveys. 기획서 v3 names **four metrics**, and the scoring script, eval set, and training code ship with them:
 
 - **알림 도달 속도** — end-to-end latency from the moment `run_alert` starts handling that alert
-  to `push_accepted`, the moment FCM accepts the send request.
+  to the **first** `push_accepted`, the moment FCM accepts the send request for that recipient's first device.
   Target ≤30s, measured as p95 over `Delivery.latency_ms` (`AlertRun.p95_latency_ms`) — OpenTelemetry is not wired yet,
   so do not describe this as an OTel span.
+  ⚠️ `Delivery.latency_ms` currently stops **after** that recipient's whole device loop, not at the first acceptance,
+  so with two or more ward devices it reads higher than the definition — the code moves, not the definition
+  ([ADR-0013](docs/adr/0013-m1-measures-push-acceptance.md) 후속 조치, Backend).
   The end is a contract event; the start is a run-level clock with no contract event of its own.
   The start is **not** `alert_dispatched`: that event is stamped inside the per-recipient loop,
   after shelter search and generation, so anchoring there would push the generation span outside the 30s.
