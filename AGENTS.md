@@ -88,10 +88,13 @@ These came out of explicit risk mitigation decisions in the planning doc — don
 
 The team's differentiation strategy is that quality is proven by **reproducible automated scripts**, submitted alongside the code, not by human surveys. 기획서 v3 names **four metrics**, and the scoring script, eval set, and training code ship with them:
 
-- **알림 도달 속도** — end-to-end latency from `alert_dispatched`, the moment the pipeline starts handling that alert,
+- **알림 도달 속도** — end-to-end latency from the moment `run_alert` starts handling that alert
   to `push_accepted`, the moment FCM accepts the send request.
-  Target ≤30s, measured as p95 over OTel end-to-end spans.
-  Both ends are event names in the contract, not roles.
+  Target ≤30s, measured as p95 over `Delivery.latency_ms` (`AlertRun.p95_latency_ms`) — OpenTelemetry is not wired yet,
+  so do not describe this as an OTel span.
+  The end is a contract event; the start is a run-level clock with no contract event of its own.
+  The start is **not** `alert_dispatched`: that event is stamped inside the per-recipient loop,
+  after shelter search and generation, so anchoring there would push the generation span outside the 30s.
   Acceptance is **not** device arrival —
   `push_delivered` is deliberately not used, since it reads acceptance as delivery.
   The start is **not** 특보 발령 (`DisasterEvent.issued_at`),
