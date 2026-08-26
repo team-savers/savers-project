@@ -22,9 +22,24 @@ openapi: 3.1.0
 
 info:
   title: SAVERS API
-  version: 0.8.0-draft
+  version: 0.9.0-draft
   description: |
     재난 취약계층 대상 무설치 대피 안내 서비스의 모듈 간 계약 초안입니다.
+
+    > **변경 이력(v0.9)**: 대피소 주의 표시(`Shelter.cautions`)를 신설했습니다
+    > ([ADR-0016](../../docs/adr/0016-shelter-cautions-not-exclusion.md), 제안).
+    > **개인 적합성은 대피소를 제외하지 않고 주의로 표시합니다** — 계단과 도달 시간은
+    > 사람마다 답이 달라지는 축이라, 제외로 올리면 계단 있는 곳밖에 없는 지역에서
+    > 후보가 전부 사라져 `all_excluded` 수직 대피로 떨어집니다. 그런데 계단을 못 쓰는
+    > 사람에게 수직 대피만 남은 조합은 이 계약이 이미 `unsafe`로 규정한 자리입니다.
+    > **호우·침수의 지하 제외는 이 규칙의 대상이 아니며** 사람과 무관한 안전 판단으로
+    > `excluded`에 남습니다 - 두 축을 섞지 않습니다.
+    > `stairs`는 `mobility`가 아니라 `stairsOk`로 판정하고, `over_time`은 `basis`가
+    > `coordinate`일 때만 붙입니다(동 중심 원점은 추정값이라 시간 초과를 선언할 수
+    > 없습니다). 군 구분 필드와 거리 추정 표시 필드는 두지 않습니다 — **군 구분은**
+    > `cautions`가 비었는지의 함수라 두 값이 어긋난 응답이 만들어질 수 있고,
+    > **거리 추정 표시는** `basis`와 같은 사실이라 목록의 모든 항목에서 같은 값이 됩니다.
+    > 같은 판에서 `/v1/shelters/search`의 「가까운 순 정렬」을 정렬 정본으로 고쳤습니다.
 
     > **변경 이력(v0.8)**: 웹푸시 발송 페이로드(`WebPushPayload`)를 명문화했습니다
     > ([#15](https://github.com/team-savers/savers-project/issues/15) 1번).
@@ -536,8 +551,9 @@ paths:
         `Cache-Control: no-store`로 전송된다.
 
         **왜 `sessionToken`이 필수인가** — 서버는 이 토큰으로 프로필과 재난 맥락을
-        조회한다. 계약은 "`stairsOk: false`면 계단 있는 대피소를 상위에 두지 않는다"고
-        약속하고 있는데, 좌표·`dongCode`만 오면 서버가 `stairsOk`를 알 수 없다.
+        조회한다. 계약은 "요청자가 계단을 쓸 수 없으면 그 대피소에 주의를 붙이고 뒤로
+        보낸다"고 약속하고 있는데(`Shelter.cautions`), 좌표·`dongCode`만 오면 서버가
+        `stairsOk`를 알 수 없다.
         ⚠️ **건강·장애 필드는 본문이나 쿼리로 되돌려 보내지 않는다** — 민감정보를
         클라이언트가 재전송하게 만들면 전송 구간마다 추가 노출이 생긴다. 프로필은
         서버가 `sessionToken`으로 내부 조회한다.
@@ -545,8 +561,12 @@ paths:
         `isUnderground: true`인 시설(지하 민방위대피소 등)은 침수 시 위험하므로
         **호우·침수 재난에서는 서버가 목록에서 제외한다.** 안전 판단을 클라이언트에
         두지 않는다 — 프론트는 서버가 내려준 `items`와 `excluded` 집계만 렌더한다.
-        프로필의 `stairsOk: false`인 사용자에게는 `hasStairs: true`인 대피소를 상위에
-        두지 않습니다.
+
+        **개인 적합성은 제외가 아니라 주의로 표시한다.** 요청자가 계단을 쓸 수 없는
+        경우(`stairsOk: false`)와 도보 환산 도달 시간이 기준을 넘는 경우, 그 대피소는
+        목록에서 빠지지 않고 `cautions`가 붙은 채 뒤로 간다. 순서는 서버가 정하며
+        **프론트는 `items` 순서를 그대로 렌더하고 다시 정렬하지 않는다** - 클라이언트가
+        `hasStairs`만 보고 재정렬하면 `over_time`이 붙은 대피소가 앞으로 돌아온다.
 
         **빈 목록과 장애 상태의 구분** — `items: []`가 "안전한 대피소가 없다"인지
         "API 장애"인지 "캐시 부재"인지 프론트가 알 수 없으면 "대피소 없음"으로만
@@ -565,7 +585,12 @@ paths:
         '200':
           description: |
             대피소 검색 결과. `hazardMatch`로 현재 위치의 위험구역 포함 여부를,
-            `availability`로 목록의 가용성 상태를 알려준다. 가까운 순 정렬.
+            `availability`로 목록의 가용성 상태를 알려준다.
+
+            **정렬은 주의 없는 것 먼저, 그 안에서 가까운 순이다.** `cautions`가 빈
+            항목이 앞에 오고, 주의가 붙은 항목은 목록에서 빠지지 않고 뒤로 간다.
+            이전 판의 「가까운 순 정렬」은 이미 구현과 어긋나 있었다 - `stairsOk`가
+            거짓일 때 계단 있는 대피소를 상위에 두지 않는 규칙이 그때도 있었다.
           headers:
             Cache-Control:
               description: |
@@ -1989,7 +2014,7 @@ components:
 
     Shelter:
       type: object
-      required: [id, name, address, distanceM, isUnderground, hasStairs]
+      required: [id, name, address, distanceM, isUnderground, hasStairs, cautions]
       properties:
         id:
           type: string
@@ -2006,7 +2031,14 @@ components:
           format: double
         distanceM:
           type: integer
-          description: 직선거리(m). 보행 경로 거리는 TMAP 연동 이후 별도 필드로 추가합니다.
+          description: |
+            직선거리(m). 보행 경로 거리는 TMAP 연동 이후 별도 필드로 추가합니다.
+
+            ⚠️ `cautions`의 `over_time`도 이 값에서 유도하므로 **도보 환산 시간은
+            직선거리 기준의 하한**입니다 — 실제 보행 거리는 우회 때문에 더 깁니다.
+            화면 문구가 「N분 이내」를 단정하지 않도록 이 사실을 함께 노출합니다.
+            **`basis`가 `dongCode`이면 원점이 그 동 대피소들의 평균 좌표라 이 값
+            자체가 추정치**입니다. 그래서 `over_time`은 그 경우 붙지 않습니다.
           example: 420
         bearing:
           type: [string, 'null']
@@ -2019,9 +2051,47 @@ components:
             안전 판단은 클라이언트에 두지 않는다.'
         hasStairs:
           type: boolean
-          description: '`stairsOk: false`인 사용자에게 상위 배치하지 않습니다.'
+          description: |
+            계단이 있는 시설인지. **시설의 속성이며 「이 사람이 쓸 수 있는가」가
+            아닙니다** — 요청자 기준 판정은 `cautions`의 `stairs`가 맡습니다.
+            이 값만 보고 순서를 다시 정하지 마십시오. 정렬은 서버가 `cautions`까지
+            반영해 끝낸 상태로 내려옵니다.
         capacity:
           type: [integer, 'null']
+        cautions:
+          type: array
+          default: []
+          description: |
+            **이 요청자 기준으로** 이 대피소에 붙는 주의. 비어 있으면 주의가 없다는
+            뜻입니다. 시설의 속성(`isUnderground`·`hasStairs`)과는 다른 축이며, 같은
+            대피소라도 보는 사람에 따라 값이 달라집니다. 프로필은 세션 토큰 뒤에 있고
+            민감 필드는 본문으로 다시 오지 않으므로 클라이언트가 유도할 수 없습니다 —
+            그래서 서버가 판정해 내려줍니다.
+
+            ⚠️ **주의는 제외가 아닙니다.** 주의가 붙은 대피소도 목록에 남고 순서만
+            뒤로 갑니다. 계단 있는 곳밖에 없는 지역에서 그곳이 여전히 가장 나은
+            선택지일 수 있고, 서버가 지우면 그 선택 자체가 사라집니다. 후보가 하나도
+            남지 않을 때만 `availability: all_excluded`로 갑니다. 호우·침수의 지하
+            제외는 사람과 무관한 안전 판단이므로 계속 `excluded`입니다 — 두 축을 섞지
+            않습니다([ADR-0016](../../docs/adr/0016-shelter-cautions-not-exclusion.md),
+            제안). 프론트는 항목별 라벨로 표시하며, 별도 군(群) 섹션을 요구하지 않습니다.
+
+            - `stairs`: 계단이 있는 시설인데 요청자의 `stairsOk`가 거짓입니다.
+              판정은 `stairsOk`로만 하고 `mobility`로는 하지 않습니다 — 두 값이
+              어긋나는 프로필이 있을 수 있고, 계약이 계단의 권위로 삼는 값은
+              `stairsOk`입니다.
+            - `over_time`: 도보 환산 도달 시간이 기준 시간을 넘습니다.
+              **`basis`가 `coordinate`일 때만 붙습니다.** `dongCode` 기준의 원점은
+              그 동 대피소들의 평균 좌표라 거리가 추정값이고, 추정값에 시간 초과를
+              선언하면 없는 사실을 만듭니다. 기준 시간과 보행 속도는 정책
+              파라미터이며 계약은 수치를 고정하지 않습니다.
+          items:
+            type: string
+            enum: [stairs, over_time]
+          examples:
+            - []
+            - [stairs]
+            - [stairs, over_time]
 
     ShelterList:
       type: object
@@ -3058,7 +3128,19 @@ components:
         distanceM:
           type: integer
           minimum: 0
-          description: 직선거리(m). 문장에 넣을 때도 이 값을 씁니다.
+          description: |
+            직선거리(m). 문장에 넣을 때도 이 값을 씁니다.
+
+            ⚠️ **이 값은 실제 보행 거리의 하한이고, 추정값일 수도 있습니다.** 우회
+            때문에 실제로는 더 멀며, 사용자가 위치를 주지 않은 요청에서는 백엔드가
+            행정동 단위의 대표 좌표에서 이 값을 잽니다. **둘 중 어느 쪽인지는 이 요청
+            본문에 실리지 않습니다** — 프론트 대면 응답의 `ShelterList.basis`에 해당하는
+            필드가 여기에는 없고, 생성부가 그것을 알아야 할 이유도 없습니다. 그래서
+            아래 규칙은 **조건 없이** 적용됩니다.
+
+            **도달 시각이나 소요 시간을 단정하는 문장을 만들지 않습니다** —
+            「N분이면 도착합니다」, 「곧 도착합니다」는 이 값으로 뒷받침되지 않습니다.
+            거리를 말할 때는 직선거리임을 함께 밝힙니다.
           example: 420
         hasStairs:
           type: boolean
