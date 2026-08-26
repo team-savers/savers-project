@@ -35,6 +35,7 @@ import { Home } from './pages/Home'
 import { Register } from './pages/Register'
 import { Preview } from './pages/Preview'
 import { Mockup } from './pages/Mockup'
+import { Guardian } from './pages/Guardian'
 import { initSwUpdates } from './lib/swUpdate'
 import { PROFILES } from './mocks/profiles'
 import type { Profile } from './api/types'
@@ -620,6 +621,9 @@ function AppRoutes({ pathname }: { pathname: string }): React.ReactElement {
   }
   if (pathname === '/mockup') {
     return <Mockup />
+  }
+  if (pathname === '/guardian') {
+    return <Guardian />
   }
   return <HomeView />
 }
