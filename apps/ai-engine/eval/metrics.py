@@ -322,6 +322,53 @@ _SPECULATION = re.compile(r"것같")
 # counting facts, not judging wording; one construction, two questions.
 _INSTRUCTION = re.compile(r"(세요|십시오)")
 
+# Runtime guardian verifier hardening (3.5단계)과 허용/차단 판정을 맞추는 보조 방어선.
+# 의미 대응은 runtime의 canonical claim 검증이 맡고, 평가지표는 정규식으로 명백한
+# 비-삼중항 주장만 같은 방향으로 차단한다.
+_GUARDIAN_EXTRA_FORBIDDEN = re.compile(
+    r"(?:\d+|한|두|세|네)\s*(?:분|시간|일)(?:간|째|\s*동안)|지났습니다|계속|"
+    r"(?:\d+|한|두|세|네|몇)\s*(?:번(?:째)?|회)|여러\s*차례|반복해서|"
+    r"이후|그\s*뒤(?:로)?|그\s*후|가장\s*최근|마지막으로|"
+    r"듯합니다|추정됩니다|보입니다|"
+    r"기록(?:이|은)\s*(?:없습니다|없었습니다)|하지\s*않|누르지\s*않|"
+    r"선택하지\s*않|행동하지\s*않"
+)
+_UNSUPPORTED_STATE = re.compile(r"이동\s*중입니다|대피\s*중입니다|도착했습니다")
+_BRACKETED_LABEL = re.compile(r"\[[^]]+\]")
+_NON_HAPSYO_ENDING = re.compile(r"(?:해요|했어요|맞아요|이네요|그렇죠|예요|아요|어요)(?=[.!?]|$)")
+
+_KNOWN_GUARDIAN_CLAIMS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"상황 확인하기.*버튼을 누(?:르|른)"), "situation_check_selected"),
+    (re.compile(r"정보 확인 화면을 (?:여|연)"), "profile_review_started"),
+    (re.compile(r"정보 확인을 완료"), "profile_review_completed"),
+    (re.compile(r"정보 확인 단계를 건너"), "profile_review_skipped"),
+    (re.compile(r"상황 선택 화면을 (?:보|본)"), "choice_screen_viewed"),
+    (re.compile(r"도움이 필요해요.*선택"), "help_request_selected"),
+    (re.compile(r"일단 대피할게요.*선택"), "direct_evacuation_selected"),
+    (re.compile(r"대피 행동 권고와 대피소 안내를 (?:보|본)"), "evacuation_guidance_viewed"),
+    (re.compile(r"경로 안내를 시작"), "route_guidance_started"),
+    (re.compile(r"다음 안내를 요청"), "next_guidance_requested"),
+    (re.compile(r"119 전화 버튼을 누(?:르|른)"), "emergency_call_119_selected"),
+    (re.compile(r"도착 완료.*버튼을 누(?:르|른)"), "arrival_confirmed_by_user"),
+)
+
+
+def _known_claim_has_no_matching_source(
+    answer: str, evidence: Sequence[Mapping[str, object]]
+) -> bool:
+    """Runtime canonical 문안의 이벤트 타입과 존재/부재 방향을 sources와 대조한다."""
+    cited_claims = {(item.get("type"), item.get("present")) for item in evidence}
+    claimed: set[tuple[str, bool]] = set()
+    for sentence in sentences(answer):
+        present = "기록에서 확인되지 않습니다" not in sentence
+        claimed.update(
+            (event_type, present)
+            for pattern, event_type in _KNOWN_GUARDIAN_CLAIMS
+            if pattern.search(sentence)
+        )
+    return not claimed.issubset(cited_claims)
+
+
 # 나열·대조 연결어미 — the joins that put two facts in one sentence. ADR-0012's claim unit
 # is the fact, not the sentence: 1절 normalizes 「각 문장이 말하는 사실」, plural, and 2절
 # works through 「한 문장이 세 가지를 말하고」. The contract's own example answer
@@ -523,6 +570,9 @@ def forbidden_phrase_hits(answer: str, phrases: Sequence[str] = SAFETY_ASSERTION
     hits = [phrase for phrase, needle in pairs if needle in collapsed]
     hits += [found.group(0) for found in _SPECULATION.finditer(collapsed)]
     hits += [found.group(0) for found in _INSTRUCTION.finditer(collapsed)]
+    without_labels = _BRACKETED_LABEL.sub("", answer)
+    hits += [found.group(0) for found in _GUARDIAN_EXTRA_FORBIDDEN.finditer(answer)]
+    hits += [found.group(0) for found in _NON_HAPSYO_ENDING.finditer(without_labels)]
     return hits
 
 
@@ -599,8 +649,12 @@ def guardian_violations(
     # Pasting one citation twice would otherwise buy a second claim for free.
     if len(claims) > _facts_cited(evidence):
         reasons.append("unsupported_claim")
+    if _known_claim_has_no_matching_source(answer, evidence):
+        reasons.append("unsupported_claim")
+    if _UNSUPPORTED_STATE.search(answer):
+        reasons.append("unsupported_claim")
 
-    return _distinct(evidence_mismatches(evidence, events)) + reasons
+    return _distinct([*evidence_mismatches(evidence, events), *reasons])
 
 
 def guardian_accuracy(case_violations: Sequence[Sequence[str]]) -> float | None:

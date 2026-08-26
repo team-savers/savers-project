@@ -9,6 +9,7 @@ non-deterministic (AGENTS.md).
 guardrail behaviour is tested in apps/ai-engine, where it lives.
 """
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 
 import pytest
@@ -18,12 +19,17 @@ from api import deps
 from api.main import app
 from backend_core.ai_client import AiEngineUnavailableError
 from backend_core.dispatch import RecordingDispatcher
+from backend_core.events import SessionEvent
 from backend_core.models import (
+    GUARDIAN_CITATION_SCOPE,
     AlertMessage,
     ChatResponse,
     DisasterContext,
     DisasterEvent,
     GenerationContext,
+    GuardianAnswer,
+    GuardianEvidence,
+    GuardianQuestionId,
     Locale,
     RecipientContext,
     Source,
@@ -42,6 +48,15 @@ GROUNDED_BODY = (
     "지금 바로 관악구민종합체육관(으)로 이동할 준비를 하세요."
 )
 
+_GUARDIAN_ABSENCE_ANSWERS = {
+    "evacuation_progress": "현재 세션의 사용자 행동은 기록에서 확인되지 않습니다.",
+    "help_request": (
+        "[도움이 필요해요]를 선택한 사실은 기록에서 확인되지 않습니다. "
+        "119 전화 버튼을 누른 사실은 기록에서 확인되지 않습니다."
+    ),
+    "arrival_status": "[도착 완료] 버튼을 누른 사실은 기록에서 확인되지 않습니다.",
+}
+
 
 class FakeAiEngine:
     """Contract-shaped stand-in.
@@ -55,6 +70,7 @@ class FakeAiEngine:
         self.available = available
         self.refuses = refuses
         self.seen_contexts: list[GenerationContext] = []
+        self.seen_guardian_events: list[list[dict]] = []
 
     def generate(self, event_id: str, context: GenerationContext) -> AlertMessage | None:
         if not self.available:
@@ -81,6 +97,33 @@ class FakeAiEngine:
         return ChatResponse(
             answer="물이 차오르기 전에 높은 곳으로 이동하세요.",
             sources=[Source(title="[더미] 국민행동요령", quote="물이 차오르기 전에 이동합니다.")],
+            refusal_reason=None,
+        )
+
+    def answer_guardian(
+        self, question_id: GuardianQuestionId, events: Sequence[SessionEvent]
+    ) -> GuardianAnswer:
+        if not self.available:
+            raise AiEngineUnavailableError("fake outage")
+        wire_events = [event.model_dump(mode="json", by_alias=True) for event in events]
+        self.seen_guardian_events.append(wire_events)
+        matching = [event for event in events if event.type in GUARDIAN_CITATION_SCOPE[question_id]]
+        if not matching:
+            return GuardianAnswer(
+                question_id=question_id,
+                answer=_GUARDIAN_ABSENCE_ANSWERS[question_id],
+                sources=[
+                    GuardianEvidence(type=event_type, present=False, at=None)
+                    for event_type in sorted(GUARDIAN_CITATION_SCOPE[question_id])
+                ],
+                refusal_reason=None,
+            )
+        latest = matching[-1]
+        at = latest.model_dump(mode="json", by_alias=True)["at"]
+        return GuardianAnswer(
+            question_id=question_id,
+            answer=f"{latest.type} 기록을 확인했습니다.",
+            sources=[GuardianEvidence(type=latest.type, present=True, at=at)],
             refusal_reason=None,
         )
 

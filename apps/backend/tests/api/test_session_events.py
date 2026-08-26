@@ -163,7 +163,7 @@ def test_device_less_recipient_logs_only_alert_dispatched(
 ) -> None:
     resident = registry.get("p002")
     assert resident is not None
-    resident.devices.clear()
+    resident.devices["ward"].clear()
 
     dispatch = client.post("/internal/alerts/dispatch").json()
     assert "p002" in dispatch["skippedNoDevice"]
