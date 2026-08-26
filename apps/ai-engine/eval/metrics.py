@@ -675,6 +675,10 @@ class FollowupSummary:
     but carry a `followup_due` or `guardian_notified` whose `at` cannot be ordered, so
     "did the send follow its own timer" has no answer for them.
 
+    `unreachable` counts sessions with at least one `followup_unreachable` event. These
+    sessions are outside the M4 denominator and are reported separately; they do not
+    contribute to `rate`, even if a log contains the event more than once.
+
     They are deliberately neither successes nor failures. Dropping them silently inflates
     M4 — a run with one clean success and one unreadable session would report 100%. But
     counting them as failures is just as wrong: it makes a timestamp bug indistinguishable
@@ -685,6 +689,7 @@ class FollowupSummary:
     due: int
     sent: int
     unscoreable: int
+    unreachable: int
     rate: float | None
 
 
@@ -737,22 +742,38 @@ def _score_session(events: Sequence[Mapping[str, object]]) -> _LoopOutcome:
 def followup_summary(
     session_logs: Sequence[Sequence[Mapping[str, object]]],
 ) -> FollowupSummary:
-    """M4 (ADR-0012 7절): 분모는 `followup_due`가 있는 세션, 분자는 `guardian_notified`까지 간 세션.
+    """M4 (ADR-0012 7절, 7-a절)와 분모 밖 `followup_unreachable` 세션 요약.
 
     A session with no `followup_due` at all never re-entered the loop and is out of both
-    counts — that is not a failure, it is a person who answered.
+    rate counts. A session with `followup_unreachable` is also outside the denominator,
+    but is counted separately for reporting.
     """
     scored = [_score_session(events) for events in session_logs]
     reentered = [outcome for outcome in scored if outcome.due]
     scoreable = [outcome for outcome in reentered if outcome.readable]
     sent_count = sum(1 for outcome in scoreable if outcome.sent)
+    unreachable_count = sum(
+        1
+        for events in session_logs
+        if any(event.get("type") == "followup_unreachable" for event in events)
+    )
 
     return FollowupSummary(
         due=len(scoreable),
         sent=sent_count,
         unscoreable=len(reentered) - len(scoreable),
+        unreachable=unreachable_count,
         rate=_share(sent_count, len(scoreable)),
     )
+
+
+def format_followup_summary(summary: FollowupSummary) -> str:
+    """Format the ADR-0012 7-a one-line M4 report without recalculating it."""
+    if summary.rate is None or summary.unscoreable:
+        rate = "측정 불가"
+    else:
+        rate = f"{summary.rate * 100:.1f}".rstrip("0").rstrip(".") + "%"
+    return f"M4 {rate} (n={summary.due}, unreachable={summary.unreachable})"
 
 
 def followup_delivery_rate(

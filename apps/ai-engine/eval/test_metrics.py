@@ -1166,3 +1166,60 @@ class TestUnscoreableLoopSessions:
         summary = metrics.followup_summary([answered])
         assert (summary.due, summary.sent, summary.unscoreable) == (0, 0, 0)
         assert summary.rate is None
+
+
+class TestUnreachableLoopSessions:
+    """Unreachable sessions are reported beside M4, never included in its rate."""
+
+    def test_unreachable_is_reported_outside_the_denominator(self) -> None:
+        unreachable = [{"type": "followup_unreachable", "at": "2026-08-24T04:12:00Z"}]
+
+        summary = metrics.followup_summary([SENT_SESSION, unreachable])
+
+        assert (summary.due, summary.sent, summary.unreachable) == (1, 1, 1)
+        assert summary.rate == 1.0
+        assert metrics.followup_delivery_rate([SENT_SESSION, unreachable]) == 1.0
+
+    def test_duplicate_unreachable_events_count_one_session(self) -> None:
+        unreachable = [
+            {"type": "followup_unreachable", "at": "2026-08-24T04:12:00Z"},
+            {"type": "followup_unreachable", "at": "2026-08-24T04:42:00Z"},
+        ]
+
+        summary = metrics.followup_summary([unreachable])
+
+        assert summary.unreachable == 1
+
+    def test_unscoreable_and_unreachable_are_separate_counts(self) -> None:
+        broken = [{"type": "followup_due", "at": "2026-08-24 03:42"}]
+        unreachable = [{"type": "followup_unreachable", "at": "2026-08-24T04:12:00Z"}]
+
+        summary = metrics.followup_summary([broken, unreachable])
+
+        assert summary.unscoreable == 1
+        assert summary.unreachable == 1
+        assert summary.due == 0
+        assert summary.sent == 0
+        assert summary.rate is None
+
+
+class TestFormatFollowupSummary:
+    def test_formats_the_adr_0012_report_line(self) -> None:
+        summary = metrics.FollowupSummary(due=1, sent=1, unscoreable=0, unreachable=1, rate=1.0)
+
+        assert metrics.format_followup_summary(summary) == "M4 100% (n=1, unreachable=1)"
+
+    def test_formats_a_fractional_percentage_to_one_decimal_place(self) -> None:
+        summary = metrics.FollowupSummary(due=3, sent=2, unscoreable=0, unreachable=1, rate=2 / 3)
+
+        assert metrics.format_followup_summary(summary) == "M4 66.7% (n=3, unreachable=1)"
+
+    def test_formats_an_unmeasurable_run_without_inventing_zero(self) -> None:
+        summary = metrics.FollowupSummary(due=0, sent=0, unscoreable=0, unreachable=2, rate=None)
+
+        assert metrics.format_followup_summary(summary) == "M4 측정 불가 (n=0, unreachable=2)"
+
+    def test_does_not_report_a_rate_when_any_session_is_unscoreable(self) -> None:
+        summary = metrics.FollowupSummary(due=1, sent=1, unscoreable=1, unreachable=0, rate=1.0)
+
+        assert metrics.format_followup_summary(summary) == "M4 측정 불가 (n=1, unreachable=0)"
