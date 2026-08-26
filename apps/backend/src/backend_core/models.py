@@ -15,10 +15,12 @@ health fields; `RecipientContext` deliberately holds neither, and
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
-from typing import Literal
+from types import MappingProxyType
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 from pydantic.alias_generators import to_camel
 
 Stage = Literal[1, 2, 3]
@@ -34,6 +36,27 @@ ServiceMode = Literal["normal", "degraded", "cache_only"]
 HazardReason = Literal["flood_risk_underpass", "lowland", "riverside"]
 Bearing = Literal["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 Locale = Literal["ko", "vi", "zh", "en"]
+GuardianLocale = Literal["ko"]
+GuardianQuestionId = Literal["evacuation_progress", "help_request", "arrival_status"]
+GuardianEvidenceType = Literal[
+    "situation_check_selected",
+    "profile_review_started",
+    "profile_review_completed",
+    "profile_review_skipped",
+    "choice_screen_viewed",
+    "help_request_selected",
+    "direct_evacuation_selected",
+    "evacuation_guidance_viewed",
+    "route_guidance_started",
+    "next_guidance_requested",
+    "emergency_call_119_selected",
+    "arrival_confirmed_by_user",
+    "alert_dispatched",
+    "push_accepted",
+    "followup_due",
+    "followup_unreachable",
+    "guardian_notified",
+]
 MessageMode = Literal["grounded", "official_fallback"]
 RegisteredBy = Literal["self", "guardian", "welfare_center", "employer"]
 # 기기 역할. 1차 재난 알림은 ward에게만, 30분 무응답 뒤 2차 발송은 guardian에게만 나간다
@@ -254,6 +277,96 @@ class ChatResponse(ContractModel):
     answer: str | None
     sources: list[Source] = Field(default_factory=list)
     refusal_reason: Literal["no_evidence", "out_of_scope", "unsafe"] | None = None
+
+
+GUARDIAN_CITATION_SCOPE = MappingProxyType(
+    {
+        "evacuation_progress": frozenset(
+            {
+                "situation_check_selected",
+                "profile_review_started",
+                "profile_review_completed",
+                "profile_review_skipped",
+                "choice_screen_viewed",
+                "help_request_selected",
+                "direct_evacuation_selected",
+                "evacuation_guidance_viewed",
+                "route_guidance_started",
+                "next_guidance_requested",
+                "emergency_call_119_selected",
+                "arrival_confirmed_by_user",
+            }
+        ),
+        "help_request": frozenset({"help_request_selected", "emergency_call_119_selected"}),
+        "arrival_status": frozenset({"arrival_confirmed_by_user"}),
+    }
+)
+_RFC3339_DATE_TIME = re.compile(
+    r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$"
+)
+
+
+class GuardianAskRequest(RequestModel):
+    question_id: GuardianQuestionId
+    locale: GuardianLocale = "ko"
+
+
+class GuardianEvidence(RequestModel):
+    type: GuardianEvidenceType
+    present: StrictBool
+    at: str | None = None
+
+    @model_validator(mode="after")
+    def validate_evidence(self) -> Self:
+        if self.present and self.at is None:
+            raise ValueError("present=true requires at")
+        if not self.present and self.at is not None:
+            raise ValueError("present=false requires at=null")
+        if self.at is not None:
+            if _RFC3339_DATE_TIME.fullmatch(self.at) is None:
+                raise ValueError("at must be an RFC3339 date-time")
+            try:
+                parsed = datetime.fromisoformat(
+                    self.at.replace("Z", "+00:00").replace("z", "+00:00")
+                )
+            except ValueError as exc:
+                raise ValueError("at must be an RFC3339 date-time") from exc
+            if parsed.tzinfo is None:
+                raise ValueError("at must be timezone-aware")
+        return self
+
+
+class GuardianAnswer(RequestModel):
+    question_id: GuardianQuestionId
+    answer: str | None
+    sources: list[GuardianEvidence]
+    refusal_reason: Literal["no_evidence"] | None
+
+    @model_validator(mode="after")
+    def validate_answer_contract(self) -> Self:
+        if self.answer is not None:
+            if not self.answer:
+                raise ValueError("delivery answer must be non-empty")
+            if not self.sources:
+                raise ValueError("delivery requires at least one source")
+            if self.refusal_reason is not None:
+                raise ValueError("delivery refusalReason must be null")
+        elif self.sources or self.refusal_reason != "no_evidence":
+            raise ValueError("refusal requires answer=null, sources=[], refusalReason=no_evidence")
+
+        allowed = GUARDIAN_CITATION_SCOPE[self.question_id]
+        if any(source.type not in allowed for source in self.sources):
+            raise ValueError("source type is outside the question citation scope")
+        return self
+
+    @classmethod
+    def no_evidence(cls, question_id: GuardianQuestionId) -> GuardianAnswer:
+        return cls(
+            question_id=question_id,
+            answer=None,
+            sources=[],
+            refusal_reason="no_evidence",
+        )
 
 
 class DeviceRegisterRequest(RequestModel):

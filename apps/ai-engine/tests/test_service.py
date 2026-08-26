@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from ai_engine.guardian_log_qa import GuardianLogAnswer
 from ai_engine.service import app
 
 RECIPIENT: dict[str, Any] = {
@@ -100,6 +101,7 @@ def test_retrieval_is_not_exposed(client: TestClient) -> None:
         "/health",
         "/v1/generate",
         "/v1/answer",
+        "/v1/guardian/answer",
     }
 
 
@@ -172,3 +174,175 @@ def test_unsupported_disaster_type_is_rejected(client: TestClient) -> None:
         },
     )
     assert response.status_code == 422
+
+
+def guardian_event(
+    event_type: str,
+    at: str = "2026-08-24T01:18:00Z",
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {"type": event_type, "at": at, "payload": payload or {}}
+
+
+@pytest.mark.parametrize(
+    ("question_id", "event_type", "expected"),
+    [
+        ("evacuation_progress", "route_guidance_started", "경로 안내를 시작하셨습니다"),
+        ("help_request", "help_request_selected", "[도움이 필요해요]를 선택하셨습니다"),
+        ("arrival_status", "arrival_confirmed_by_user", "[도착 완료] 버튼을 누르셨습니다"),
+    ],
+)
+def test_guardian_answer_endpoint_delivers_three_supported_questions(
+    client: TestClient, question_id: str, event_type: str, expected: str
+) -> None:
+    response = client.post(
+        "/v1/guardian/answer",
+        json={"questionId": question_id, "events": [guardian_event(event_type)]},
+    )
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    body = response.json()
+    assert expected in body["answer"]
+    assert body["questionId"] == question_id
+    assert body["refusalReason"] is None
+    assert set(body) == {"questionId", "answer", "sources", "refusalReason"}
+    assert set(body["sources"][0]) == {"type", "present", "at"}
+
+
+def test_guardian_answer_endpoint_refuses_empty_log(client: TestClient) -> None:
+    """Locks the defensive floor for a literally empty request body.
+
+    Real backend traffic should never hit this: pipeline.py::run_alert() appends
+    "alert_dispatched" to every session unconditionally before a guardian token
+    is reachable, so a genuinely empty `events: []` here means an empty request,
+    not an empty session. Contrast with `answer_guardian_question()`'s own
+    empty-input behaviour (a delivered "확인되지 않음" with 12 absent sources —
+    see test_guardian_log_qa.py::test_verifier_allows_empty_progress_with_twelve_absence_sources),
+    which this endpoint deliberately does not reuse for `events == ()`.
+    """
+    response = client.post(
+        "/v1/guardian/answer",
+        json={"questionId": "evacuation_progress", "events": []},
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "questionId": "evacuation_progress",
+        "answer": None,
+        "sources": [],
+        "refusalReason": "no_evidence",
+    }
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"questionId": "unknown", "events": []},
+        {
+            "questionId": "evacuation_progress",
+            "events": [guardian_event("future_unknown_event")],
+        },
+        {
+            "questionId": "evacuation_progress",
+            "events": [guardian_event("route_guidance_started", "not-a-date")],
+        },
+        {
+            "questionId": "evacuation_progress",
+            "events": [guardian_event("route_guidance_started", "2026-08-24T10:18:00+09:00")],
+        },
+        {
+            "questionId": "evacuation_progress",
+            "events": [guardian_event("route_guidance_started", "2026-08-24T01:18:00+00:00")],
+        },
+        {
+            "questionId": "evacuation_progress",
+            "events": [guardian_event("next_guidance_requested")],
+        },
+        {
+            "questionId": "evacuation_progress",
+            "events": [
+                {
+                    "type": "route_guidance_started",
+                    "at": "2026-08-24T01:18:00Z",
+                    "payload": [],
+                }
+            ],
+        },
+        {
+            "questionId": "evacuation_progress",
+            "events": [
+                guardian_event(
+                    "next_guidance_requested",
+                    payload={"guidanceStep": 2, "secret": "must-not-leak"},
+                )
+            ],
+        },
+    ],
+)
+def test_guardian_answer_endpoint_rejects_invalid_input(
+    client: TestClient, payload: dict[str, Any]
+) -> None:
+    assert client.post("/v1/guardian/answer", json=payload).status_code == 422
+
+
+def test_guardian_answer_endpoint_accepts_followup_unreachable(client: TestClient) -> None:
+    response = client.post(
+        "/v1/guardian/answer",
+        json={
+            "questionId": "arrival_status",
+            "events": [guardian_event("followup_unreachable")],
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["answer"] == "[도착 완료] 버튼을 누른 사실은 기록에서 확인되지 않습니다."
+    assert "payload" not in str(body)
+
+
+def test_guardian_answer_endpoint_accepts_next_guidance_payload(client: TestClient) -> None:
+    response = client.post(
+        "/v1/guardian/answer",
+        json={
+            "questionId": "evacuation_progress",
+            "events": [guardian_event("next_guidance_requested", payload={"guidanceStep": 2})],
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["sources"][0]["type"] == "next_guidance_requested"
+
+
+def test_guardian_answer_endpoint_turns_verifier_block_into_whole_refusal(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ai_engine import service
+
+    def tampered_answer(*args: object, **kwargs: object) -> GuardianLogAnswer:
+        del args, kwargs
+        valid = service.GuardianLogAnswer(
+            question_id="arrival_status",
+            answer="10시 18분에 [도착 완료] 버튼을 누르셨습니다.",
+            sources=(
+                {
+                    "type": "arrival_confirmed_by_user",
+                    "present": True,
+                    "at": "2026-08-24T01:18:00Z",
+                },
+            ),
+            refusal_reason=None,
+        )
+        return valid.model_copy(update={"answer": "10시 18분에 경로 안내를 시작하셨습니다."})
+
+    monkeypatch.setattr(service, "answer_guardian_question", tampered_answer)
+    response = client.post(
+        "/v1/guardian/answer",
+        json={
+            "questionId": "arrival_status",
+            "events": [guardian_event("arrival_confirmed_by_user")],
+        },
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "questionId": "arrival_status",
+        "answer": None,
+        "sources": [],
+        "refusalReason": "no_evidence",
+    }
