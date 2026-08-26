@@ -18,15 +18,20 @@ is a metric failure by itself.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, Protocol
 
 import httpx
+from pydantic import ValidationError
 
+from backend_core.events import SessionEvent
 from backend_core.models import (
     AlertMessage,
     ChatResponse,
     DisasterContext,
     GenerationContext,
+    GuardianAnswer,
+    GuardianQuestionId,
     Locale,
     RecipientContext,
     Source,
@@ -47,6 +52,10 @@ class AiEngineClient(Protocol):
         disaster: DisasterContext,
         locale: Locale,
     ) -> ChatResponse: ...
+
+    def answer_guardian(
+        self, question_id: GuardianQuestionId, events: Sequence[SessionEvent]
+    ) -> GuardianAnswer: ...
 
 
 class HttpAiEngineClient:
@@ -115,3 +124,23 @@ class HttpAiEngineClient:
             )
         except (AttributeError, KeyError, TypeError, ValueError) as exc:
             raise AiEngineUnavailableError(f"/v1/answer: malformed response: {exc}") from exc
+
+    def answer_guardian(
+        self, question_id: GuardianQuestionId, events: Sequence[SessionEvent]
+    ) -> GuardianAnswer:
+        data = self._post(
+            "/v1/guardian/answer",
+            {
+                "questionId": question_id,
+                "events": [event.model_dump(mode="json", by_alias=True) for event in events],
+            },
+        )
+        try:
+            answer = GuardianAnswer.model_validate(data)
+            if answer.question_id != question_id:
+                raise ValueError("response questionId does not match request")
+            return answer
+        except (ValidationError, ValueError) as exc:
+            raise AiEngineUnavailableError(
+                f"/v1/guardian/answer: malformed response: {exc}"
+            ) from exc
