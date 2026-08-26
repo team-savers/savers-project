@@ -5,10 +5,11 @@
   이 문서는 그 형태를 계약이 받을 수 있는 모양으로 좁힌 것이다. 결정자 승인 대기
 - **날짜**: 2026-08-26
 - **결정자**: 신호정 (Tech Lead) 작성 / 김도혁 (Backend) 확인 완료 (2026-08-26 메신저)
-- **관련 문서**: [ADR-0006](0006-generation-contract.md) (생성 계약, `unsafe` 폴백),
+- **관련 문서**: [ADR-0006](0006-generation-contract.md) (생성 입력과 폴백 결정권),
   [ADR-0007](0007-walking-skeleton.md) (대피소 확정 단계),
   [packages/contracts/openapi.yaml](../../packages/contracts/openapi.yaml) v0.9
-  (`Shelter.cautions`, `POST /v1/shelters/search` 정렬 정본),
+  (`Shelter.cautions`, `POST /v1/shelters/search` 정렬 정본,
+  `GenerationResponse.refusalReason` 의 `unsafe`, `ShelterInstruction.distanceM`),
   [워킹_스켈레톤_설명.md](../공통_가이드/워킹_스켈레톤_설명.md) 2-3 (서버측 안전 필터)
 
 ## 배경 (Context)
@@ -95,4 +96,7 @@
 - 백엔드 구현 - `shelters.py` 판정 2건과 정책 파라미터 외부화, 픽스처와 테스트 (Backend)
 - 기준 시간 기본값의 선정 근거 문서 - 보행 속도 출처를 포함한다 (Backend)
 - 프론트 주의 라벨 문구 - 항목별 라벨이며 군 섹션이 아니다 (AI/RAG, 프론트엔드)
+- 프론트 재정렬 제거 - `ShelterGuide.tsx` 가 `hasStairs` 로 다시 묶고 있어,
+  서버가 `cautions` 까지 반영해 정렬한 순서를 덮는다.
+  `over_time` 이 붙은 대피소가 앞으로 돌아온다 (AI/RAG, 프론트엔드)
 - 심사 Q&A 자료에 답변 라인 등재 여부와 시연 시나리오 편입 판단 (PM)
