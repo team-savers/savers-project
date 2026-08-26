@@ -94,7 +94,7 @@ IAM 역할 생성과 정책 부여가 Backend/Infra(도혁님) 소관으로 적�
 루트는 결제와 계정 설정에만 씁니다.
 
 ```
-김도혁 · 신호정 IAM 사용자
+김도혁 · 신호정 · 안은남 IAM 사용자
  └── Developers 그룹
       ├── PowerUserAccess          (AWS 기본 제공, 넓은 개발 권한)
       ├── SaversRegionLock         (직접 만듦, 서울 리전 밖 차단)
