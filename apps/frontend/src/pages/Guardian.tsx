@@ -32,6 +32,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import rain from '../assets/rain.webp'
 import type { GuardianStatus, SafetyStatus } from '../api/types'
+import { api } from '../api/client'
+import { requestPushPermissionForGuardian } from '../lib/push'
 import { C, ICON, MOBILE_WIDTH, SHADOW_CARD, gutter, radius, touchTarget } from '../lib/tokens'
 import { GUARDIAN_MOCK, PERSONA_IMAGE, type GuardianQuestionId, type QaTurn } from '../mocks/guardianStatus'
 
@@ -198,9 +200,45 @@ function LogoMark() {
   )
 }
 
-export function GuardianPreview() {
+interface GuardianProps {
+  token?: string
+}
+
+export function Guardian({ token }: GuardianProps) {
   const [screen, setScreen] = useState<GuardianScreen>('alert')
   const { protectedPerson, alert } = GUARDIAN_MOCK
+  const [status, setStatus] = useState<GuardianStatus | null>(
+    token === undefined ? GUARDIAN_MOCK.status : null,
+  )
+  const [loadError, setLoadError] = useState(false)
+
+  useEffect(() => {
+    if (token === undefined) {
+      setStatus(GUARDIAN_MOCK.status)
+      return
+    }
+    let cancelled = false
+    setStatus(null)
+    setLoadError(false)
+    api.getGuardianStatus(token).then(
+      (next) => {
+        if (!cancelled) setStatus(next)
+      },
+      () => {
+        if (!cancelled) setLoadError(true)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [token])
+
+  if (loadError) {
+    return <main style={{ ...SHELL, padding: gutter }}>보호자 상태를 불러오지 못했습니다.</main>
+  }
+  if (status === null) {
+    return <main style={{ ...SHELL, padding: gutter }}>보호자 상태를 확인하는 중입니다.</main>
+  }
 
   return (
     <div style={SHELL}>
@@ -215,6 +253,8 @@ export function GuardianPreview() {
       )}
       {screen === 'status' && (
         <StatusScreen
+          status={status}
+          guardianToken={token}
           onBack={() => setScreen('alert')}
           onOpenAi={() => setScreen('ai')}
         />
@@ -433,8 +473,18 @@ const sectionTitle: CSSProperties = {
   color: GC.textMuted,
 }
 
-function StatusScreen({ onBack, onOpenAi }: { onBack: () => void; onOpenAi: () => void }) {
-  const { protectedPerson, status } = GUARDIAN_MOCK
+function StatusScreen({
+  status,
+  guardianToken,
+  onBack,
+  onOpenAi,
+}: {
+  status: GuardianStatus
+  guardianToken?: string
+  onBack: () => void
+  onOpenAi: () => void
+}) {
+  const { protectedPerson } = GUARDIAN_MOCK
   const facts = guardianStatusFacts(status)
 
   return (
@@ -525,8 +575,102 @@ function StatusScreen({ onBack, onOpenAi }: { onBack: () => void; onOpenAi: () =
             안전 확인 AI
           </button>
         </section>
+        {guardianToken !== undefined && (
+          <GuardianPushControl token={guardianToken} serverEnabled={status.pushEnabled} />
+        )}
       </main>
     </>
+  )
+}
+
+function guardianPushStorageKey(token: string): string {
+  return `savers.guardianPush.subscribed.${token}`
+}
+
+function guardianFcmTokenStorageKey(token: string): string {
+  return `savers.guardianPush.fcmToken.${token}`
+}
+
+function isThisBrowserSubscribed(token: string): boolean {
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false
+  try {
+    return window.localStorage.getItem(guardianPushStorageKey(token)) === '1'
+  } catch {
+    return false
+  }
+}
+
+function GuardianPushControl({ token, serverEnabled }: { token: string; serverEnabled: boolean }) {
+  const [subscribed, setSubscribed] = useState(() => isThisBrowserSubscribed(token))
+  const [pending, setPending] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  async function subscribe(): Promise<void> {
+    setPending(true)
+    setNotice(null)
+    const result = await requestPushPermissionForGuardian(token)
+    setPending(false)
+    if (result.status !== 'granted') {
+      setNotice('알림 등록에 실패했습니다. 브라우저 권한과 연결 상태를 확인해 주세요.')
+      return
+    }
+    try {
+      window.localStorage.setItem(guardianPushStorageKey(token), '1')
+      window.localStorage.setItem(guardianFcmTokenStorageKey(token), result.token)
+    } catch {
+      // Backend registration already succeeded; storage is best-effort only.
+    }
+    setSubscribed(true)
+  }
+
+  async function unsubscribe(): Promise<void> {
+    let fcmToken: string | null = null
+    try {
+      fcmToken = window.localStorage.getItem(guardianFcmTokenStorageKey(token))
+    } catch {
+      // Without this browser's exact token, deleting would risk targeting
+      // another guardian device. Keep the local state unchanged.
+    }
+    if (fcmToken === null) {
+      setNotice('이 브라우저의 알림 토큰을 확인할 수 없어 해제하지 못했습니다.')
+      return
+    }
+    setPending(true)
+    setNotice(null)
+    try {
+      await api.unregisterGuardianDevice(token, {
+        fcmToken,
+        userAgent: typeof navigator === 'undefined' ? null : navigator.userAgent,
+      })
+      window.localStorage.removeItem(guardianPushStorageKey(token))
+      window.localStorage.removeItem(guardianFcmTokenStorageKey(token))
+      setSubscribed(false)
+    } catch {
+      setNotice('알림 해제에 실패했습니다. 잠시 뒤 다시 시도해 주세요.')
+    } finally {
+      setPending(false)
+    }
+  }
+
+  if (subscribed) {
+    return (
+      <section style={{ ...card, marginTop: '14px' }}>
+        <p role="status">이 브라우저에서 보호자 알림을 받고 있습니다.</p>
+        <button type="button" disabled={pending} onClick={() => void unsubscribe()}>
+          {pending ? '해제 중...' : '알림 해제'}
+        </button>
+        {notice !== null && <p role="status">{notice}</p>}
+      </section>
+    )
+  }
+  return (
+    <section style={{ ...card, marginTop: '14px' }}>
+      {serverEnabled && <p>다른 보호자 기기에 알림이 등록되어 있습니다.</p>}
+      <button type="button" disabled={pending} onClick={() => void subscribe()}>
+        {pending ? '등록 중...' : '이 휴대폰에서 알림 받기'}
+      </button>
+      {notice !== null && <p role="status">{notice}</p>}
+    </section>
   )
 }
 

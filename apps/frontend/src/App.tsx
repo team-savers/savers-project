@@ -44,7 +44,8 @@ import { Home } from './pages/Home'
 import { Register } from './pages/Register'
 import { Preview } from './pages/Preview'
 import { Mockup } from './pages/Mockup'
-import { GuardianPreview } from './pages/Guardian'
+import { Guardian } from './pages/Guardian'
+import { GuardianRegister } from './pages/GuardianRegister'
 import { EvacuationFlow } from './pages/EvacuationFlow'
 import { initSwUpdates } from './lib/swUpdate'
 import { PROFILES } from './mocks/profiles'
@@ -414,6 +415,18 @@ function JoinView() {
   return <Join userId={u} />
 }
 
+function GuardianRouteView({ pathname }: { pathname: string }) {
+  const token = decodeURIComponent(pathname.slice('/g/'.length).split('/')[0] ?? '')
+  return <Guardian token={token} />
+}
+
+function GuardianRegisterRouteView({ pathname }: { pathname: string }) {
+  const registrationToken = decodeURIComponent(
+    pathname.slice('/r/'.length).split('/')[0] ?? '',
+  )
+  return <GuardianRegister registrationToken={registrationToken} />
+}
+
 function HomeView() {
   return <Home />
 }
@@ -633,10 +646,16 @@ function AppRoutes({ pathname }: { pathname: string }): React.ReactElement {
     return <Mockup />
   }
   if (pathname === '/guardian') {
-    return <GuardianPreview />
+    return <Guardian />
   }
   if (pathname === '/evacuation') {
     return <EvacuationFlow />
+  }
+  if (pathname.startsWith('/g/')) {
+    return <GuardianRouteView pathname={pathname} />
+  }
+  if (pathname.startsWith('/r/')) {
+    return <GuardianRegisterRouteView pathname={pathname} />
   }
   return <HomeView />
 }
