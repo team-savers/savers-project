@@ -7,7 +7,8 @@
   [PR 122](https://github.com/team-savers/savers-project/pull/122),
   [PR 147](https://github.com/team-savers/savers-project/pull/147) 어디에도 리뷰가 없다.
   결과 절의 리허설 잔여 등록 정리 절차는
-  [이슈 151](https://github.com/team-savers/savers-project/issues/151) 의 A, B, C 판정을 기다린다
+  [이슈 151](https://github.com/team-savers/savers-project/issues/151) 판정으로 정해졌다 -
+  이슈가 낸 A, B, C 가 아니라 갱신을 교체로 바꾸는 넷째 안이며, 아래 2026-08-26 개정이 그것이다
 - **개정**: 2026-08-25, 제안 상태에서 결과 절의 폰 고정 방어를 고쳤다.
   승인 전이므로 사후편집 금지에 해당하지 않는다.
   화면의 `GuardianStatus.pushEnabled` 를 눈으로 확인하는 값싼 방어가 정작 그 실패를 잡지 못한다는
@@ -19,7 +20,10 @@
   종전 결과 절이 리허설 잔여 등록을 `DELETE /v1/guardian/{token}/device` 로 정리하라고 적었는데,
   그 경로가 지울 FCM 토큰 값을 본문에 요구하고 그 값은 등록한 브라우저 안에만 있어
   실행할 수 없는 절차였다([이슈 151](https://github.com/team-savers/savers-project/issues/151)).
-  갱신을 추가에서 교체로 바꿔 지울 일 자체를 없앤다
+  갱신을 추가에서 교체로 바꿔 지울 일 자체를 없앤다.
+  같은 개정에서 위 상태 절의 "A, B, C 판정 대기"도 함께 지웠다 -
+  머리가 미결정이라고 말하는 동안 본문은 이미 결정돼 있었다
+  ([PR 154](https://github.com/team-savers/savers-project/pull/154) PM 리뷰)
 - **날짜**: 2026-08-24
 - **결정자**: 신호정 (Tech Lead) 작성 / 김도혁 (Backend) 확인 완료, 김소원 (AI/RAG/프론트엔드) 확인 대기
 - **관련 문서**: [ADR-0005](0005-webpush-primary-channel.md) (1차 채널),
