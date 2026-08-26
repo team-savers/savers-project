@@ -1,6 +1,9 @@
 # ADR-0009: 서버 셸 접근은 SSM Session Manager로 하고, 셸 권한은 3인으로 제한한다
 
-- **상태**: 승인 (Accepted). PR [#75](https://github.com/team-savers/savers-project/pull/75) 리뷰 지적에 따라 작성, 2026-08-24 PM/Backend 승인. 승인 심사 중 김도혁 리뷰([PR #113](https://github.com/team-savers/savers-project/pull/113))로 정정(아래 2026-08-24 정정 참고). 2026-08-26 이슈 [#143](https://github.com/team-savers/savers-project/issues/143)으로 셸 권한 인원과 22번 폐쇄 시점을 개정(아래 2026-08-26 개정 참고)
+- **상태**: 승인 (Accepted).
+  PR [#75](https://github.com/team-savers/savers-project/pull/75) 리뷰 지적에 따라 작성, 2026-08-24 PM/Backend 승인.
+  승인 심사 중 김도혁 리뷰([PR #113](https://github.com/team-savers/savers-project/pull/113))로 정정(아래 2026-08-24 정정 참고).
+  2026-08-26 이슈 [#143](https://github.com/team-savers/savers-project/issues/143)으로 셸 권한 인원과 22번 폐쇄 시점을 개정(아래 2026-08-26 개정 참고).
 - **날짜**: 2026-08-07 / 2026-08-24 (승인, 결정자 라벨 정정) / 2026-08-26 (셸 권한 3인 개정)
 - **결정자**: 신호정 (Tech Lead) 제안 / 김도혁 (Backend), 안은남 (PM) 승인
 - **관련 문서**: [ADR-0003](0003-single-vm-seoul.md) (단일 VM), [ADR-0008](0008-frontend-static-hosting.md) (프론트는 VM 밖), [서버_운영.md](../공통_가이드/서버_운영.md), [AWS_계정_발급_가이드.md](../공통_가이드/AWS_계정_발급_가이드.md), [배포_절차.md](../공통_가이드/배포_절차.md), 이슈 [#25](https://github.com/team-savers/savers-project/issues/25)
