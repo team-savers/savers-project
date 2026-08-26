@@ -71,8 +71,8 @@ ADR-0005 본문에는 2차 발송도 SMS 미채택도 없다. 인용이 문서�
 | [AGENTS.md](../../AGENTS.md) M4 항목과 Delivery 행에 채널 반영 | Tech Lead | 완료, 이 PR |
 | [워킹_스켈레톤_설명.md](../공통_가이드/워킹_스켈레톤_설명.md) 12절 관련 문서 목록에 이 ADR 추가 | Tech Lead | 완료, 이 PR |
 | 정정 항목 표 4번 행 신설과 머리글 건수 갱신 | PM | 완료 (PR #115) |
-| 정정 항목 표 4번 행의 근거란을 ADR-0005에서 이 ADR로 교체. "Q&A 근거는 ADR-0005 하나" 문장도 함께 | PM | 대기 |
-| [비용_산정.md](../공통_가이드/비용_산정.md) 14행 "실패 시 SMS 폴백 포함", 80 ~ 85행 대행사 SMS 단가 표 정리 | PM | 미처리 ([ADR-0005](0005-webpush-primary-channel.md) 후속 조치 표에 이미 있던 항목) |
-| [정량목표_검증설계.md](../공유_문서/정량목표_검증설계.md) M4 행에 발송 채널 명시 | PM | 대기 |
+| 정정 항목 표 4번 행의 근거란을 ADR-0005에서 이 ADR로 교체. "Q&A 근거는 ADR-0005 하나" 문장도 함께 | PM | 완료 ([PR 127](https://github.com/team-savers/savers-project/pull/127)) |
+| [비용_산정.md](../공통_가이드/비용_산정.md) 14행 "실패 시 SMS 폴백 포함", 80 ~ 85행 대행사 SMS 단가 표 정리 | PM | 완료 ([PR 127](https://github.com/team-savers/savers-project/pull/127)) |
+| [정량목표_검증설계.md](../공유_문서/정량목표_검증설계.md) M4 행에 발송 채널 명시 | PM | 완료 ([PR 127](https://github.com/team-savers/savers-project/pull/127)) |
 | [ADR-0012](0012-verifier-rules-and-closed-loop.md) 5절 전이표 5단계 "전달" 행에 채널 주석을 달지 판단. ADR-0012 가 2026-08-26 승인됐으므로 수정하려면 개정 절차를 따른다 | Tech Lead | 대기 |
 | 결정자 확인 후 상태를 승인으로 변경 | Tech Lead | 완료, 이 PR |
