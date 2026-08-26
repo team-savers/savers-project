@@ -20,6 +20,7 @@ import httpx
 import pytest
 
 from backend_core.ai_client import AiEngineUnavailableError, HttpAiEngineClient
+from backend_core.events import GuidanceStepPayload, SessionEvent
 from backend_core.models import DisasterEvent, GenerationContext, ShelterList
 from backend_core.pipeline import build_context
 from backend_core.registry import ResidentRegistry
@@ -203,3 +204,110 @@ def test_every_malformed_200_narrows_to_one_error(
     )
     with pytest.raises(AiEngineUnavailableError):
         HttpAiEngineClient(BASE_URL).generate(EVENT_ID, context)
+
+
+def test_guardian_answer_sends_backend_session_event_wire_json(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+    request = httpx.Request("POST", f"{BASE_URL}/v1/guardian/answer")
+    payload = {
+        "questionId": "evacuation_progress",
+        "answer": "10시 19분에 다음 안내를 요청하셨습니다.",
+        "sources": [
+            {
+                "type": "next_guidance_requested",
+                "present": True,
+                "at": "2026-08-24T01:19:00Z",
+            }
+        ],
+        "refusalReason": None,
+    }
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        _records(httpx.Response(200, json=payload, request=request), calls),
+    )
+    event = SessionEvent(
+        type="next_guidance_requested",
+        at="2026-08-24T01:19:00Z",
+        payload=GuidanceStepPayload(guidance_step=2),
+    )
+
+    answer = HttpAiEngineClient(BASE_URL).answer_guardian("evacuation_progress", [event])
+
+    assert answer.question_id == "evacuation_progress"
+    assert calls == [
+        (
+            f"{BASE_URL}/v1/guardian/answer",
+            {
+                "json": {
+                    "questionId": "evacuation_progress",
+                    "events": [
+                        {
+                            "type": "next_guidance_requested",
+                            "at": "2026-08-24T01:19:00Z",
+                            "payload": {"guidanceStep": 2},
+                        }
+                    ],
+                },
+                "timeout": 8.0,
+            },
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "questionId": "arrival_status",
+            "answer": "근거 없는 답변입니다.",
+            "sources": [],
+            "refusalReason": None,
+        },
+        {
+            "questionId": "help_request",
+            "answer": None,
+            "sources": [],
+            "refusalReason": "no_evidence",
+        },
+        {
+            "questionId": "arrival_status",
+            "answer": "확인했습니다.",
+            "sources": [
+                {
+                    "type": "alert_dispatched",
+                    "present": True,
+                    "at": "2026-08-24T01:19:00Z",
+                }
+            ],
+            "refusalReason": None,
+        },
+        {
+            "questionId": "arrival_status",
+            "answer": "확인했습니다.",
+            "sources": [
+                {
+                    "type": "arrival_confirmed_by_user",
+                    "present": 1,
+                    "at": "2026-08-24T01:19:00Z",
+                }
+            ],
+            "refusalReason": None,
+        },
+        {"questionId": "arrival_status", "answer": None, "sources": []},
+    ],
+)
+def test_guardian_answer_rejects_malformed_or_mismatched_response(
+    monkeypatch: pytest.MonkeyPatch, payload: dict[str, Any]
+) -> None:
+    request = httpx.Request("POST", f"{BASE_URL}/v1/guardian/answer")
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        _responds(httpx.Response(200, json=payload, request=request)),
+    )
+
+    with pytest.raises(AiEngineUnavailableError, match="malformed response"):
+        HttpAiEngineClient(BASE_URL).answer_guardian("arrival_status", [])
