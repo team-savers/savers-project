@@ -285,6 +285,7 @@ def mean(values: Sequence[float | None]) -> float | None:
 # current names). Named here so a contract rename is one edit, not a grep across the file.
 FOLLOWUP_DUE = "followup_due"  # 재진입 확정 — M4의 분모
 GUARDIAN_NOTIFIED = "guardian_notified"  # 2차 발송 성공 — M4의 분자
+FOLLOWUP_UNREACHABLE = "followup_unreachable"  # 도달 불가 — M4 분모 밖 별도 집계
 
 # ADR-0012 3절 forbids three *categories*, not one list. 안전 단정 is the only one that is
 # a set of fixed sentences; the other two are grammatical and are matched as patterns
@@ -755,7 +756,7 @@ def followup_summary(
     unreachable_count = sum(
         1
         for events in session_logs
-        if any(event.get("type") == "followup_unreachable" for event in events)
+        if any(event.get("type") == FOLLOWUP_UNREACHABLE for event in events)
     )
 
     return FollowupSummary(
@@ -770,9 +771,11 @@ def followup_summary(
 def format_followup_summary(summary: FollowupSummary) -> str:
     """Format the ADR-0012 7-a one-line M4 report without recalculating it."""
     if summary.rate is None or summary.unscoreable:
-        rate = "측정 불가"
-    else:
-        rate = f"{summary.rate * 100:.1f}".rstrip("0").rstrip(".") + "%"
+        return (
+            f"M4 측정 불가 (n={summary.due}, unreachable={summary.unreachable}, "
+            f"unscoreable={summary.unscoreable})"
+        )
+    rate = f"{summary.rate * 100:.1f}".rstrip("0").rstrip(".") + "%"
     return f"M4 {rate} (n={summary.due}, unreachable={summary.unreachable})"
 
 

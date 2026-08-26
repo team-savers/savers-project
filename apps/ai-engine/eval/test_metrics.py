@@ -1178,6 +1178,7 @@ class TestUnreachableLoopSessions:
 
         assert (summary.due, summary.sent, summary.unreachable) == (1, 1, 1)
         assert summary.rate == 1.0
+        assert metrics.format_followup_summary(summary) == "M4 100% (n=1, unreachable=1)"
         assert metrics.followup_delivery_rate([SENT_SESSION, unreachable]) == 1.0
 
     def test_duplicate_unreachable_events_count_one_session(self) -> None:
@@ -1201,6 +1202,9 @@ class TestUnreachableLoopSessions:
         assert summary.due == 0
         assert summary.sent == 0
         assert summary.rate is None
+        assert metrics.format_followup_summary(summary) == (
+            "M4 측정 불가 (n=0, unreachable=1, unscoreable=1)"
+        )
 
 
 class TestFormatFollowupSummary:
@@ -1217,9 +1221,13 @@ class TestFormatFollowupSummary:
     def test_formats_an_unmeasurable_run_without_inventing_zero(self) -> None:
         summary = metrics.FollowupSummary(due=0, sent=0, unscoreable=0, unreachable=2, rate=None)
 
-        assert metrics.format_followup_summary(summary) == "M4 측정 불가 (n=0, unreachable=2)"
+        assert metrics.format_followup_summary(summary) == (
+            "M4 측정 불가 (n=0, unreachable=2, unscoreable=0)"
+        )
 
     def test_does_not_report_a_rate_when_any_session_is_unscoreable(self) -> None:
         summary = metrics.FollowupSummary(due=1, sent=1, unscoreable=1, unreachable=0, rate=1.0)
 
-        assert metrics.format_followup_summary(summary) == "M4 측정 불가 (n=1, unreachable=0)"
+        assert metrics.format_followup_summary(summary) == (
+            "M4 측정 불가 (n=1, unreachable=0, unscoreable=1)"
+        )
