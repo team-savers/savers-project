@@ -276,6 +276,19 @@ class DeviceUnregisterRequest(RequestModel):
     user_agent: str | None = None
 
 
+class GuardianDeviceRegisterRequest(RequestModel):
+    """`POST`·`DELETE /v1/guardian/{token}/device`의 본문 — `role`도 `registrationToken`도 없다.
+
+    경로의 보호자 토큰이 둘 다 답한다: 역할은 경로가 `guardian`으로 고정하고, 대상자는
+    서버가 그 토큰으로 내부 조회한다. 보호자에게 등록 토큰도 세션 토큰도 건네지 않는
+    기존 분리를 그대로 유지하기 위한 것으로, `GET /v1/guardian/{token}`이 보호자 토큰
+    하나로 답하는 것과 같은 이유다(계약 `GuardianDeviceRegisterRequest`).
+    """
+
+    fcm_token: str
+    user_agent: str | None = None
+
+
 class RegistrationTarget(ContractModel):
     """Minimal identification for the proxy registrar — no health/disability fields."""
 
@@ -301,6 +314,10 @@ class GuardianStatus(ContractModel):
     last_response: Literal["home", "outside", "none"]
     safety_status: Literal["unknown"] = "unknown"
     acknowledged_by_guardian: bool = False
+    # 이 피보호자에게 붙은 guardian 기기가 하나 이상 있는가 — 단위는 피보호자이지 브라우저가
+    # 아니다. `false`면 30분 무응답 뒤 2차 발송이 나갈 기기가 없다. 계약상 required이므로
+    # 기본값을 두지 않는다(계약 `GuardianStatus.pushEnabled`).
+    push_enabled: bool
 
 
 class Ack(ContractModel):

@@ -80,6 +80,39 @@ def test_profile_projection_drops_identity(registry: ResidentRegistry) -> None:
     assert "hearing" not in dumped
 
 
+def test_register_guardian_device_by_user_is_idempotent(registry: ResidentRegistry) -> None:
+    """보호자 토큰 경로는 user_id로 guardian 버킷에 붙이고, 같은 토큰 재등록은 멱등이다."""
+    resident = registry.register_guardian_device_by_user("p001", "fcm_g_new")
+    registry.register_guardian_device_by_user("p001", "fcm_g_new")
+    assert resident.devices["guardian"].count("fcm_g_new") == 1
+    # ward 버킷에는 새지 않는다.
+    assert "fcm_g_new" not in resident.devices["ward"]
+
+
+def test_register_guardian_device_by_user_rejected_when_no_guardian(
+    registry: ResidentRegistry,
+) -> None:
+    """보호자 없는 대상(p002)에 guardian 기기를 붙이면 아무 데도 도달하지 않으므로 막는다."""
+    with pytest.raises(GuardianNotRegisteredError):
+        registry.register_guardian_device_by_user("p002", "fcm_g")
+
+
+def test_register_guardian_device_by_user_unknown_user_rejected(
+    registry: ResidentRegistry,
+) -> None:
+    with pytest.raises(RegistrationNotFoundError):
+        registry.register_guardian_device_by_user("p_missing", "fcm_g")
+
+
+def test_unregister_guardian_device_by_user_is_idempotent(registry: ResidentRegistry) -> None:
+    """등록 뒤 해제하면 버킷에서 빠지고, 없던 토큰 해제도 성공이다(재시도 루프 방지)."""
+    registry.register_guardian_device_by_user("p001", "fcm_g_x")
+    resident = registry.unregister_guardian_device_by_user("p001", "fcm_g_x")
+    assert "fcm_g_x" not in resident.devices["guardian"]
+    resident = registry.unregister_guardian_device_by_user("p001", "never_there")
+    assert "never_there" not in resident.devices["guardian"]
+
+
 def test_seed_covers_both_demo_personas(registry: ResidentRegistry) -> None:
     """반지하 고령자 + 외국인 근로자 - 출력이 달라지는 축을 모두 건드리는 2인(S2-E1)."""
     seowon = registry.by_dong_codes([DEMO_DONG_CODE])
