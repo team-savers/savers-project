@@ -8,7 +8,9 @@
 - **날짜**: 2026-08-23
   (개정: 2026-08-24 시작 앵커 조항 추가, 2026-08-25 계약 문구 후속 항목 추가 - 둘 다 PR #110 리뷰.
   2026-08-26 시작점을 `alert_dispatched` 에서 run 시작으로 정정 - [PR 153](https://github.com/team-savers/savers-project/pull/153) 리뷰)
-- **결정자**: 신호정 (Tech Lead)
+- **결정자**: 신호정 (Tech Lead) 작성 /
+  안은남 (PM) 확인 ([PR 110](https://github.com/team-savers/savers-project/pull/110) 승인).
+  김도혁 (Backend) 은 같은 PR 에 코멘트만 남겨 승인 리뷰가 없다 - 위 상태 절 참고
 - **관련 문서**: [정량목표_검증설계.md 1절](../공유_문서/정량목표_검증설계.md),
   [AGENTS.md](../../AGENTS.md) Quality bar,
   [ADR-0005](0005-webpush-primary-channel.md), [ADR-0011](0011-m3-no-storage-not-no-receipt.md),
