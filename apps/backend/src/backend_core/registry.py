@@ -117,6 +117,39 @@ class ResidentRegistry:
                 bucket.remove(fcm_token)
         return resident
 
+    def register_guardian_device_by_user(self, user_id: str, fcm_token: str) -> Resident:
+        """Attach a guardian device addressed by the ward's `user_id`, not a registration token.
+
+        The guardian device route authenticates with a guardian *session* token, which resolves
+        to a `user_id` — the registrar-held registration token never reaches it. Registration
+        still lands on the persistent Resident, so it outlives the session token that carried it
+        and feeds the next alert's 2차 발송(계약 `/v1/guardian/{token}/device`). Idempotent on
+        the guardian bucket; raises `GuardianNotRegisteredError` when the ward has no guardian at
+        all, since a guardian device would then reach nobody(ADR-0015 결정 3).
+        """
+        resident = self.get(user_id)
+        if resident is None:
+            raise RegistrationNotFoundError(user_id)
+        if resident.profile.guardian is None:
+            raise GuardianNotRegisteredError(user_id)
+        # 직접 인덱싱한다 — `devices_for`는 `.get(role, [])`로 새 리스트를 돌려줄 수 있어
+        # 거기에 append하면 등록이 사라진다. `_empty_devices`가 guardian 버킷을 항상 만든다.
+        bucket = resident.devices["guardian"]
+        if fcm_token not in bucket:
+            bucket.append(fcm_token)
+        return resident
+
+    def unregister_guardian_device_by_user(self, user_id: str, fcm_token: str) -> Resident:
+        """Detach a guardian device by `user_id`. Idempotent — an already-absent token still
+        succeeds, same contract as `unregister_device`(기기 교체·공용 단말·동의 철회)."""
+        resident = self.get(user_id)
+        if resident is None:
+            raise RegistrationNotFoundError(user_id)
+        bucket = resident.devices["guardian"]
+        if fcm_token in bucket:
+            bucket.remove(fcm_token)
+        return resident
+
     @staticmethod
     def devices_for(resident: Resident, role: DeviceRole) -> list[str]:
         """The tokens registered under one role — 1차 발송은 `ward`, 2차 발송은 `guardian`.
