@@ -3,12 +3,16 @@
 - **상태**: 제안 (Proposed) - 저장소의 설계 문서가 이미 이 구조로 서술하는데
   ADR 번호가 없어 승격 요청을 받았다([AGENTS.md](../../AGENTS.md) 검토 중 표 2행). 결정자 확인 대기
 - **날짜**: 2026-08-26
-- **결정자**: 신호정 (Tech Lead) 작성 / 안은남 (PM) 확인 대기
+- **결정자**: 신호정 (Tech Lead) 작성 /
+  안은남 (PM), 김도혁 (Backend), 김소원 (AI/RAG/프론트엔드) 확인 대기.
+  결정 3번이 계산 층 기술 셋의 구현 범위를 그대로 묶으므로
+  그 셋을 구현하는 두 사람의 확인을 함께 받는다
 - **관련 문서**: [아키텍처.md](../공통_가이드/아키텍처.md) 1절 (3층 도식),
   [서비스_기획서.md](../공유_문서/서비스_기획서.md) 2장,
   [AGENTS.md](../../AGENTS.md) `Planned architecture`,
   [ADR-0004](0004-pwa-over-native.md) (전달 층의 형태),
   [ADR-0005](0005-webpush-primary-channel.md) (전달 층의 채널),
+  [ADR-0012](0012-verifier-rules-and-closed-loop.md) (계산 층 기술 (3)의 검증기 규칙과 폐루프 상태),
   [ADR-0017](0017-route-engine-osmnx-networkx.md) (계산 층 기술 (2)의 엔진)
 
 ## 배경 (Context)
@@ -96,4 +100,4 @@
 | [AGENTS.md](../../AGENTS.md) 검토 중 표 2행의 근거를 이 ADR 번호로 교체 | Tech Lead | 완료, 이 PR |
 | 발표 대본에서 3층과 3기술을 인용할 때 이 번호를 근거로 단다 | PM | 대기 |
 | 계산 층 기술 (1)의 3차 실측값으로 기획서 [표3] 교체 | AI/RAG | 대기 (8/29 인계) |
-| 결정자 확인 후 상태를 승인으로 변경 | Tech Lead | 대기 |
+| 확인자 3인 (PM, Backend, AI/RAG) 확인 후 상태를 승인으로 변경 | Tech Lead | 대기 |
