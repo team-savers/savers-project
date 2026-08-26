@@ -1110,7 +1110,7 @@ paths:
                     사실을 「그 뒤로」로 잇지 않고 문장을 끊습니다.
                   value:
                     questionId: evacuation_progress
-                    answer: 12시 05분에 상황 선택 화면을 보셨습니다. 도착 확인은 기록에서 확인되지 않습니다.
+                    answer: 12시 05분에 상황 선택 화면을 보셨습니다. [도착 완료] 버튼을 누른 사실은 기록에서 확인되지 않습니다.
                     sources:
                       - type: choice_screen_viewed
                         present: true
