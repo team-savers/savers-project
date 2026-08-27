@@ -3,9 +3,9 @@
 // STATUS: #122 GuardianStatus API/FCM 계약이 아직 main에 머지되지 않은
 // 상태에서 만든 화면이다. 실제 `/g/{guardianToken}` 계약이 완성된 것처럼
 // 구현하지 않는다 — 이 파일은 ../api/* 를 import 하지 않고, mocks/
-// guardianStatus.ts 의 고정 목데이터만 읽는다. App.tsx 상단 주석이 밝히듯
-// `/g/{token}` 라우트 자체는 아직 이 저장소 스코프가 아니므로, 계약이
-// 확정되기 전까지는 `/guardian` 이라는 임시 UI 전용 경로로 둔다.
+// guardianStatus.ts 의 고정 목데이터만 읽는다. `/guardian` 은 그 계약이
+// 확정되기 전까지의 임시 UI 미리보기 경로이고, 실제 계약 경로인
+// `/g/{token}` 은 이 PR의 스코프가 아니다(App.tsx 상단 라우트 표 참고).
 //
 // #122 계약 머지 후 교체할 지점(정확히 이 두 곳):
 //   1. App.tsx 의 `/guardian` 라우트를 `/g/{token}` 으로 바꾸고 URL에서
@@ -16,20 +16,19 @@
 //      (ProtectedPerson/AlertInfo/StatusInfo/QaTurn)은 mocks/
 //      guardianStatus.ts 의 타입과 이미 API 응답 형태를 염두에 두고
 //      맞춰뒀으므로, mock 객체 자리에 실제 응답 객체를 넣기만 하면 된다.
-//   3. AiScreen의 추천 질문 답변은 `mockAnswers`(고정 매핑)를 실제
-//      보호자 응답 정확도 RAG(로그 기반) 호출로 바꾼다 — ChatDock.tsx가
-//      쓰는 「근거 없으면 답하지 않는다」 원칙을 그대로 따를 것.
-//   4. 전화하기/문자하기 버튼은 지금 UI만 있고 아무 것도 하지 않는다.
-//      실제 tel:/sms: 연결 시 그 자리에 href를 채운다(아래 주석 참고).
+//   3. AiScreen의 추천 질문 답변은 지금 mocks/guardianStatus.ts에 고정된
+//      QaTurn을 실제 보호자 응답 정확도 RAG(로그 기반) 호출로 바꾼다 —
+//      ChatDock.tsx가 쓰는 「근거 없으면 답하지 않는다」 원칙을 그대로
+//      따를 것.
 //
 // 화면 3개는 하위 라우트가 아니라 한 페이지 안의 로컬 state(screen)로
-// 전환한다 — EvacuationFlow.tsx가 단계(step)를 로컬 state로 관리하는 것과
-// 같은 패턴이고, 계약이 없는 지금 단계에서 라우팅을 새로 만들 이유가 없다.
+// 전환한다 — 계약이 없는 지금 단계에서 라우팅을 새로 만들 이유가 없다.
 
 import { useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import rain from '../assets/rain.png'
-import { ICON, MOBILE_WIDTH, SHADOW_CARD, gutter, radius, touchTarget } from '../lib/tokens'
+import logoLight from '../assets/logo-mark-light.png'
+import { C, ICON, MOBILE_WIDTH, SHADOW_CARD, gutter, radius, touchTarget } from '../lib/tokens'
 import {
   GUARDIAN_MOCK,
   PERSONA_IMAGE,
@@ -38,12 +37,13 @@ import {
 } from '../mocks/guardianStatus'
 
 // ---------------------------------------------------------------------------
-// GUARDIAN COLOR PALETTE — deliberately local to this file, NOT added to
-// lib/tokens.ts. This is the SAVERS brand palette the design review asked
-// for on the guardian screens specifically; it does not replace the
-// app-wide navy/teal palette other screens (Home/Register/Evacuation/…)
-// still use, so it stays scoped here instead of touching the shared token
-// file (which would repaint every other screen too).
+// GUARDIAN COLOR PALETTE — this screen's own brand hue set (the design
+// review asked for it on the guardian screens specifically; it does not
+// replace the app-wide navy/teal palette other screens still use). The hex
+// literals themselves live exactly once, in `C.guardian*` (lib/tokens.ts) —
+// `GC` below is only a short local alias so the rest of this file can keep
+// reading `GC.primary` etc. instead of the longer `C.guardian…` names; it
+// introduces no new colour values of its own.
 //
 // *Text / *Bg variants are NOT extra colors — each is a tint or a darker
 // shade of the ONE base hex the design gave us (primary/accent/danger),
@@ -55,44 +55,39 @@ import {
 // ---------------------------------------------------------------------------
 const GC = {
   // Main Blue — primary actions, links, the guardian brand accent.
-  primary: '#1877F2',
+  primary: C.guardianPrimary,
   // Darker blue derivative, TEXT-ONLY (badges, small labels on tint bg).
-  primaryText: '#0F5FCB',
+  primaryText: C.guardianPrimaryText,
   // Light blue tint, background-only (badge/tag fills).
-  primaryBg: 'rgba(24,119,242,.12)',
+  primaryBg: C.guardianPrimaryBg,
 
   // Point Orange — caution / warning accents.
-  accent: '#F8A008',
+  accent: C.guardianAccent,
   // Darker amber derivative, TEXT-ONLY, for AA contrast on light bg.
-  accentText: '#8A5800',
-  accentBg: 'rgba(248,160,8,.14)',
+  accentText: C.guardianAccentText,
+  accentBg: C.guardianAccentBg,
 
   // Danger Red — reserved for an actual danger state (not used by today's
   // mock data, which only exercises 'caution', but the badge/card branch
   // exists for when it is).
-  danger: '#E5483F',
-  dangerText: '#A32F26',
-  dangerBg: 'rgba(229,72,63,.12)',
+  danger: C.guardianDanger,
+  dangerText: C.guardianDangerText,
+  dangerBg: C.guardianDangerBg,
 
   // Page Background.
-  bg: '#F8F9FA',
+  bg: C.guardianBg,
   // Card.
-  surface: '#FFFFFF',
+  surface: C.white,
   // Secondary Background (soft panels/dividers).
-  surfaceSoft: '#EEF3F7',
+  surfaceSoft: C.guardianSurfaceSoft,
 
   // Primary Text.
-  text: '#111111',
+  text: C.guardianText,
   // Secondary Text.
-  textMuted: '#4B5563',
+  textMuted: C.guardianTextMuted,
 
-  // Neutral card/input border. Not in the given palette table verbatim,
-  // but this exact hex is already the paired neutral border for this same
-  // five-color brand set elsewhere in this app — see EvacuationFlow.css's
-  // `--line: #D9E0E7` next to its `--color-primary: #1877F2` etc. Reusing
-  // it keeps the guardian screens visually consistent with that flow
-  // instead of inventing a second "neutral border" for the same palette.
-  line: '#D9E0E7',
+  // Neutral card/input border.
+  line: C.guardianLine,
 } as const
 
 // ---------------------------------------------------------------------------
@@ -142,16 +137,24 @@ const SHELL: CSSProperties = {
   flexDirection: 'column',
 }
 
-// Logo group — logo.png (shield only) + a hand-set "SAVERS" wordmark next
-// to it. There is no combined logo+wordmark asset in the project (logo.png
-// is icon-only), so the two are composed here rather than as one image.
-function LogoMark({ height = 26 }: { height?: number }) {
+// Logo group — logo-mark-light.png (shield only) + a hand-set "SAVERS"
+// wordmark next to it, same asset Home/Landing/Join already import as
+// `logoLight` (there is no combined logo+wordmark asset in the project, so
+// the two are composed here rather than as one image). This screen
+// previously referenced a public `/logo.png` that does not exist in this
+// branch, which silently rendered as a broken image with only the text
+// visible — using the existing shared asset fixes that.
+//
+// Fixed size (24px logo / 18px text / 7px gap), not parameterized: every
+// SAVERS brand area on this screen (첫 화면, 상태 화면 헤더) renders at the
+// same size, matching the alert-landing header's logo size.
+function LogoMark() {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-      <img src="/logo.png" alt="" style={{ height: `${height}px`, display: 'block', objectFit: 'contain' }} />
+    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '7px' }}>
+      <img src={logoLight} alt="" style={{ width: '24px', height: '24px', display: 'block', objectFit: 'contain' }} />
       <strong
         style={{
-          fontSize: `${Math.round(height * 0.62)}px`,
+          fontSize: '18px',
           fontWeight: 800,
           color: GC.primary,
           letterSpacing: '-0.01em',
@@ -192,9 +195,8 @@ export function Guardian() {
 
 // ---------------------------------------------------------------------------
 // Shared header bar — grid(1fr auto 1fr) so the center content stays truly
-// centered regardless of what (if anything) sits in the side slots. Same
-// technique as EvacuationFlow.tsx's evac-header (back button + brand +
-// spacer).
+// centered regardless of what (if anything) sits in the side slots (back
+// button + brand + optional right-side action).
 // ---------------------------------------------------------------------------
 
 const HEADER_BAR: CSSProperties = {
@@ -279,7 +281,7 @@ function AlertScreen({ district, disaster, personName, sentAt, onConfirm }: Aler
           정확히 중앙에 위치한다 — grid 스페이서 트릭을 쓰지 않고 그냥
           justify-content:center로 둔다. */}
       <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 8px' }} role="img" aria-label="SAVERS 로고">
-        <LogoMark height={28} />
+        <LogoMark />
       </div>
 
       {/* alignItems intentionally left at the flex default (stretch), NOT
@@ -313,7 +315,7 @@ function AlertScreen({ district, disaster, personName, sentAt, onConfirm }: Aler
         >
           보호자님,
           <br />
-          {district}에 {disaster}가 발령되어
+          {district} 지역에 {disaster} 발령 안내가 있어
           <br />
           {personName}님께 안내 메시지를
           <br />
@@ -408,7 +410,7 @@ function StatusScreen({ onBack, onOpenAi }: { onBack: () => void; onOpenAi: () =
     <>
       <HeaderBar
         onBack={onBack}
-        center={<LogoMark height={20} />}
+        center={<LogoMark />}
         right={
           // 더보기 메뉴는 아직 아무 기능도 없다 — 이번 UI 선작업 범위 밖.
           // 실제 메뉴(알림 설정 등)가 생기면 이 버튼에 onClick을 채운다.
@@ -472,8 +474,8 @@ function StatusScreen({ onBack, onOpenAi }: { onBack: () => void; onOpenAi: () =
               </span>
               <div style={{ minWidth: 0 }}>
                 <p style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: GC.text }}>{status.headline}</p>
-                {status.detailLines.map((line) => (
-                  <p key={line} style={{ margin: '4px 0 0', fontSize: '14.5px', color: GC.text, lineHeight: 1.5 }}>
+                {status.detailLines.map((line, i) => (
+                  <p key={`${line}-${i}`} style={{ margin: '4px 0 0', fontSize: '14.5px', color: GC.text, lineHeight: 1.5 }}>
                     {line}
                   </p>
                 ))}
@@ -498,55 +500,35 @@ function StatusScreen({ onBack, onOpenAi }: { onBack: () => void; onOpenAi: () =
               <span>마지막 반응 {status.lastResponseAt}</span>
             </div>
           </div>
-        </section>
 
-        <section>
-          <h2 style={sectionTitle}>연락하기</h2>
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <ContactButton
-              label="전화하기"
-              icon={
-                <svg viewBox="0 0 24 24" style={{ ...ICON, width: 18, height: 18 }}>
-                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z" />
-                </svg>
-              }
-            />
-            <ContactButton
-              label="문자하기"
-              icon={
-                <svg viewBox="0 0 24 24" style={{ ...ICON, width: 18, height: 18 }}>
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" />
-                </svg>
-              }
-            />
-          </div>
+          {/* 상태 카드 바로 아래, section 리듬에 맞춘 14px 간격 —
+              이전에는 marginTop:'auto'로 화면 맨 아래에 고정돼 있었다. */}
+          <button
+            type="button"
+            onClick={onOpenAi}
+            style={{
+              width: '100%',
+              marginTop: '14px',
+              minHeight: `${touchTarget.ctaMin}px`,
+              border: 'none',
+              borderRadius: `${radius.button}px`,
+              background: GC.primary,
+              color: GC.surface,
+              fontFamily: 'inherit',
+              fontSize: '18px',
+              fontWeight: 800,
+              letterSpacing: '-0.01em',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+            }}
+          >
+            <span aria-hidden="true">✨</span>
+            안전 확인 AI
+          </button>
         </section>
-
-        <button
-          type="button"
-          onClick={onOpenAi}
-          style={{
-            width: '100%',
-            minHeight: `${touchTarget.ctaMin}px`,
-            marginTop: 'auto',
-            border: 'none',
-            borderRadius: `${radius.button}px`,
-            background: GC.primary,
-            color: GC.surface,
-            fontFamily: 'inherit',
-            fontSize: '18px',
-            fontWeight: 800,
-            letterSpacing: '-0.01em',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-          }}
-        >
-          <span aria-hidden="true">✨</span>
-          안전 확인 AI
-        </button>
       </main>
     </>
   )
@@ -563,7 +545,7 @@ function FamilyCard({
   relation: string
   age: number
   persona: keyof typeof PERSONA_IMAGE
-  statusLevel: 'caution' | 'safe' | 'danger'
+  statusLevel: StatusLevel
 }) {
   // 배지 색은 statusStyle() 하나로만 결정한다 — "현재 상태" 카드와 같은
   // 매핑을 공유해, 이 카드에서 위험도를 별도로 다시 계산하지 않는다. 라벨
@@ -615,45 +597,12 @@ function FamilyCard({
   )
 }
 
-function ContactButton({ label, icon }: { label: string; icon: ReactNode }) {
-  return (
-    // UI만 구현. 실제 연결 시 <a href={`tel:${phone}`}> / <a href={`sms:${phone}`}>
-    // 로 바꾸고 이 button은 그 링크의 시각 스타일만 남긴다.
-    <button
-      type="button"
-      style={{
-        flex: 1,
-        minHeight: `${touchTarget.ctaMin}px`,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '8px',
-        border: `1px solid ${GC.line}`,
-        borderRadius: `${radius.button}px`,
-        background: GC.surface,
-        color: GC.text,
-        fontFamily: 'inherit',
-        fontSize: '16px',
-        fontWeight: 700,
-        cursor: 'pointer',
-      }}
-    >
-      {/* 아이콘만 Main Blue — label 텍스트는 Primary Text 유지(연락하기
-          섹션 색상 지침: icon #1877F2 / text #111111). */}
-      <span aria-hidden="true" style={{ color: GC.primary, display: 'flex' }}>
-        {icon}
-      </span>
-      {label}
-    </button>
-  )
-}
-
 // ---------------------------------------------------------------------------
 // Screen 3 — 안전 확인 AI (mock Q&A)
 // ---------------------------------------------------------------------------
 
 function AiScreen({ onBack }: { onBack: () => void }) {
-  const { protectedPerson, recommendedQuestions, mockAnswers, freeformFallback } = GUARDIAN_MOCK
+  const { protectedPerson, recommendedQuestions, freeformFallback } = GUARDIAN_MOCK
   const [turns, setTurns] = useState<QaTurn[]>([])
   const [draft, setDraft] = useState('')
   // Which recommended-question button is currently pressed, for the
@@ -662,9 +611,9 @@ function AiScreen({ onBack }: { onBack: () => void }) {
   const [pressedQuestion, setPressedQuestion] = useState<string | null>(null)
   const clearPressed = () => setPressedQuestion(null)
 
-  function askRecommended(question: string): void {
-    const turn = mockAnswers[question]
-    if (turn === undefined) return
+  // Each recommended question already carries its own answer (QaTurn) —
+  // just append it. No string-key lookup that could silently miss.
+  function askRecommended(turn: QaTurn): void {
     setTurns((prev) => [...prev, turn])
   }
 
@@ -710,16 +659,16 @@ function AiScreen({ onBack }: { onBack: () => void }) {
           </p>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {recommendedQuestions.map((q) => (
+            {recommendedQuestions.map((turn) => (
               <button
-                key={q}
+                key={turn.question}
                 type="button"
-                onClick={() => askRecommended(q)}
+                onClick={() => askRecommended(turn)}
                 // 눌린 동안만 border를 orange로 — 배경/모양은 그대로 두고
                 // border-color만 바꾸는 짧은 pressed 피드백. pointer 계열
                 // 이벤트라 마우스·터치 모두 같은 핸들러로 처리되고, up/leave/
                 // cancel 어느 쪽으로 끝나든 눌림 상태가 남지 않는다.
-                onPointerDown={() => setPressedQuestion(q)}
+                onPointerDown={() => setPressedQuestion(turn.question)}
                 onPointerUp={clearPressed}
                 onPointerLeave={clearPressed}
                 onPointerCancel={clearPressed}
@@ -728,7 +677,7 @@ function AiScreen({ onBack }: { onBack: () => void }) {
                   textAlign: 'left',
                   minHeight: `${touchTarget.minimum}px`,
                   padding: '12px 14px',
-                  border: `1px solid ${pressedQuestion === q ? GC.accent : GC.line}`,
+                  border: `1px solid ${pressedQuestion === turn.question ? GC.accent : GC.line}`,
                   borderRadius: `${radius.button}px`,
                   background: GC.surface,
                   color: GC.text,
@@ -744,7 +693,7 @@ function AiScreen({ onBack }: { onBack: () => void }) {
                   WebkitTapHighlightColor: 'transparent',
                 }}
               >
-                {q}
+                {turn.question}
               </button>
             ))}
           </div>

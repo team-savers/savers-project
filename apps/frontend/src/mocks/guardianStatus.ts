@@ -61,10 +61,13 @@ export interface GuardianMockData {
   protectedPerson: ProtectedPerson
   alert: AlertInfo
   status: StatusInfo
-  recommendedQuestions: string[]
-  // Keyed by the exact recommended-question string so the screen can look
-  // up a canned answer with a plain object index.
-  mockAnswers: Record<string, QaTurn>
+  // Each recommended question carries its own canned answer/note in one
+  // object — the button label IS `question`, so tapping it just appends
+  // this exact object to `turns`. No separate string-keyed lookup table:
+  // a question and its answer used to live in two places (this array's
+  // label + a `mockAnswers[question]` map) that had to match character for
+  // character, so any edit to one silently broke the other's lookup.
+  recommendedQuestions: QaTurn[]
   // Shown for any freeform question that isn't one of the three recommended
   // ones. Deliberately a refusal-shaped answer, not an invented one — see
   // the phrasing rule below.
@@ -99,27 +102,22 @@ export const GUARDIAN_MOCK: GuardianMockData = {
     lastResponseAt: '10:33',
   },
   recommendedQuestions: [
-    '현재 대피 절차를 진행하고 있나요?',
-    '도움을 요청한 상태인가요?',
-    '현재까지 어떤 행동을 했나요?',
-  ],
-  mockAnswers: {
-    '현재 대피 절차를 진행하고 있나요?': {
+    {
       question: '현재 대피 절차를 진행하고 있나요?',
       answer: '대피 절차를 진행했다는 기록은 확인되지 않습니다.',
-      note: '행동 기록상 안내 메시지 확인 이후 추가 행동 기록이 없습니다.',
+      note: '행동 기록에서 안내 메시지 확인 기록만 확인됩니다.',
     },
-    '도움을 요청한 상태인가요?': {
+    {
       question: '도움을 요청한 상태인가요?',
       answer: '도움을 요청했다는 기록은 확인되지 않습니다.',
       note: '행동 기록상 도움 요청과 관련된 이벤트가 없습니다.',
     },
-    '현재까지 어떤 행동을 했나요?': {
+    {
       question: '현재까지 어떤 행동을 했나요?',
       answer: '기록된 행동은 안내 메시지 확인입니다.',
       note: '그 외 추가로 기록된 행동은 없습니다.',
     },
-  },
+  ],
   freeformFallback: {
     question: '',
     answer: '해당 질문에 대해 확인된 행동 기록이 없습니다.',

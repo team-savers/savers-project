@@ -16,10 +16,14 @@
 //   /mockup                 → PRESENTATION-ONLY static mockups, 5 screens
 //                             (pages/Mockup.tsx). Not wired to ../api/* at
 //                             all — hardcoded example data only.
+//   /guardian                → TEMPORARY mock guardian UI preview
+//                             (pages/Guardian.tsx). Reads only fixed data
+//                             from mocks/guardianStatus.ts — not wired to
+//                             ../api/* at all.
 //
-// The guardian route (/g/{token}), its page, and the ?s= stage parameter are
-// intentionally not part of the route set. Landing takes only the session
-// token.
+// The real contract route (/g/{token}) and its ?s= stage parameter are not
+// part of the route set yet — `/guardian` above is a mock-only stand-in
+// until that contract lands. Landing takes only the session token.
 
 import { useEffect, useRef, useState } from 'react'
 import {
