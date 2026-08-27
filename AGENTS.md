@@ -89,7 +89,8 @@ These came out of explicit risk mitigation decisions in the planning doc — don
 The team's differentiation strategy is that quality is proven by **reproducible automated scripts**, submitted alongside the code, not by human surveys. 기획서 v3 names **four metrics**, and the scoring script, eval set, and training code ship with them:
 
 - **알림 도달 속도** — end-to-end latency from the moment `run_alert` starts handling that alert
-  to the **first** `push_accepted`, the moment FCM accepts the send request for that recipient's first device.
+  to the **first** `push_accepted` — the moment FCM accepts a send for the first of that recipient's ward devices
+  **to be accepted**, which is not necessarily the first one tried: an earlier device can fail and a later one land.
   Target ≤30s, measured as p95 over `Delivery.latency_ms` (`AlertRun.p95_latency_ms`) — OpenTelemetry is not wired yet,
   so do not describe this as an OTel span.
   ⚠️ `Delivery.latency_ms` currently stops **after** that recipient's whole device loop, not at the first acceptance,
