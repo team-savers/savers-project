@@ -35,10 +35,11 @@
 
 import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
+import fcmIllustration from '../assets/fcm.png'
 import { api, BackendApiError } from '../api/client'
 import type { RegistrationTarget } from '../api/types'
 import { requestPushPermissionForGuardianRegistration } from '../lib/push'
-import { MOBILE_WIDTH, SHADOW_CARD, gutter, radius, touchTarget } from '../lib/tokens'
+import { MOBILE_WIDTH, gutter, radius, touchTarget } from '../lib/tokens'
 
 // Guardian 화면(pages/Guardian.tsx)과 같은 SAVERS 팔레트를 쓴다 — 같은
 // "보호자 알림" 기능군이라 색을 맞추는 것이 자연스럽다. 다만 그 파일의
@@ -47,15 +48,10 @@ import { MOBILE_WIDTH, SHADOW_CARD, gutter, radius, touchTarget } from '../lib/t
 // 이력에도 안 남기고) 이 화면을 완전히 독립적으로 둔다.
 const GC = {
   primary: '#1877F2',
-  primaryBg: 'rgba(24,119,242,.12)',
-  accentText: '#8A5800',
-  accentBg: 'rgba(248,160,8,.14)',
   bg: '#F8F9FA',
   surface: '#FFFFFF',
-  surfaceSoft: '#EEF3F7',
   text: '#111111',
   textMuted: '#4B5563',
-  line: '#D9E0E7',
 } as const
 
 const SHELL: CSSProperties = {
@@ -68,12 +64,38 @@ const SHELL: CSSProperties = {
   flexDirection: 'column',
 }
 
-const card: CSSProperties = {
-  background: GC.surface,
-  border: `1px solid ${GC.line}`,
-  borderRadius: `${radius.card}px`,
-  padding: '20px 16px',
-  boxShadow: SHADOW_CARD,
+// 2026-08-27 UI 개편(카드 제거) + 2026-08-27 2차 개편(순서 재배치·확대) —
+// 로직(useRegistrationTarget/handleSubscribe/token 처리)은 그대로, 화면에
+// 쓰는 스타일 상수만 이 파일 범위에서 다시 정리했다.
+const titleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: '25px',
+  fontWeight: 800,
+  color: GC.text,
+  letterSpacing: '-0.02em',
+  lineHeight: 1.3,
+}
+
+const wardLineStyle: CSSProperties = {
+  margin: 0,
+  fontSize: '19px',
+  fontWeight: 700,
+  color: GC.text,
+  lineHeight: 1.5,
+}
+
+const bodyStyle: CSSProperties = {
+  margin: 0,
+  fontSize: '16.5px',
+  color: GC.textMuted,
+  lineHeight: 1.7,
+}
+
+const noteStyle: CSSProperties = {
+  margin: 0,
+  fontSize: '14.5px',
+  color: GC.textMuted,
+  lineHeight: 1.5,
 }
 
 function guardianRegisterStorageKey(registrationToken: string): string {
@@ -196,13 +218,34 @@ export function GuardianRegister({ registrationToken }: Props) {
 
   return (
     <div style={SHELL}>
-      <div style={{ display: 'flex', justifyContent: 'center', padding: '20px 0 8px' }} role="img" aria-label="SAVERS 로고">
-        <img src="/logo.png" alt="" style={{ height: '32px', display: 'block', objectFit: 'contain' }} />
+      {/* 방패 아이콘(logo.png는 그대로) 옆에 "SAVERS" 텍스트를 별도
+          렌더링 — Guardian.tsx의 LogoMark와 같은 조합 방식(아이콘+텍스트를
+          같은 줄에), 다만 그 파일을 export/수정하지 않고 여기 독립적으로
+          다시 적었다. */}
+      <div
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '24px 0 16px' }}
+        role="img"
+        aria-label="SAVERS 로고"
+      >
+        <img src="/logo.png" alt="" style={{ height: '30px', display: 'block', objectFit: 'contain' }} />
+        <strong style={{ fontSize: '19px', fontWeight: 800, color: GC.primary, letterSpacing: '-0.01em', lineHeight: 1 }}>
+          SAVERS
+        </strong>
       </div>
 
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: `${gutter}px` }}>
+      {/* <main> 자체는 justifyContent 기본값(위에서부터 흐름)을 유지한다 —
+          invalid/loading/subscribed 상태는 여전히 자기 자신의
+          marginTop:'48px'로 위치를 잡는 단순 흐름이라 그대로 둔다.
+          ready&&!subscribed 상태만 아래에서 스스로 flex:1 +
+          justifyContent:'center'를 써서 <main>의 남은 세로 공간 안에서
+          중앙(살짝 위쪽) 배치된다 — <main> 레벨에서 한 번에 정렬하지 않는
+          이유는 그러면 다른 상태들도 함께 밀려 내려가기 때문이다(이번
+          요청 범위 밖). space-between은 쓰지 않는다 — 화면이 짧으면
+          과하게 벌어지고, 길면 버튼이 뷰포트 맨 아래에 붙어버린다(요청에서
+          명시적으로 피한 것). */}
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: `${gutter}px`, paddingTop: '4px' }}>
         {targetFetch.phase === 'invalid' && (
-          <div style={{ ...card, textAlign: 'center' }}>
+          <div style={{ textAlign: 'center', marginTop: '48px' }}>
             <p style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: GC.text }}>
               등록 링크를 확인할 수 없어요
             </p>
@@ -213,34 +256,51 @@ export function GuardianRegister({ registrationToken }: Props) {
         )}
 
         {targetFetch.phase === 'loading' && (
-          <div style={{ ...card, textAlign: 'center' }}>
+          <div style={{ textAlign: 'center', marginTop: '48px' }}>
             <p style={{ margin: 0, fontSize: '14px', color: GC.textMuted }}>확인하는 중...</p>
           </div>
         )}
 
         {targetFetch.phase === 'ready' && state === 'subscribed' && (
-          <div style={card}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span
-                aria-hidden="true"
-                style={{
-                  flex: 'none',
-                  width: '28px',
-                  height: '28px',
-                  borderRadius: '50%',
-                  background: GC.primary,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke={GC.surface} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20 6 9 17l-5-5" />
-                </svg>
-              </span>
-              <p style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: GC.text }}>알림 설정이 완료됐어요</p>
-            </div>
-            <p style={{ margin: '14px 0 0', fontSize: '14px', color: GC.textMuted, lineHeight: 1.6 }}>
+          // 2026-08-27 5차 개편: idle 화면(ready&&!subscribed)과 같은
+          // 방식으로 flex:1 + justifyContent:'center'를 써서 로고 아래
+          // 남은 영역 안에서 세로 중앙(살짝 위쪽)에 배치한다 —
+          // paddingTop/paddingBottom 비대칭도 idle과 동일한 값을 그대로
+          // 맞췄다. 제목/본문은 새 스타일을 만들지 않고 idle에서 쓰는
+          // titleStyle/bodyStyle을 그대로 재사용해 두 화면의 타이포 무게를
+          // 맞춘다(요청 §4). fcm.png와 버튼은 추가하지 않는다(요청 §3) —
+          // 완료 후에는 추가 행동이 없는 심플한 화면으로 유지.
+          <div
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              textAlign: 'center',
+              justifyContent: 'center',
+              gap: '20px',
+              paddingTop: '8px',
+              paddingBottom: '48px',
+            }}
+          >
+            <span
+              aria-hidden="true"
+              style={{
+                display: 'flex',
+                width: '56px',
+                height: '56px',
+                borderRadius: '50%',
+                background: GC.primary,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke={GC.surface} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+            </span>
+            <h1 style={titleStyle}>알림 설정이 완료됐어요</h1>
+            <p style={bodyStyle}>
               현재 진행 중인 재난 알림이 없습니다.
               <br />
               재난 상황이 발생하면 이 휴대폰으로 알려드릴게요.
@@ -249,50 +309,92 @@ export function GuardianRegister({ registrationToken }: Props) {
         )}
 
         {targetFetch.phase === 'ready' && state !== 'subscribed' && (
-          <div style={card}>
-            {/* GET /v1/registration/{registrationToken}의 목적 그대로 —
-                "지금 누구를 등록하려는가"를 실제 조회값으로 확인시킨다. */}
-            <p style={{ margin: '0 0 10px', fontSize: '12.5px', fontWeight: 700, color: GC.accentText, background: GC.accentBg, display: 'inline-block', borderRadius: `${radius.chip}px`, padding: '3px 10px' }}>
-              {targetFetch.target.wardName}님의 보호자로 등록
-            </p>
-            <p style={{ margin: 0, fontSize: '19px', fontWeight: 800, color: GC.text, lineHeight: 1.4 }}>
-              이 휴대폰에서 보호자 알림을 받아보세요
-            </p>
-            <p style={{ margin: '8px 0 0', fontSize: '14px', color: GC.textMuted, lineHeight: 1.6 }}>
-              재난 상황이 발생하면 가족의 상황을 이 휴대폰으로 알려드릴게요.
-            </p>
+          // 순서: 제목 → 일러스트 → 부제목(wardName) → 설명 → 보조설명 →
+          // (에러 안내) → 버튼. 개별 margin 대신 gap 하나로 세로 리듬을
+          // 통일한다.
+          //
+          // 2026-08-27 4차 개편: marginTop 몇 px을 더하는 방식(3차) 대신
+          // 세로 배치 기준 자체를 바꿨다 — 이 블록이 `flex:1`로 <main>의
+          // 남은 세로 공간(로고 아래 ~ 화면 하단)을 모두 차지하고,
+          // `justifyContent:'center'`로 그 공간 안에서 스스로를 세로
+          // 중앙에 배치한다. 버튼은 여전히 이 블록의 마지막 자식일 뿐이라
+          // "버튼만 하단 고정"이 아니다 — 그룹 전체가 같이 움직인다.
+          // 정확히 수학적 중앙이 아니라 살짝 위쪽에 오도록,
+          // paddingBottom을 paddingTop보다 크게 줘서 균형을 위로 치우치게
+          // 했다(paddingTop이 pt, paddingBottom이 pb일 때 콘텐츠 중심은
+          // 상자 중심보다 (pb-pt)/2만큼 위로 이동한다).
+          <div
+            style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              textAlign: 'center',
+              justifyContent: 'center',
+              gap: '24px',
+              paddingTop: '8px',
+              paddingBottom: '48px',
+            }}
+          >
+            <h1 style={titleStyle}>보호자 알림 설정</h1>
 
-            {(state === 'denied' || state === 'unavailable' || state === 'error') && (
-              <p role="status" aria-live="polite" style={{ margin: '12px 0 0', fontSize: '13px', color: GC.textMuted, lineHeight: 1.5 }}>
-                {state === 'denied'
-                  ? '브라우저 알림 권한이 거부됐어요. 브라우저 설정에서 알림을 허용한 뒤 다시 시도해 주세요.'
-                  : state === 'unavailable'
-                    ? '알림을 준비하지 못했어요. 잠시 뒤 다시 시도해 주세요.'
-                    : notice}
+            <img
+              src={fcmIllustration}
+              alt=""
+              style={{ display: 'block', width: '90%', maxWidth: '290px', objectFit: 'contain' }}
+            />
+
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+              {/* GET /v1/registration/{registrationToken}의 목적 그대로 —
+                  "지금 누구를 등록하려는가"를 실제 조회값(wardName)으로
+                  확인시킨다. 배지/칩 없이 본문 문장 안에서 이름만 강조. */}
+              <p style={wardLineStyle}>
+                <span style={{ color: GC.primary, fontWeight: 800 }}>{targetFetch.target.wardName}</span>
+                님의 보호자로 등록되어 있어요.
               </p>
-            )}
+              {/* 뷰포트마다 자동 줄바꿈 위치가 달라지지 않도록 <br />로
+                  고정 — 문구 자체는 그대로, 줄바꿈 위치만 명시(요청 §3). */}
+              <p style={bodyStyle}>
+                재난 상황이 발생하면 이 휴대폰으로
+                <br />
+                보호자 알림을 보내드릴게요.
+              </p>
+              <p style={{ ...noteStyle, marginTop: '4px' }}>처음 한 번만 설정하면 됩니다.</p>
+            </div>
 
-            <button
-              type="button"
-              onClick={() => void handleSubscribe()}
-              disabled={state === 'subscribing'}
-              style={{
-                width: '100%',
-                marginTop: '16px',
-                minHeight: `${touchTarget.ctaMin}px`,
-                border: 'none',
-                borderRadius: `${radius.button}px`,
-                background: GC.primary,
-                color: GC.surface,
-                fontFamily: 'inherit',
-                fontSize: '16px',
-                fontWeight: 800,
-                cursor: state === 'subscribing' ? 'default' : 'pointer',
-                opacity: state === 'subscribing' ? 0.7 : 1,
-              }}
-            >
-              {state === 'subscribing' ? '확인 중...' : state === 'idle' ? '알림 받기' : '다시 시도'}
-            </button>
+            <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {(state === 'denied' || state === 'unavailable' || state === 'error') && (
+                <p role="status" aria-live="polite" style={{ margin: 0, fontSize: '13px', color: GC.textMuted, lineHeight: 1.5 }}>
+                  {state === 'denied'
+                    ? '브라우저 알림 권한이 거부됐어요. 브라우저 설정에서 알림을 허용한 뒤 다시 시도해 주세요.'
+                    : state === 'unavailable'
+                      ? '알림을 준비하지 못했어요. 잠시 뒤 다시 시도해 주세요.'
+                      : notice}
+                </p>
+              )}
+
+              <button
+                type="button"
+                onClick={() => void handleSubscribe()}
+                disabled={state === 'subscribing'}
+                style={{
+                  width: '100%',
+                  minHeight: `${touchTarget.ctaMin}px`,
+                  marginBottom: '28px',
+                  border: 'none',
+                  borderRadius: `${radius.button}px`,
+                  background: GC.primary,
+                  color: GC.surface,
+                  fontFamily: 'inherit',
+                  fontSize: '16px',
+                  fontWeight: 800,
+                  cursor: state === 'subscribing' ? 'default' : 'pointer',
+                  opacity: state === 'subscribing' ? 0.7 : 1,
+                }}
+              >
+                {state === 'subscribing' ? '확인 중...' : state === 'idle' ? '알림 받기' : '다시 시도'}
+              </button>
+            </div>
           </div>
         )}
       </main>
