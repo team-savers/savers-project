@@ -14,6 +14,19 @@ verifier를 통과하는가"만 증명하고, "실제 `guardian_log_qa.py`가 �
 자유질문 입력 필드가 아직 없어 runtime 경로에 넣을 수 없다 — `--runtime`에서는
 건너뛰고 개수만 보고한다 (후속 과제).
 
+`--runtime`은 두 가지를 따로 검사한다 — 규약 위반 여부와, 골든 케이스가 적어 둔
+기대값(answer/evidence)과의 일치 여부. 전자만으로는 "runtime이 규약을 지키는
+*어떤* 답을 냈다"만 증명하고, 그 답이 골든 케이스가 의도한 답인지는 증명하지
+못한다(PR #162 리뷰 Blocking). `_matches_golden()`이 후자를 담당한다. 이 비교를
+실제로 넣어 보면 30건 전부 불일치한다 — `guardian_log_qa.py`가 관련 이벤트 중
+*가장 최근 것 하나*(+ evacuation_progress는 도착 여부)만 인용하는 반면, 골든셋은
+케이스가 겪은 이벤트를 전부 순서대로 서술하도록 작성됐다. 이 간극은 questionId를
+카테고리별로 좁혀도(§리뷰 3) 좁혀지지 않는다 — 한 이벤트만 인용하는 것과 여러
+이벤트를 순서대로 인용하는 것은 CITATION_SCOPE가 아니라 `_answer_progress`/
+`_answer_help`/`_answer_arrival`의 구현 자체가 가르는 문제이기 때문이다. 즉 지금
+`guardian_log_qa.py`와 골든셋 중 어느 쪽이 07절 스펙이 의도한 계약인지는 이 파일이
+결정할 수 없다 — 구현 오너(김소원) 또는 Tech Lead 확인이 필요하다 (후속 과제).
+
 M2(guardian_accuracy)의 분모는 거절(`answer: null`) 5건을 뺀 답변 35건이다 —
 `metrics.py`의 `guardian_accuracy` docstring이 경고하는 대로, 거절을 M2에 섞으면 전부
 거절하는 엔진이 만점을 받는다. 거절 5건은 `expect.refuse`가 실제 응답과 일치하는지만
@@ -36,7 +49,7 @@ from pathlib import Path
 
 import metrics
 
-from ai_engine.guardian_log_qa import answer_guardian_question
+from ai_engine.guardian_log_qa import GuardianLogAnswer, answer_guardian_question
 
 GOLDEN_DIR = Path(__file__).parent / "golden_dataset" / "guardian"
 MAIN_SET = GOLDEN_DIR / "guardian_v0.jsonl"
@@ -97,20 +110,35 @@ def _to_runtime_event(event: dict) -> dict:
     }
 
 
+def _matches_golden(case: dict, response: GuardianLogAnswer) -> bool:
+    """runtime 응답이 골든 케이스가 적어 둔 기대값(answer/evidence)과 같은지 비교한다.
+
+    규약 위반 여부(`metrics.guardian_violations`)는 "runtime이 규약을 지키는 *어떤*
+    답을 냈다"만 증명한다 — 그 답이 이 골든 케이스가 의도한 답인지는 별개다. evidence는
+    (type, present, at) 집합으로 비교해 순서 차이는 무시하고 사실 집합만 견준다.
+    """
+    golden_evidence = {(item["type"], item["present"], item.get("at")) for item in case["evidence"]}
+    runtime_evidence = {(source.type, source.present, source.at) for source in response.sources}
+    return response.answer == case["answer"] and golden_evidence == runtime_evidence
+
+
 def score_runtime(
     cases: list[dict],
-) -> tuple[float | None, list[tuple[str, list[str]]], list[str]]:
+) -> tuple[float | None, list[tuple[str, list[str]]], list[str], list[str]]:
     """`questionId`가 있는 케이스만 실제 `guardian_log_qa.py`(runtime)를 호출해 채점한다.
 
     경로: events + questionId -> `answer_guardian_question()`(runtime) -> answer/sources
     -> `metrics.guardian_violations`. `score_main`과 달리 케이스에 미리 적힌 answer/evidence는
-    보지 않는다 — runtime이 실제로 만든 값만 채점한다.
+    규약 위반 채점에는 쓰지 않는다 — runtime이 실제로 만든 값만 채점한다. 다만 그 값을
+    골든 케이스의 기대값과도 별도로 비교한다(`_matches_golden`) — 규약 위반이 0건이어도
+    골든 케이스가 의도한 답이 아닐 수 있기 때문이다.
 
-    Returns (M2, 위반 목록, questionId 없어 건너뛴 id 목록).
+    Returns (M2, 위반 목록, questionId 없어 건너뛴 id 목록, 골든 기대값과 어긋난 id 목록).
     """
     all_violations = []
     failures = []
     skipped = []
+    golden_mismatches = []
     for case in cases:
         question_id = case.get("questionId")
         if question_id is None:
@@ -125,8 +153,10 @@ def score_runtime(
         all_violations.append(violations)
         if violations:
             failures.append((case["id"], violations))
+        if not _matches_golden(case, response):
+            golden_mismatches.append(case["id"])
     m2 = metrics.guardian_accuracy(all_violations) if all_violations else None
-    return m2, failures, skipped
+    return m2, failures, skipped, golden_mismatches
 
 
 def score_adversarial(cases: list[dict]) -> list[tuple[str, list[str], bool]]:
@@ -167,7 +197,7 @@ def main() -> int:
     exit_code = 0 if not failures and not refusal_mismatches else 1
 
     if args.runtime:
-        m2_rt, failures_rt, skipped = score_runtime(main_cases)
+        m2_rt, failures_rt, skipped, golden_mismatches = score_runtime(main_cases)
         scored = len(main_cases) - len(skipped)
         print(
             f"\n[runtime] questionId 보유 {scored}건 · 규약 위반 {len(failures_rt)}건 · "
@@ -176,7 +206,13 @@ def main() -> int:
         print(f"[runtime] M2 (guardian_accuracy) = {m2_rt}")
         for case_id, violations in failures_rt:
             print(f"  [runtime] FAIL {case_id}: {violations}")
-        if failures_rt:
+        print(
+            f"[runtime] 골든 기대값(answer/evidence) 일치 {scored - len(golden_mismatches)}건 · "
+            f"불일치 {len(golden_mismatches)}건"
+        )
+        for case_id in golden_mismatches:
+            print(f"  [runtime] MISMATCH {case_id}: runtime 응답이 골든 케이스 기대값과 다름")
+        if failures_rt or golden_mismatches:
             exit_code = 1
 
     if args.adversarial:
