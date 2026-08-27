@@ -1,40 +1,39 @@
-// Guardian (/guardian) — 보호자 모바일 화면, UI 선작업.
+// Guardian (/guardian) — 보호자 모바일 화면, mock 기반 UI 미리보기 경로.
 //
-// STATUS: #122 GuardianStatus API/FCM 계약이 아직 main에 머지되지 않은
-// 상태에서 만든 화면이다. 실제 `/g/{guardianToken}` 계약이 완성된 것처럼
-// 구현하지 않는다 — 이 파일은 ../api/* 를 import 하지 않고, mocks/
-// guardianStatus.ts 의 고정 목데이터만 읽는다. `/guardian` 은 그 계약이
-// 확정되기 전까지의 임시 UI 미리보기 경로이고, 실제 계약 경로인
-// `/g/{token}` 은 이 PR의 스코프가 아니다(App.tsx 상단 라우트 표 참고).
+// STATUS: `GuardianStatus` 계약(api/types.ts)은 이미 존재한다. 이 파일이
+// mock인 이유는 계약이 없어서가 아니라, 실제 `/g/{guardianToken}` API
+// 연동(fetch + 세션 토큰 라우팅)이 아직 이 PR의 스코프가 아니기 때문이다
+// — 그래서 이 파일은 계약 *타입*(GuardianStatus/SafetyStatus)은 가져다
+// 쓰면서도 ../api/* 의 호출부는 import하지 않고, mocks/guardianStatus.ts의
+// 고정 목데이터만 읽는다. `/guardian`은 그 연동 전까지의 UI 미리보기
+// 경로이고, 실제 계약 경로인 `/g/{token}`은 이 PR의 스코프가 아니다
+// (App.tsx 상단 라우트 표 참고). mock UI도 계약이 정의하는 의미
+// (safetyStatus는 'unknown'만 존재, openedAt/lastResponse는 안전 신호가
+// 아님 등)를 그대로 따른다 — mock이라고 계약과 다른 의미를 만들지 않는다.
 //
-// #122 계약 머지 후 교체할 지점(정확히 이 두 곳):
+// 실제 `/g/{token}` 연동 시 교체할 지점(정확히 이 두 곳):
 //   1. App.tsx 의 `/guardian` 라우트를 `/g/{token}` 으로 바꾸고 URL에서
 //      토큰을 읽어 이 컴포넌트에 넘긴다(Landing.tsx 의 LandingView 패턴
 //      참고 — `?t=` 파싱).
-//   2. 아래 `GUARDIAN_MOCK` 대신 실제 GuardianStatus 응답을 fetch해
-//      Screen 컴포넌트들에 넘긴다. Screen 컴포넌트의 props 타입
-//      (ProtectedPerson/AlertInfo/StatusInfo/QaTurn)은 mocks/
-//      guardianStatus.ts 의 타입과 이미 API 응답 형태를 염두에 두고
-//      맞춰뒀으므로, mock 객체 자리에 실제 응답 객체를 넣기만 하면 된다.
+//   2. 아래 `GUARDIAN_MOCK.status`(GuardianStatus 타입) 대신 기존
+//      `api.getGuardianStatus(token)` seam(api/types.ts `ApiClient`)의
+//      실제 응답을 fetch해 Screen 컴포넌트들에 넘긴다. Screen 컴포넌트의
+//      props 타입은 이미 GuardianStatus/QaTurn 계약 타입을 그대로 쓰고
+//      있으므로, 실제 fetch 결과를 같은 타입으로 바인딩하는 작업이다.
 //   3. AiScreen의 추천 질문 답변은 지금 mocks/guardianStatus.ts에 고정된
-//      QaTurn을 실제 보호자 응답 정확도 RAG(로그 기반) 호출로 바꾼다 —
+//      QaTurn을 실제 `/v1/guardian/{token}/ask` 호출로 바꾼다 —
 //      ChatDock.tsx가 쓰는 「근거 없으면 답하지 않는다」 원칙을 그대로
 //      따를 것.
 //
 // 화면 3개는 하위 라우트가 아니라 한 페이지 안의 로컬 state(screen)로
-// 전환한다 — 계약이 없는 지금 단계에서 라우팅을 새로 만들 이유가 없다.
+// 전환한다 — 실제 연동 전 지금 단계에서 라우팅을 새로 만들 이유가 없다.
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
-import rain from '../assets/rain.png'
-import logoLight from '../assets/logo-mark-light.png'
+import rain from '../assets/rain.webp'
+import type { GuardianStatus, SafetyStatus } from '../api/types'
 import { C, ICON, MOBILE_WIDTH, SHADOW_CARD, gutter, radius, touchTarget } from '../lib/tokens'
-import {
-  GUARDIAN_MOCK,
-  PERSONA_IMAGE,
-  type QaTurn,
-  type StatusLevel,
-} from '../mocks/guardianStatus'
+import { GUARDIAN_MOCK, PERSONA_IMAGE, type GuardianQuestionId, type QaTurn } from '../mocks/guardianStatus'
 
 // ---------------------------------------------------------------------------
 // GUARDIAN COLOR PALETTE — this screen's own brand hue set (the design
@@ -67,9 +66,10 @@ const GC = {
   accentText: C.guardianAccentText,
   accentBg: C.guardianAccentBg,
 
-  // Danger Red — reserved for an actual danger state (not used by today's
-  // mock data, which only exercises 'caution', but the badge/card branch
-  // exists for when it is).
+  // Danger Red — kept in the palette for a genuinely danger-toned UI element
+  // (e.g. a future destructive action), but NOT used to color a safety-level
+  // badge/card — FE does not compute or display a caution/safe/danger tier
+  // (see SAFETY_STATUS_LABEL below).
   danger: C.guardianDanger,
   dangerText: C.guardianDangerText,
   dangerBg: C.guardianDangerBg,
@@ -91,59 +91,85 @@ const GC = {
 } as const
 
 // ---------------------------------------------------------------------------
-// STATUS → COLOR mapping. Single place both the family badge and the
-// "현재 상태" card read, so the emphasis colour always follows the SAME
-// `StatusLevel` value (mocks/guardianStatus.ts today; a future GuardianStatus
-// API field 1:1 with it) rather than being re-decided per component. This
-// file does NOT compute a severity — it only maps the level value it's
-// given onto the SAVERS palette. 'caution' is the only branch the current
-// mock data exercises; 'safe'/'danger' exist because the type already does,
-// not because FE is inventing new states.
+// SafetyStatus → label. FE does NOT judge safety — it only restates the
+// contract's `safetyStatus` value as-is. The union has exactly one member
+// today (`'unknown'`), so this map has exactly one entry; adding a
+// 'safe'/'caution'/'danger' branch here would be FE inventing a severity the
+// contract does not send (see AGENTS.md guardian-RAG constraint: the
+// chatbot/status screen restates the log, it does not judge safety). If the
+// contract ever adds a real value, `SafetyStatus` stops compiling here and
+// this map is the one place to extend — not a place to add FE-derived tiers.
 // ---------------------------------------------------------------------------
-interface StatusStyle {
-  // Icon fill (warning glyph circle).
-  iconBg: string
-  // Badge (family card "주의" chip).
-  badgeBg: string
-  badgeText: string
-  badgeBorder: string
-  // "현재 상태" card's own light tint — kept as a background tint only
-  // (never a border-only or full-saturation fill) so the card reads as
-  // "주의 상태를 한눈에 알 수 있는 정도", not a solid-orange alert block.
-  cardTint: string
+const SAFETY_STATUS_LABEL: Record<SafetyStatus, string> = {
+  unknown: '확인되지 않음',
 }
 
-function statusStyle(level: StatusLevel): StatusStyle {
-  if (level === 'danger') {
-    return { iconBg: GC.danger, badgeBg: GC.dangerBg, badgeText: GC.dangerText, badgeBorder: GC.danger, cardTint: GC.dangerBg }
+// Presentational facts read off `GuardianStatus` for the "현재 상태" card —
+// derived strictly from openedAt/respondedAt/lastResponse, no inference:
+//   - openedAt is a link-open timestamp, not a safety signal.
+//   - lastResponse ('home'/'outside'/'none') is a button-press record, not a
+//     survival signal — restated as "버튼 응답", never as "집에 있음"/
+//     "안전함".
+function guardianStatusFacts(status: GuardianStatus): string[] {
+  const lines: string[] = []
+  lines.push(status.openedAt ? `알림 열람 ${formatKstMinute(status.openedAt)}` : '알림 열람 기록 없음')
+  if (status.lastResponse === 'none' || status.respondedAt === null) {
+    lines.push('응답 기록 없음')
+  } else {
+    const buttonLabel = status.lastResponse === 'home' ? '[집이에요]' : '[밖이에요]'
+    lines.push(`${buttonLabel} 버튼 응답 ${formatKstMinute(status.respondedAt)}`)
   }
-  if (level === 'safe') {
-    // 이 팔레트엔 별도 success(초록) 계열이 없다 — 위험(red)·주의(orange)와
-    // 구분되는 차분한 상태로 Main Blue를 재사용한다.
-    return { iconBg: GC.primary, badgeBg: GC.primaryBg, badgeText: GC.primaryText, badgeBorder: GC.primary, cardTint: GC.primaryBg }
-  }
-  return { iconBg: GC.accent, badgeBg: GC.accentBg, badgeText: GC.accentText, badgeBorder: GC.accent, cardTint: GC.accentBg }
+  return lines
+}
+
+// Formats a contract ISO instant (openedAt/respondedAt, or a mock Q&A
+// evidence timestamp) as a KST 24-hour "HH:MM" string, display-only —
+// mirrors the "KST 기준 분 단위 24시간제" rule applied to Q&A answers too.
+function formatKstMinute(iso: string): string {
+  const parts = new Intl.DateTimeFormat('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(iso))
+  const hh = parts.find((p) => p.type === 'hour')?.value ?? '00'
+  const mm = parts.find((p) => p.type === 'minute')?.value ?? '00'
+  return `${hh}:${mm}`
 }
 
 type GuardianScreen = 'alert' | 'status' | 'ai'
 
+// height:'100dvh' pins the shell to the mobile viewport instead of letting it
+// grow with content (dvh tracks the *actual* visible viewport, so a mobile
+// browser's collapsing address bar doesn't clip the bottom) — a scrollable
+// interior (AiScreen's turn list) can then grow without stretching the whole
+// document. minHeight:'100vh' stays as a fallback for browsers without dvh
+// support, where it lets the shell size to at least the static viewport.
+// overflowY:'auto' is a safety net, not the intended scroll path — AlertScreen
+// and StatusScreen are unchanged and expected to fit one viewport; AiScreen's
+// own turn list (flex:1, minHeight:0, overflowY:'auto') is the real scroll
+// container. This only engages if a screen's content is ever taller than the
+// fixed shell height, so it degrades gracefully instead of clipping content.
 const SHELL: CSSProperties = {
   width: '100%',
   maxWidth: MOBILE_WIDTH,
   margin: '0 auto',
+  height: '100dvh',
   minHeight: '100vh',
+  overflowY: 'auto',
   background: GC.bg,
   display: 'flex',
   flexDirection: 'column',
 }
 
-// Logo group — logo-mark-light.png (shield only) + a hand-set "SAVERS"
-// wordmark next to it, same asset Home/Landing/Join already import as
-// `logoLight` (there is no combined logo+wordmark asset in the project, so
-// the two are composed here rather than as one image). This screen
-// previously referenced a public `/logo.png` that does not exist in this
-// branch, which silently rendered as a broken image with only the text
-// visible — using the existing shared asset fixes that.
+// Logo group — the shared public SAVERS mark (`/logo.png`, blue shield +
+// orange heart, optimized in PR #173) + a hand-set "SAVERS" wordmark next to
+// it (there is no combined logo+wordmark asset in the project, so the two
+// are composed here rather than as one image). Home/Landing/Join still use
+// the separate `logo-mark-light.png` asset for their own headers — this
+// screen switches to the shared `/logo.png` (§11 of the guardian UI review)
+// instead of that asset, but does not touch or remove it since those other
+// screens still depend on it.
 //
 // Fixed size (24px logo / 18px text / 7px gap), not parameterized: every
 // SAVERS brand area on this screen (첫 화면, 상태 화면 헤더) renders at the
@@ -151,7 +177,7 @@ const SHELL: CSSProperties = {
 function LogoMark() {
   return (
     <div style={{ display: 'inline-flex', alignItems: 'center', gap: '7px' }}>
-      <img src={logoLight} alt="" style={{ width: '24px', height: '24px', display: 'block', objectFit: 'contain' }} />
+      <img src="/logo.png" alt="" style={{ width: '24px', height: '24px', display: 'block', objectFit: 'contain' }} />
       <strong
         style={{
           fontSize: '18px',
@@ -404,25 +430,15 @@ const sectionTitle: CSSProperties = {
 
 function StatusScreen({ onBack, onOpenAi }: { onBack: () => void; onOpenAi: () => void }) {
   const { protectedPerson, status } = GUARDIAN_MOCK
-  const emphasis = statusStyle(status.level)
+  const facts = guardianStatusFacts(status)
 
   return (
     <>
-      <HeaderBar
-        onBack={onBack}
-        center={<LogoMark />}
-        right={
-          // 더보기 메뉴는 아직 아무 기능도 없다 — 이번 UI 선작업 범위 밖.
-          // 실제 메뉴(알림 설정 등)가 생기면 이 버튼에 onClick을 채운다.
-          <button type="button" style={ICON_BTN} aria-label="더보기" onClick={() => {}}>
-            <svg viewBox="0 0 24 24" style={{ ...ICON, width: 22, height: 22 }}>
-              <circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none" />
-              <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
-              <circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none" />
-            </svg>
-          </button>
-        }
-      />
+      {/* HeaderBar의 right 슬롯은 비워 둔다 — 이전에 있던 "더보기" 버튼은
+          onClick={() => {}}인 채로 아무 기능이 없어 제거했다. 실제 메뉴(알림
+          설정 등)가 생기면 그때 right에 새로 채운다; 지금 disabled 버튼이나
+          자리표시자를 넣지 않는다. */}
+      <HeaderBar onBack={onBack} center={<LogoMark />} />
 
       <main style={{ flex: 1, padding: `18px ${gutter}px ${gutter}px`, display: 'flex', flexDirection: 'column', gap: '22px' }}>
         <section>
@@ -432,72 +448,47 @@ function StatusScreen({ onBack, onOpenAi }: { onBack: () => void; onOpenAi: () =
             relation={protectedPerson.relation}
             age={protectedPerson.age}
             persona={protectedPerson.persona}
-            statusLevel={status.level}
+            safetyStatus={status.safetyStatus}
           />
         </section>
 
         <section>
           <h2 style={sectionTitle}>현재 상태</h2>
-          {/* 상태별 강조색은 statusStyle(status.level) 하나로만 결정한다 —
-              여기서 위험도를 새로 계산하지 않고, mock/향후 서버 응답의
-              StatusLevel 값을 SAVERS 팔레트에 매핑만 한다. 카드를 top(연한
-              tint 배경의 headline/설명) / bottom(중립 배경의 마지막 반응)
-              두 블록으로 나눠, "한눈에 알 수 있는 정도"로만 강조되고 카드
-              전체가 강조색으로 뒤덮이지 않게 한다. */}
-          <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
-            <div
+          {/* 판정 카드가 아니라 사실 카드다 — 배경/아이콘 모두 중립색
+              하나뿐이고, status.safetyStatus/lastResponse로 강조색을
+              고르지 않는다. 제목은 "현재 확인된 기록"으로 고정하고, 본문은
+              guardianStatusFacts()가 openedAt/respondedAt/lastResponse에서
+              그대로 뽑아낸 사실 문장만 나열한다(안전 여부를 담은 headline은
+              쓰지 않는다). */}
+          <div style={{ ...card, display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+            <span
+              aria-hidden="true"
               style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: '10px',
-                background: emphasis.cardTint,
-                padding: '16px',
-              }}
-            >
-              <span
-                aria-hidden="true"
-                style={{
-                  flex: 'none',
-                  width: '28px',
-                  height: '28px',
-                  borderRadius: '50%',
-                  background: emphasis.iconBg,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <svg viewBox="0 0 24 24" style={{ ...ICON, width: 16, height: 16, stroke: GC.surface }}>
-                  <path d="M12 8v5M12 16.5h.01" />
-                  <circle cx="12" cy="12" r="9" />
-                </svg>
-              </span>
-              <div style={{ minWidth: 0 }}>
-                <p style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: GC.text }}>{status.headline}</p>
-                {status.detailLines.map((line, i) => (
-                  <p key={`${line}-${i}`} style={{ margin: '4px 0 0', fontSize: '14.5px', color: GC.text, lineHeight: 1.5 }}>
-                    {line}
-                  </p>
-                ))}
-              </div>
-            </div>
-            <div
-              style={{
-                padding: '10px 16px',
-                borderTop: `1px solid ${GC.line}`,
-                background: GC.surface,
+                flex: 'none',
+                width: '28px',
+                height: '28px',
+                borderRadius: '50%',
+                background: GC.surfaceSoft,
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
-                color: GC.textMuted,
-                fontSize: '14px',
+                justifyContent: 'center',
               }}
             >
-              <svg viewBox="0 0 24 24" style={{ ...ICON, width: 15, height: 15 }}>
+              {/* 중립 "정보(i)" 아이콘 — 점이 위, 선이 아래. 이전에는 선이
+                  위/점이 아래인 경고(!) 아이콘이었다(주의 상태를 표시하던
+                  시절의 잔재). */}
+              <svg viewBox="0 0 24 24" style={{ ...ICON, width: 16, height: 16, stroke: GC.textMuted }}>
+                <path d="M12 8h.01M12 11v5" />
                 <circle cx="12" cy="12" r="9" />
-                <path d="M12 7v5l3 3" />
               </svg>
-              <span>마지막 반응 {status.lastResponseAt}</span>
+            </span>
+            <div style={{ minWidth: 0 }}>
+              <p style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: GC.text }}>현재 확인된 기록</p>
+              {facts.map((line, i) => (
+                <p key={`${line}-${i}`} style={{ margin: '4px 0 0', fontSize: '14.5px', color: GC.text, lineHeight: 1.5 }}>
+                  {line}
+                </p>
+              ))}
             </div>
           </div>
 
@@ -539,19 +530,19 @@ function FamilyCard({
   relation,
   age,
   persona,
-  statusLevel,
+  safetyStatus,
 }: {
   name: string
   relation: string
   age: number
   persona: keyof typeof PERSONA_IMAGE
-  statusLevel: StatusLevel
+  safetyStatus: SafetyStatus
 }) {
-  // 배지 색은 statusStyle() 하나로만 결정한다 — "현재 상태" 카드와 같은
-  // 매핑을 공유해, 이 카드에서 위험도를 별도로 다시 계산하지 않는다. 라벨
-  // 문구만 이 컴포넌트 로컬로 둔다(statusStyle은 색만 안다).
-  const emphasis = statusStyle(statusLevel)
-  const badgeLabel = statusLevel === 'danger' ? '위험' : statusLevel === 'safe' ? '안전' : '주의'
+  // 배지 문구는 SAFETY_STATUS_LABEL 하나로만 결정한다 — FE가 위험도를
+  // 계산하지 않고, 계약의 safetyStatus 값(현재는 'unknown' 하나뿐)을 그대로
+  // 문구로 옮긴다. 색도 중립(neutral) 하나뿐이라 "판정 배지"처럼 보이지
+  // 않는다 — 위험/주의/안전 색 분기는 이제 이 컴포넌트에 없다.
+  const badgeLabel = SAFETY_STATUS_LABEL[safetyStatus]
 
   return (
     // 프로필 이미지를 카드 왼쪽에서 확실한 비중으로 키우고(56px→84px→108px,
@@ -583,9 +574,9 @@ function FamilyCard({
             alignSelf: 'flex-start',
             fontSize: '13px',
             fontWeight: 700,
-            color: emphasis.badgeText,
-            background: emphasis.badgeBg,
-            border: `1px solid ${emphasis.badgeBorder}`,
+            color: GC.textMuted,
+            background: GC.surfaceSoft,
+            border: `1px solid ${GC.line}`,
             borderRadius: `${radius.chip}px`,
             padding: '4px 12px',
           }}
@@ -602,28 +593,28 @@ function FamilyCard({
 // ---------------------------------------------------------------------------
 
 function AiScreen({ onBack }: { onBack: () => void }) {
-  const { protectedPerson, recommendedQuestions, freeformFallback } = GUARDIAN_MOCK
+  const { protectedPerson, recommendedQuestions } = GUARDIAN_MOCK
   const [turns, setTurns] = useState<QaTurn[]>([])
-  const [draft, setDraft] = useState('')
   // Which recommended-question button is currently pressed, for the
   // momentary orange-border press feedback below — NOT a persisted
-  // "selected" state (it always clears on release/leave/cancel).
-  const [pressedQuestion, setPressedQuestion] = useState<string | null>(null)
+  // "selected" state (it always clears on release/leave/cancel). Keyed by
+  // questionId (the contract identity), not the button's label text.
+  const [pressedQuestion, setPressedQuestion] = useState<GuardianQuestionId | null>(null)
   const clearPressed = () => setPressedQuestion(null)
+
+  // Scroll-anchor for the turn list: a sentinel div after the last turn that
+  // auto-scroll targets. Ref, not state — scrolling is a DOM side effect,
+  // not something the render output depends on.
+  const turnsEndRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (turns.length === 0) return
+    turnsEndRef.current?.scrollIntoView({ block: 'end' })
+  }, [turns])
 
   // Each recommended question already carries its own answer (QaTurn) —
   // just append it. No string-key lookup that could silently miss.
   function askRecommended(turn: QaTurn): void {
     setTurns((prev) => [...prev, turn])
-  }
-
-  function askFreeform(): void {
-    const question = draft.trim()
-    if (question === '') return
-    // 목업 범위: 자유 입력은 항상 거절형 fallback 답변을 보여준다 — 실제
-    // 로그 매칭 없이 그럴듯한 답을 지어내지 않기 위해서다(표현 원칙 참고).
-    setTurns((prev) => [...prev, { ...freeformFallback, question }])
-    setDraft('')
   }
 
   return (
@@ -661,14 +652,14 @@ function AiScreen({ onBack }: { onBack: () => void }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {recommendedQuestions.map((turn) => (
               <button
-                key={turn.question}
+                key={turn.questionId}
                 type="button"
                 onClick={() => askRecommended(turn)}
                 // 눌린 동안만 border를 orange로 — 배경/모양은 그대로 두고
                 // border-color만 바꾸는 짧은 pressed 피드백. pointer 계열
                 // 이벤트라 마우스·터치 모두 같은 핸들러로 처리되고, up/leave/
                 // cancel 어느 쪽으로 끝나든 눌림 상태가 남지 않는다.
-                onPointerDown={() => setPressedQuestion(turn.question)}
+                onPointerDown={() => setPressedQuestion(turn.questionId)}
                 onPointerUp={clearPressed}
                 onPointerLeave={clearPressed}
                 onPointerCancel={clearPressed}
@@ -677,7 +668,7 @@ function AiScreen({ onBack }: { onBack: () => void }) {
                   textAlign: 'left',
                   minHeight: `${touchTarget.minimum}px`,
                   padding: '12px 14px',
-                  border: `1px solid ${pressedQuestion === turn.question ? GC.accent : GC.line}`,
+                  border: `1px solid ${pressedQuestion === turn.questionId ? GC.accent : GC.line}`,
                   borderRadius: `${radius.button}px`,
                   background: GC.surface,
                   color: GC.text,
@@ -699,18 +690,26 @@ function AiScreen({ onBack }: { onBack: () => void }) {
           </div>
         </div>
 
+        {/* 대화 목록 — minHeight:0이 있어야 flex:1이 부모(이 main)의 남는
+            높이로 실제로 줄어들 수 있고, overflowY:'auto'가 그 안에서 진짜
+            스크롤 컨테이너로 동작한다(minHeight:0 없이는 flex 아이템의
+            기본 최소 높이가 content 높이라 부모를 밀어내며 커진다 — 이
+            화면이 SHELL/main의 고정 높이 안에서 스크롤 대신 전체가
+            늘어나던 원인). 자유 입력 폼이 빠졌으므로 이 영역이 main의
+            유일한 flex:1 자식이다. */}
         <div
           style={{
             flex: 1,
+            minHeight: 0,
             overflowY: 'auto',
-            padding: `16px ${gutter}px`,
+            padding: `16px ${gutter}px calc(16px + env(safe-area-inset-bottom, 0px))`,
             display: 'flex',
             flexDirection: 'column',
             gap: '14px',
           }}
         >
           {turns.map((turn, i) => (
-            <div key={`${turn.question}-${i}`} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div key={`${turn.questionId}-${i}`} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div
                 style={{
                   alignSelf: 'flex-end',
@@ -743,64 +742,11 @@ function AiScreen({ onBack }: { onBack: () => void }) {
               </div>
             </div>
           ))}
+          {/* 스크롤 앵커 — 새 turn이 추가될 때마다 useEffect가 이 sentinel로
+              scrollIntoView해 최신 답변이 보이게 한다. 화면에는 아무것도
+              그리지 않는다(높이 0). */}
+          <div ref={turnsEndRef} />
         </div>
-
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            askFreeform()
-          }}
-          style={{
-            flex: 'none',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: `10px ${gutter}px calc(10px + env(safe-area-inset-bottom, 0px))`,
-            borderTop: `1px solid ${GC.line}`,
-          }}
-        >
-          <input
-            type="text"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="다른 질문을 입력하세요..."
-            aria-label="질문 입력"
-            style={{
-              flex: 1,
-              minHeight: `${touchTarget.minimum}px`,
-              minWidth: 0,
-              border: `1px solid ${GC.line}`,
-              borderRadius: `${radius.button}px`,
-              padding: '0 14px',
-              fontSize: '15.5px',
-              fontFamily: 'inherit',
-              color: GC.text,
-              background: GC.bg,
-            }}
-          />
-          <button
-            type="submit"
-            aria-label="질문 보내기"
-            style={{
-              flex: 'none',
-              width: `${touchTarget.minimum}px`,
-              height: `${touchTarget.minimum}px`,
-              borderRadius: '50%',
-              border: 'none',
-              background: GC.accent,
-              color: GC.surface,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-            }}
-          >
-            <svg viewBox="0 0 24 24" style={{ ...ICON, width: 18, height: 18, stroke: GC.surface }}>
-              <path d="M22 2 11 13" />
-              <path d="m22 2-7 20-4-9-9-4Z" />
-            </svg>
-          </button>
-        </form>
       </main>
     </>
   )
