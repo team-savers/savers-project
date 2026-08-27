@@ -15,16 +15,22 @@ import type {
   ChatRequest,
   ChatResponse,
   DeviceRegisterRequest,
+  GuardianAnswer,
+  GuardianAskRequest,
+  GuardianDeviceRegisterRequest,
   GuardianStatus,
+  RecordedUserActionEvent,
   RegistrationTarget,
   SessionResponse,
   ShelterList,
   ShelterSearchRequest,
+  UserActionEventCreate,
 } from './types'
 
-// Contract paths (see packages/contracts/openapi.yaml v0.3).
+// Contract paths (see packages/contracts/openapi.yaml v0.9).
 //   GET    /v1/session/{token}
 //   POST   /v1/session/{token}/response
+//   POST   /v1/session/{token}/events
 //   GET    /v1/registration/{registrationToken}
 //   POST   /v1/shelters/search
 //   POST   /v1/chat
@@ -32,13 +38,19 @@ import type {
 //   DELETE /v1/devices
 //   GET    /v1/guardian/{token}
 //   POST   /v1/guardian/{token}/acknowledge
+//   POST   /v1/guardian/{token}/device
+//   DELETE /v1/guardian/{token}/device
+//   POST   /v1/guardian/{token}/ask
 const PATH_SESSION = '/v1/session/'
 const PATH_SESSION_RESPONSE_SUFFIX = '/response'
+const PATH_SESSION_EVENTS_SUFFIX = '/events'
 const PATH_REGISTRATION = '/v1/registration/'
 const PATH_CHAT = '/v1/chat'
 const PATH_DEVICES = '/v1/devices'
 const PATH_GUARDIAN = '/v1/guardian/'
 const PATH_GUARDIAN_ACK_SUFFIX = '/acknowledge'
+const PATH_GUARDIAN_DEVICE_SUFFIX = '/device'
+const PATH_GUARDIAN_ASK_SUFFIX = '/ask'
 
 // v0.3 changed GET /v1/shelters → POST /v1/shelters/search (body carries
 // coordinates + sessionToken; health/disability fields never leave the
@@ -58,6 +70,9 @@ void PATH_CHAT
 void PATH_DEVICES
 void PATH_GUARDIAN
 void PATH_GUARDIAN_ACK_SUFFIX
+void PATH_SESSION_EVENTS_SUFFIX
+void PATH_GUARDIAN_DEVICE_SUFFIX
+void PATH_GUARDIAN_ASK_SUFFIX
 
 export const httpAdapter: ApiClient = {
   async getSession(_token: string): Promise<SessionResponse> {
@@ -102,6 +117,40 @@ export const httpAdapter: ApiClient = {
   },
   async postGuardianAcknowledge(_token: string): Promise<Ack> {
     // POST `${BASE_URL}${PATH_GUARDIAN}${encodeURIComponent(_token)}${PATH_GUARDIAN_ACK_SUFFIX}`
+    throw new Error('not wired yet')
+  },
+  async postSessionEvent(
+    _token: string,
+    _event: UserActionEventCreate,
+    _idempotencyKey: string,
+  ): Promise<RecordedUserActionEvent> {
+    // POST `${BASE_URL}${PATH_SESSION}${encodeURIComponent(_token)}${PATH_SESSION_EVENTS_SUFFIX}`
+    // headers: { 'Idempotency-Key': _idempotencyKey }, body = UserActionEventCreate
+    throw new Error('not wired yet')
+  },
+  async registerGuardianDevice(
+    _token: string,
+    _req: GuardianDeviceRegisterRequest,
+  ): Promise<Ack> {
+    // POST `${BASE_URL}${PATH_GUARDIAN}${encodeURIComponent(_token)}${PATH_GUARDIAN_DEVICE_SUFFIX}`
+    // body = GuardianDeviceRegisterRequest
+    throw new Error('not wired yet')
+  },
+  async unregisterGuardianDevice(
+    _token: string,
+    _req: GuardianDeviceRegisterRequest,
+  ): Promise<Ack> {
+    // DELETE `${BASE_URL}${PATH_GUARDIAN}${encodeURIComponent(_token)}${PATH_GUARDIAN_DEVICE_SUFFIX}`
+    // body = GuardianDeviceRegisterRequest
+    throw new Error('not wired yet')
+  },
+  async postGuardianAsk(
+    _token: string,
+    _req: GuardianAskRequest,
+  ): Promise<GuardianAnswer> {
+    // POST `${BASE_URL}${PATH_GUARDIAN}${encodeURIComponent(_token)}${PATH_GUARDIAN_ASK_SUFFIX}`
+    // body = GuardianAskRequest. 200 covers BOTH delivered and refused
+    // (oneOf) — a refusal is not an HTTP error.
     throw new Error('not wired yet')
   },
 }

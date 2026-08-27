@@ -21,13 +21,19 @@ import type {
   ChatRequest,
   ChatResponse,
   DeviceRegisterRequest,
+  GuardianAnswer,
+  GuardianAskRequest,
+  GuardianDeviceRegisterRequest,
   GuardianStatus,
   Language,
   Profile,
+  RecordedUserActionEvent,
   RegistrationTarget,
   SessionResponse,
   ShelterList,
   ShelterSearchRequest,
+  UserActionEventCreate,
+  UserActionEventType,
 } from './types'
 import { PROFILES } from '../mocks/profiles'
 import {
@@ -60,6 +66,34 @@ export const DEMO_AREA_COORDS: ReadonlyArray<{ lat: number; lng: number }> = [
   { lat: 37.4827, lng: 126.9295 }, // [데모] 서원복지회관 근처
   { lat: 37.4791, lng: 126.9403 }, // [데모] 신림체육관 근처
 ]
+
+// The 12 user-action SessionEvent types, in the order openapi.yaml lists
+// them. Used by the guardian-ask mock to cite "not found" evidence for every
+// type when a session has no recorded history (see postGuardianAsk below).
+const USER_ACTION_EVENT_TYPES: readonly UserActionEventType[] = [
+  'situation_check_selected',
+  'profile_review_started',
+  'profile_review_completed',
+  'profile_review_skipped',
+  'choice_screen_viewed',
+  'help_request_selected',
+  'direct_evacuation_selected',
+  'evacuation_guidance_viewed',
+  'route_guidance_started',
+  'next_guidance_requested',
+  'emergency_call_119_selected',
+  'arrival_confirmed_by_user',
+]
+
+// Minimal mock server-side state for POST/DELETE /v1/guardian/{token}/device.
+// Maps a guardian token to the set of GuardianDeviceRegisterRequest.fcmToken
+// values registered under it — a guardian can have more than one device, so
+// pushEnabled must survive removing ONE of several registered fcmTokens, not
+// just a single yes/no per guardian token. NOT derived from Profile.guardian
+// (contact info) and NOT read from this browser's Notification.permission or
+// localStorage. Module-memory only; resets on reload, same as the rest of
+// this mock adapter's state.
+const guardianDeviceRegistrations = new Map<string, Set<string>>()
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -475,6 +509,14 @@ export const mockAdapter: ApiClient = {
       lastResponse: 'none',
       // v0.3: safetyStatus is always 'unknown' for now (no inference).
       safetyStatus: 'unknown',
+      // v0.7: required. Mock server-side state — true when this guardian
+      // token has at least one registered fcmToken in
+      // `guardianDeviceRegistrations`, set/cleared by
+      // registerGuardianDevice/unregisterGuardianDevice below. This is
+      // deliberately NOT derived from Profile.guardian (that field is contact
+      // info, not device-registration state) and NOT read from this
+      // browser's Notification.permission or localStorage.
+      pushEnabled: (guardianDeviceRegistrations.get(token)?.size ?? 0) > 0,
       acknowledgedByGuardian: false,
     }
   },
@@ -483,5 +525,108 @@ export const mockAdapter: ApiClient = {
     await randomDelay()
     void token
     return { ok: true }
+  },
+
+  async postSessionEvent(
+    token: string,
+    event: UserActionEventCreate,
+    idempotencyKey: string,
+  ): Promise<RecordedUserActionEvent> {
+    await randomDelay()
+    void token
+    void idempotencyKey
+    // No mock session-log store exists yet — this echoes the request back
+    // with a server-stamped `at`, matching the contract's success shape,
+    // without introducing a new persistent structure (flagged for the PM/
+    // Backend audit; a real store belongs on the backend per openapi.yaml,
+    // not invented here). Idempotency replay (same key → same stored event)
+    // is a backend concern this mock does not simulate.
+    return { ...event, at: new Date().toISOString() } as RecordedUserActionEvent
+  },
+
+  async registerGuardianDevice(
+    token: string,
+    req: GuardianDeviceRegisterRequest,
+  ): Promise<Ack> {
+    await randomDelay()
+    // Registration/renewal only — no real FCM send is simulated here. Adds
+    // this fcmToken to the guardian's device set (creating the set on first
+    // registration) so getGuardianStatus's pushEnabled reflects it.
+    let devices = guardianDeviceRegistrations.get(token)
+    if (devices === undefined) {
+      devices = new Set<string>()
+      guardianDeviceRegistrations.set(token, devices)
+    }
+    devices.add(req.fcmToken)
+    return { ok: true }
+  },
+
+  async unregisterGuardianDevice(
+    token: string,
+    req: GuardianDeviceRegisterRequest,
+  ): Promise<Ack> {
+    await randomDelay()
+    // Removes only this fcmToken — a guardian with other registered devices
+    // must stay pushEnabled. Unregistration is idempotent: a token/device
+    // pair not present is a no-op, matching the contract's "이미 없었어도
+    // 200" rule. Drop the guardian key entirely once its device set is empty
+    // so a stale empty Set does not linger in the map.
+    const devices = guardianDeviceRegistrations.get(token)
+    if (devices !== undefined) {
+      devices.delete(req.fcmToken)
+      if (devices.size === 0) {
+        guardianDeviceRegistrations.delete(token)
+      }
+    }
+    return { ok: true }
+  },
+
+  async postGuardianAsk(
+    token: string,
+    req: GuardianAskRequest,
+  ): Promise<GuardianAnswer> {
+    await randomDelay()
+    const profile = PROFILES[token]
+    if (profile === undefined) {
+      throw new Error(`unknown guardian token: ${token}`)
+    }
+    // No mock SessionEvent log exists yet (see postSessionEvent above), so
+    // every question truthfully answers from the "not found in this
+    // session's log" branch — the same shape a real ward who has not acted
+    // yet would produce. Per openapi.yaml GuardianEvidence, an absence
+    // entry IS evidence, so this is the DELIVERED branch, not a refusal —
+    // nothing here infers or asserts a real-world state.
+    switch (req.questionId) {
+      case 'arrival_status':
+        return {
+          questionId: 'arrival_status',
+          answer: '[도착 완료] 버튼을 누른 사실은 기록에서 확인되지 않습니다.',
+          sources: [{ type: 'arrival_confirmed_by_user', present: false }],
+          refusalReason: null,
+        }
+      case 'help_request':
+        return {
+          questionId: 'help_request',
+          answer:
+            '도움을 요청한 사실은 기록에서 확인되지 않습니다. ' +
+            '119에 전화한 사실도 기록에서 확인되지 않습니다.',
+          sources: [
+            { type: 'help_request_selected', present: false },
+            { type: 'emergency_call_119_selected', present: false },
+          ],
+          refusalReason: null,
+        }
+      case 'evacuation_progress':
+      default:
+        return {
+          questionId: 'evacuation_progress',
+          answer: '현재 세션의 사용자 행동은 기록에서 확인되지 않습니다.',
+          sources: USER_ACTION_EVENT_TYPES.map((type) => ({
+            type,
+            present: false as const,
+          })),
+          refusalReason: null,
+        }
+    }
   },
 }

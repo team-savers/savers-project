@@ -58,6 +58,12 @@ export type Bearing = 'N' | 'NE' | 'E' | 'SE' | 'S' | 'SW' | 'W' | 'NW'
 
 export type RefusalReason = 'no_evidence' | 'out_of_scope' | 'unsafe'
 
+// v0.7: DeviceRegisterRequest.role. Which recipient this device belongs to —
+// `ward` gets the first-dispatch alert, `guardian` gets the closed-loop
+// second dispatch only. No default; the contract requires the caller to
+// state it explicitly (see openapi.yaml DeviceRegisterRequest.role).
+export type DeviceRole = 'ward' | 'guardian'
+
 // Ward survival signal. Values mirror the openapi.yaml GuardianLastResponse
 // enum; how they are surfaced on screen is a separate UI decision, not a
 // property of this type.
@@ -255,6 +261,65 @@ export interface SessionResponseRequest {
   response: 'home' | 'outside'
 }
 
+// ---- v0.5/v0.9 session-log (user action events) ------------------------
+//
+// POST /v1/session/{token}/events (operationId postSessionEvent). Only the
+// user-action side of SessionEvent is modeled here — the system-event 5
+// (alert_dispatched · push_accepted · followup_due · followup_unreachable ·
+// guardian_notified) are written by Backend/the push system only and are
+// never posted from the browser (openapi.yaml UserActionEventCreate).
+
+// Server-recorded UTC receipt time (RFC3339, `Z` suffix). The client never
+// sends this — the server stamps it on receipt (openapi.yaml EventTimestamp).
+export type EventTimestamp = string
+
+export type UserActionEventType =
+  | 'situation_check_selected'
+  | 'profile_review_started'
+  | 'profile_review_completed'
+  | 'profile_review_skipped'
+  | 'choice_screen_viewed'
+  | 'help_request_selected'
+  | 'direct_evacuation_selected'
+  | 'evacuation_guidance_viewed'
+  | 'route_guidance_started'
+  | 'next_guidance_requested'
+  | 'emergency_call_119_selected'
+  | 'arrival_confirmed_by_user'
+
+// No fields allowed — coordinates/profile/contact info are deliberately kept
+// out (openapi.yaml EmptyEventPayload, additionalProperties: false).
+export type EmptyEventPayload = Record<string, never>
+
+export interface GuidanceStepPayload {
+  // 1-based step index the user asked to see next. Not a route position.
+  guidanceStep: number
+}
+
+// Request DTO for postSessionEvent. Mirrors the spec's if/then/else: only
+// `next_guidance_requested` carries GuidanceStepPayload, the other 11 types
+// carry EmptyEventPayload.
+export type UserActionEventCreate =
+  | {
+      type: Exclude<UserActionEventType, 'next_guidance_requested'>
+      payload: EmptyEventPayload
+    }
+  | { type: 'next_guidance_requested'; payload: GuidanceStepPayload }
+
+// Response of a successful postSessionEvent — the same event with the
+// server-assigned `at`. System events are never returned here.
+export type RecordedUserActionEvent =
+  | {
+      type: Exclude<UserActionEventType, 'next_guidance_requested'>
+      at: EventTimestamp
+      payload: EmptyEventPayload
+    }
+  | {
+      type: 'next_guidance_requested'
+      at: EventTimestamp
+      payload: GuidanceStepPayload
+    }
+
 export interface ChatRequest {
   token: string
   question: string
@@ -274,6 +339,18 @@ export interface ChatResponse {
 // required a session token, which only exists at dispatch time).
 export interface DeviceRegisterRequest {
   registrationToken: string
+  fcmToken: string
+  // v0.7: required. No default — see DeviceRole above for why a fallback
+  // would silently misroute first-dispatch alerts to a guardian device.
+  role: DeviceRole
+  userAgent?: string | null
+}
+
+// v0.7: body of POST/DELETE /v1/guardian/{token}/device. Neither `role` nor
+// `registrationToken` is carried — the path's guardian token already answers
+// both (role is fixed to `guardian` by the path, the target ward is resolved
+// server-side from that token).
+export interface GuardianDeviceRegisterRequest {
   fcmToken: string
   userAgent?: string | null
 }
@@ -307,8 +384,127 @@ export interface GuardianStatus {
   // v0.3: required. Currently always `unknown` — no inference is made from
   // opens/taps.
   safetyStatus: SafetyStatus
+  // v0.7: required. Whether this WARD has one or more `role: guardian`
+  // devices registered server-side — the unit is the ward, not a browser.
+  // true does NOT mean "the browser currently viewing this page is
+  // subscribed"; a different guardian device can make this true while the
+  // current browser has never subscribed (openapi.yaml GuardianStatus.pushEnabled).
+  pushEnabled: boolean
   acknowledgedByGuardian?: boolean
 }
+
+// ---- v0.6/v0.9 guardian Q&A (session-log grounded, not corpus RAG) -----
+//
+// POST /v1/guardian/{token}/ask (operationId postGuardianAsk). Answers are
+// generated from that session's SessionEvent log only — no vector search,
+// no free-text question. See openapi.yaml GuardianQuestionId for the full
+// per-question evidence-scope table.
+
+// The three recommended questions. This is the CLOSED set — no free-text
+// question type exists in the contract, and none is added here.
+export type GuardianQuestionId =
+  | 'evacuation_progress'
+  | 'help_request'
+  | 'arrival_status'
+
+export interface GuardianAskRequest {
+  questionId: GuardianQuestionId
+  // Fixed to 'ko' for this segment — see openapi.yaml GuardianAskRequest for
+  // why this is narrower than the Language union used elsewhere.
+  locale?: 'ko'
+}
+
+// Union of all 17 SessionEvent discriminator keys (12 user actions + 5
+// system events) — the citable-evidence universe. Mirrors
+// openapi.yaml GuardianEvidenceType 1:1; kept in lockstep with
+// UserActionEventType if that list ever changes.
+export type GuardianEvidenceType =
+  | UserActionEventType
+  | 'alert_dispatched'
+  | 'push_accepted'
+  | 'followup_due'
+  | 'followup_unreachable'
+  | 'guardian_notified'
+
+// evacuation_progress may cite any of the 12 user-action events.
+export type EvacuationProgressEvidenceType = UserActionEventType
+
+// help_request / arrival_status each narrow to their own small set.
+export type HelpRequestEvidenceType =
+  | 'help_request_selected'
+  | 'emergency_call_119_selected'
+
+export type ArrivalStatusEvidenceType = 'arrival_confirmed_by_user'
+
+// One evidence entry backing one answer sentence. `present: false` means
+// "not found in this session's log" — NOT "did not happen" (see
+// openapi.yaml GuardianEvidence). `T` narrows `type` per question.
+export interface GuardianEvidenceConfirmed<
+  T extends GuardianEvidenceType = GuardianEvidenceType,
+> {
+  type: T
+  present: true
+  at: string
+}
+
+export interface GuardianEvidenceNotFound<
+  T extends GuardianEvidenceType = GuardianEvidenceType,
+> {
+  type: T
+  present: false
+  at?: null
+}
+
+export type GuardianEvidence<
+  T extends GuardianEvidenceType = GuardianEvidenceType,
+> = GuardianEvidenceConfirmed<T> | GuardianEvidenceNotFound<T>
+
+export type EvacuationProgressEvidence =
+  GuardianEvidence<EvacuationProgressEvidenceType>
+export type HelpRequestEvidence = GuardianEvidence<HelpRequestEvidenceType>
+export type ArrivalStatusEvidence = GuardianEvidence<ArrivalStatusEvidenceType>
+
+// Answer body text. "선택완료 확인되지 않습니다" style — reports only what
+// the log shows, never asserts safety (openapi.yaml GuardianAnswerBody).
+export type GuardianAnswerBody = string
+
+export interface GuardianAnswerEvacuationProgress {
+  questionId: 'evacuation_progress'
+  answer: GuardianAnswerBody
+  sources: EvacuationProgressEvidence[]
+  refusalReason: null
+}
+
+export interface GuardianAnswerHelpRequest {
+  questionId: 'help_request'
+  answer: GuardianAnswerBody
+  sources: HelpRequestEvidence[]
+  refusalReason: null
+}
+
+export interface GuardianAnswerArrivalStatus {
+  questionId: 'arrival_status'
+  answer: GuardianAnswerBody
+  sources: ArrivalStatusEvidence[]
+  refusalReason: null
+}
+
+// The only refusal shape. `answer: null` + `sources: []` is a definitive
+// "nothing to cite" signal, not an error (openapi.yaml GuardianAnswerRefused).
+export interface GuardianAnswerRefused {
+  questionId: GuardianQuestionId
+  answer: null
+  sources: []
+  refusalReason: 'no_evidence'
+}
+
+// Delivered-or-refused, nothing in between — enforced by this union, mirroring
+// the spec's oneOf (openapi.yaml GuardianAnswer).
+export type GuardianAnswer =
+  | GuardianAnswerEvacuationProgress
+  | GuardianAnswerHelpRequest
+  | GuardianAnswerArrivalStatus
+  | GuardianAnswerRefused
 
 // v0.3: Error.code is now a fixed enum (was free-form string).
 export interface Error {
@@ -318,11 +514,12 @@ export interface Error {
 
 // ---- API entrypoint signatures ----------------------------------------
 //
-// v0.3 endpoint set (see packages/contracts/openapi.yaml paths). Method
+// v0.9 endpoint set (see packages/contracts/openapi.yaml paths). Method
 // names mirror the spec's `operationId`. The contract file is the single
 // source of truth — keep these signatures and the spec in lockstep.
 //   GET    /v1/session/{token}                       → getSession
 //   POST   /v1/session/{token}/response              → postSessionResponse
+//   POST   /v1/session/{token}/events                → postSessionEvent
 //   GET    /v1/registration/{registrationToken}      → getRegistrationTarget
 //   POST   /v1/shelters/search                       → searchShelters
 //   POST   /v1/chat                                  → postChat
@@ -330,8 +527,14 @@ export interface Error {
 //   DELETE /v1/devices                               → unregisterDevice
 //   GET    /v1/guardian/{token}                      → getGuardianStatus
 //   POST   /v1/guardian/{token}/acknowledge          → postGuardianAcknowledge
-// (`POST /v1/generate` operationId `postGenerate` is the backend↔ai-engine
-// internal segment and is intentionally not on the browser-facing client.)
+//   POST   /v1/guardian/{token}/device                → registerGuardianDevice
+//   DELETE /v1/guardian/{token}/device                → unregisterGuardianDevice
+//   POST   /v1/guardian/{token}/ask                   → postGuardianAsk
+// (`POST /v1/generate` / `POST /v1/answer` / `POST /v1/guardian/answer`
+// (operationIds `postGenerate` / `postAnswer` / `postGuardianAnswer`) and
+// `GET /internal/sessions/{token}/events` (`getSessionEvents`) are
+// backend↔ai-engine / backend-internal only and are intentionally not on
+// the browser-facing client.)
 
 export interface ApiClient {
   getSession(token: string): Promise<SessionResponse>
@@ -339,6 +542,15 @@ export interface ApiClient {
     token: string,
     response: 'home' | 'outside',
   ): Promise<Ack>
+  // Idempotency-Key is a required header per the contract (16-128 chars);
+  // callers pass it explicitly rather than have the client invent one, since
+  // only the caller knows whether this is a fresh user action or a retry of
+  // the same one (openapi.yaml POST /v1/session/{token}/events).
+  postSessionEvent(
+    token: string,
+    event: UserActionEventCreate,
+    idempotencyKey: string,
+  ): Promise<RecordedUserActionEvent>
   getRegistrationTarget(registrationToken: string): Promise<RegistrationTarget>
   searchShelters(req: ShelterSearchRequest): Promise<ShelterList>
   postChat(req: ChatRequest): Promise<ChatResponse>
@@ -349,6 +561,18 @@ export interface ApiClient {
   ): Promise<Ack>
   getGuardianStatus(token: string): Promise<GuardianStatus>
   postGuardianAcknowledge(token: string): Promise<Ack>
+  // Renewal path for a guardian's push subscription — see
+  // GuardianDeviceRegisterRequest for why this takes no role/registrationToken.
+  registerGuardianDevice(
+    token: string,
+    req: GuardianDeviceRegisterRequest,
+  ): Promise<Ack>
+  unregisterGuardianDevice(
+    token: string,
+    req: GuardianDeviceRegisterRequest,
+  ): Promise<Ack>
+  // Closed-set recommended question only — no free-text question path exists.
+  postGuardianAsk(token: string, req: GuardianAskRequest): Promise<GuardianAnswer>
 }
 
 // ---- Frontend-only consent flags (NOT in the API contract) --------------
