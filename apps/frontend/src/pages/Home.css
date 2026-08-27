@@ -152,13 +152,6 @@
   }
 }
 
-/* --------------------------------------------------------- privacy bar */
-.home-privacy-wrap {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 24px 56px;
-}
-
 /* ------------------------------------------------------------ promises */
 .home-promises {
   max-width: 1200px;
@@ -196,22 +189,6 @@
 @media (max-width: 760px) {
   .home-promises-grid {
     grid-template-columns: 1fr;
-  }
-}
-
-.home-privacy-bar {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  background: var(--h-card);
-  border: 1px solid var(--h-line);
-  border-radius: 14px;
-  padding: 16px 20px;
-}
-
-@media (max-width: 560px) {
-  .home-privacy-bar {
-    flex-wrap: wrap;
   }
 }
 

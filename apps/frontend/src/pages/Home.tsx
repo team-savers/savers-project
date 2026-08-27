@@ -8,8 +8,8 @@
 // 색상은 Home.css의 지역 CSS 변수로 한정해 Register/Join/Ops 등
 // lib/tokens.ts를 사용하는 다른 화면에 영향을 주지 않는다.
 //
-// 재사용: useReveal 스크롤 등장 훅, REGISTER_URL 상수·경로, public/logo.png
-// (EvacuationFlow.tsx와 동일한 로고 asset), lib/tokens.ts의 ICON 스타일.
+// 재사용: useReveal 스크롤 등장 훅, REGISTER_URL 상수·경로,
+// 기존 화면과 동일한 SAVERS 로고 asset, lib/tokens.ts의 ICON 스타일.
 //
 // 데이터 의존 없음: api / mocks 를 호출하지 않는 정적 화면이다. 그래서
 // 로딩·실패 상태가 없고, 어떤 상황에서도 빈 화면이 되지 않는다.
@@ -17,6 +17,7 @@
 import { Fragment, useEffect, type ReactElement, type ReactNode } from 'react'
 import { ICON } from '../lib/tokens'
 import heroIllustration from '../assets/home.webp'
+import logoLight from '../assets/logo-mark-light.png'
 import './Home.css'
 
 // ---------------------------------------------------------------------------
@@ -327,7 +328,7 @@ function Header() {
     <header className="home-header">
       <a href="#hero" className="home-header-brand">
         <img
-          src="/logo.png"
+          src={logoLight}
           alt="SAVERS 로고"
           style={{ width: '34px', height: '34px', display: 'block', objectFit: 'contain' }}
         />
@@ -486,7 +487,7 @@ function Footer() {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
             <img
-              src="/logo.png"
+              src={logoLight}
               alt="SAVERS 로고"
               style={{ width: '24px', height: '24px', display: 'block', objectFit: 'contain' }}
             />
@@ -547,22 +548,6 @@ export function Home(): React.ReactElement {
           ))}
         </div>
       </section>
-
-      {/* ===================== 개인정보 안내 ===================== */}
-      <div className="home-privacy-wrap">
-        <div className="home-privacy-bar" data-reveal>
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 24 24"
-            style={{ ...ICON, width: 22, height: 22, color: 'var(--h-blue)' }}
-          >
-            <path d="M12 2 4 5v6c0 5.2 3.4 9.4 8 11 4.6-1.6 8-5.8 8-11V5Z" />
-          </svg>
-          <span style={{ fontSize: '15px', color: 'var(--h-text)' }}>
-            SAVERS는 안전 지원에 필요한 최소 정보만 사용합니다.
-          </span>
-        </div>
-      </div>
 
       {/* ===================== 서비스 원칙 ===================== */}
       <section className="home-promises" aria-labelledby="promises-title">
