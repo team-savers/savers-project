@@ -110,6 +110,9 @@ export type ErrorCode =
   | 'SESSION_NOT_FOUND'
   | 'SESSION_EXPIRED'
   | 'INVALID_REQUEST'
+  // POST /v1/session/{token}/events 전용(409) — 같은 Idempotency-Key를 다른
+  // type/payload로 재사용했을 때.
+  | 'IDEMPOTENCY_KEY_CONFLICT'
   | 'RATE_LIMITED'
   | 'INTERNAL'
   // generation 구간 전용 — 생성 백엔드/벡터 DB 장애(503).
