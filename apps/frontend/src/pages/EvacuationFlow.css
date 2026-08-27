@@ -1,7 +1,7 @@
 .evac-flow{--color-primary:#1877F2;--color-accent:#F8A008;--color-danger:#E5483F;--color-bg:#F8F9FA;--color-surface:#FFFFFF;--color-surface-soft:#EEF3F7;--color-text:#111111;--color-text-muted:#4B5563;--line:#D9E0E7;width:100%;max-width:402px;height:100dvh;min-height:620px;margin:0 auto;overflow:hidden;background:var(--color-bg);color:var(--color-text);font-family:'Pretendard',system-ui,sans-serif;box-shadow:0 0 28px rgba(17,17,17,.08)}
 .evac-header{height:52px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:0 14px;background:var(--color-surface);border-bottom:1px solid var(--line);position:relative;z-index:10}.evac-header strong{font-size:18px;letter-spacing:.04em}.evac-back{min-width:70px;min-height:48px;padding:0;border:0;background:transparent;color:var(--color-primary);font:inherit;font-weight:800;text-align:left;cursor:pointer}.evac-back.is-hidden{visibility:hidden}.evac-content{height:calc(100dvh - 52px);min-height:568px;overflow-y:auto;overscroll-behavior:contain}
-.evac-step{position:relative;box-sizing:border-box;min-height:100%;display:flex;flex-direction:column;padding:18px 16px 64px}.evac-step h1{font-size:29px;line-height:1.28;letter-spacing:-.035em;margin:0 0 8px}.evac-step h1 em{color:var(--color-danger);font-style:normal}.evac-step h1 em.blue{color:var(--color-primary)}.evac-lead{margin:0 0 14px;color:var(--color-text-muted);font-size:17px;line-height:1.45}.evac-card{background:var(--color-surface);border:1px solid var(--line);border-radius:17px;box-shadow:0 6px 18px rgba(17,17,17,.06);font-size:17px}.evac-footer{width:100%;margin-top:20px;flex:none}.evac-primary{width:100%;min-height:52px;display:flex;align-items:center;justify-content:center;border:0;border-radius:14px;background:var(--color-primary);color:#fff;font:inherit;font-size:18px;font-weight:850;text-decoration:none;cursor:pointer}.evac-secondary{width:100%;min-height:50px;margin-top:8px;border:2px solid var(--color-primary);border-radius:14px;background:var(--color-surface);color:var(--color-primary);font:inherit;font-size:18px;font-weight:800;cursor:pointer}.evac-footer>.evac-secondary:first-child{margin-top:0}.evac-primary:focus-visible,.evac-secondary:focus-visible,.evac-choice:focus-visible,.evac-back:focus-visible{outline:3px solid var(--color-accent);outline-offset:3px}.evac-footnote{position:absolute;right:16px;bottom:12px;left:16px;min-height:36px;text-align:center;color:var(--color-text-muted);font-size:13px;line-height:1.4;margin:0}
-.evac-alert-step{text-align:center;align-items:stretch}.evac-alert-icon{width:112px;height:112px;margin:8px auto 16px;display:grid;place-items:center;border-radius:50%;background:var(--color-danger);color:#fff;font-size:58px;font-weight:900;box-shadow:0 0 0 13px rgba(229,72,63,.08)}.evac-kicker{margin:0 0 8px;color:var(--color-danger);font-size:18px;font-weight:850}.evac-alert-step h1{font-size:31px}.evac-notice{display:flex;align-items:center;gap:13px;padding:14px;text-align:left}.evac-notice>span{width:40px;height:40px;display:grid;place-items:center;border-radius:50%;background:var(--color-surface-soft);font-size:21px}.evac-notice strong,.evac-notice small{display:block}.evac-notice strong{font-size:17px}.evac-notice small{margin-top:4px;color:var(--color-text-muted);font-size:13px}
+.evac-step{position:relative;box-sizing:border-box;min-height:100%;display:flex;flex-direction:column;padding:18px 16px 64px}.evac-step h1{font-size:29px;line-height:1.28;letter-spacing:-.035em;margin:0 0 8px}.evac-step h1 em{color:var(--color-danger);font-style:normal}.evac-step h1 em.blue{color:var(--color-primary)}.evac-lead{margin:0 0 14px;color:var(--color-text-muted);font-size:17px;line-height:1.45}.evac-card{background:var(--color-surface);border:1px solid var(--line);border-radius:17px;box-shadow:0 6px 18px rgba(17,17,17,.06);font-size:17px}.evac-footer{width:100%;margin-top:20px;flex:none}.evac-primary{width:100%;min-height:52px;display:flex;align-items:center;justify-content:center;border:0;border-radius:14px;background:var(--color-primary);color:#fff;font:inherit;font-size:18px;font-weight:850;text-decoration:none;cursor:pointer}.evac-secondary{width:100%;min-height:50px;margin-top:8px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;border:2px solid var(--color-primary);border-radius:14px;background:var(--color-surface);color:var(--color-primary);font:inherit;font-size:18px;font-weight:800;text-decoration:none;cursor:pointer}.evac-footer>.evac-secondary:first-child{margin-top:0}.evac-primary:focus-visible,.evac-secondary:focus-visible,.evac-choice:focus-visible,.evac-back:focus-visible{outline:3px solid var(--color-accent);outline-offset:3px}.evac-footnote{position:absolute;right:16px;bottom:12px;left:16px;min-height:36px;text-align:center;color:var(--color-text-muted);font-size:13px;line-height:1.4;margin:0}
+.evac-alert-step{text-align:center;align-items:stretch}.evac-kicker{margin:0 0 8px;color:var(--color-danger);font-size:18px;font-weight:850}.evac-alert-step h1{font-size:31px}.evac-notice{display:flex;align-items:center;gap:13px;padding:14px;text-align:left}.evac-notice>span{width:40px;height:40px;display:grid;place-items:center;border-radius:50%;background:var(--color-surface-soft);font-size:21px}.evac-notice strong,.evac-notice small{display:block}.evac-notice strong{font-size:17px}.evac-notice small{margin-top:4px;color:var(--color-text-muted);font-size:13px}
 .evac-profile{padding:18px}.evac-status{display:block;margin-bottom:14px;padding:9px 11px;border-radius:10px;background:var(--color-surface-soft);color:var(--color-primary);font-weight:800}.evac-profile dl{margin:0}.evac-profile dl div{display:grid;grid-template-columns:90px 1fr;gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}.evac-profile dl div:last-child{border:0}.evac-profile dt{color:var(--color-text-muted)}.evac-profile dd{margin:0;font-weight:750}.evac-profile label{display:grid;gap:8px;margin-bottom:16px;font-weight:800}.evac-profile input,.evac-profile select{min-height:50px;padding:0 12px;border:1px solid var(--line);border-radius:11px;background:#fff;color:var(--color-text);font:inherit}
 .evac-choice-list{display:grid;gap:13px}.evac-choice{width:100%;min-height:94px;display:grid;grid-template-columns:54px 1fr auto;align-items:center;gap:13px;padding:15px;text-align:left;color:var(--color-text);font:inherit;cursor:pointer}.evac-choice.selected{border:2px solid var(--color-primary)}.evac-choice-icon{width:50px;height:50px;display:grid;place-items:center;border-radius:50%;background:var(--color-surface-soft);font-size:26px}.evac-choice-icon.accent{background:#FFF4DB}.evac-choice strong,.evac-choice small{display:block}.evac-choice strong{font-size:19px}.evac-choice small{margin-top:5px;color:var(--color-text-muted);font-size:14px;line-height:1.35}.evac-choice>b{font-size:30px;color:var(--color-text-muted)}
 .evac-success{align-items:center;text-align:center;padding-top:48px}.evac-check{width:92px;height:92px;display:grid;place-items:center;margin-bottom:24px;border-radius:50%;background:var(--color-accent);color:#fff;font-size:54px;font-weight:900;box-shadow:0 10px 28px rgba(248,160,8,.25)}.evac-success>p{max-width:310px;margin:0;color:var(--color-text-muted);font-size:17px;line-height:1.55}.evac-success .evac-actions{width:100%}.evac-user-confirmed{width:100%;margin-top:24px;padding:16px;text-align:left}.evac-user-confirmed strong,.evac-user-confirmed span{display:block}.evac-user-confirmed span{margin-top:5px;color:var(--color-text-muted);font-size:15px}
@@ -11,7 +11,7 @@
 
 /* Compact app-screen proportions: preserve readable controls while reducing
    accumulated page whitespace and reserving one stable footer zone. */
-.evac-alert-icon{width:104px;height:104px;margin:6px auto 13px;font-size:54px;box-shadow:0 0 0 11px rgba(229,72,63,.08)}
+.evac-alert-icon{width:104px;height:104px;margin:6px auto 13px;display:grid;place-items:center;border-radius:50%;background:var(--color-danger);color:#fff;font-size:54px;font-weight:900;box-shadow:0 0 0 11px rgba(229,72,63,.08)}
 .evac-success{padding-top:18px}
 .evac-check{width:88px;height:88px;margin-bottom:20px;font-size:50px}
 .evac-levels{margin-bottom:12px}
@@ -54,6 +54,16 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
+}
+
+/* HelpRequestStep: two equal-weight contact routes (보호자/119), both
+   .evac-primary, stacked with the same 8px rhythm .evac-secondary already
+   uses elsewhere in this file — scoped to this wrapper only so it doesn't
+   touch .evac-primary's spacing on every other step that has just one. */
+.evac-help-contacts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .evac-success .evac-step-main > p {
@@ -141,32 +151,25 @@
 @media(max-width:370px){.evac-map{height:250px}}
 @media(max-height:680px){.evac-step{padding-top:14px}.evac-alert-icon{width:88px;height:88px;margin-top:2px;font-size:46px}.evac-success{padding-top:22px}.evac-map{height:230px}.evac-footnote{min-height:32px;font-size:12px}}
 
-/* Calm emergency pulse. Transform and opacity do not affect layout. */
-.evac-alert-icon{position:relative;isolation:isolate;transform:translateY(-16px);animation:evac-alert-breathe 2s ease-in-out infinite}
-.evac-alert-icon{
-  position:relative;
-  isolation:isolate;
-
-  /* 느낌표 원 전체를 살짝 위로 */
-  margin-top:-10px;
-
-  animation:evac-alert-breathe 1.8s ease-in-out infinite;
-}
-@keyframes evac-alert-ring{0%{opacity:.3;transform:scale(.94)}70%,100%{opacity:0;transform:scale(1.18)}}
-@keyframes evac-alert-breathe{
-  0%,100%{transform:scale(1)}
-  50%{transform:scale(1.015)}
-}
-/* 긴급 재난 아이콘 위치 */
-.evac-alert-icon-wrap {
-  transform: translateY(-24px);
-}
-
-/* 긴급 재난 아이콘 애니메이션 */
+/* Calm emergency pulse. Transform and opacity do not affect layout.
+   Only position/isolation/margin-top/transform/animation live here — the
+   shape/color/size properties are set once above (before the max-height
+   media query, so that query's own width/height/font-size overrides for
+   short viewports still win there). margin-top alone is re-set (not the
+   whole shorthand) so it doesn't clobber the margin's right/bottom values
+   already in place. */
 .evac-alert-icon {
   position: relative;
   isolation: isolate;
+  /* 느낌표 원 전체를 살짝 위로 */
+  margin-top: -10px;
+  transform: translateY(-16px);
   animation: evac-alert-breathe 1.8s ease-in-out infinite;
+}
+
+/* 긴급 재난 아이콘 위치 */
+.evac-alert-icon-wrap {
+  transform: translateY(-24px);
 }
 
 /* 바깥으로 퍼지는 링 */
@@ -359,6 +362,14 @@
 .evac-flow.is-large-text .evac-footnote {
   font-size: 15px;
   line-height: 1.4;
+}
+
+/* Toggle labels ("글자 크게", "음성 안내") also scale in large-text mode —
+   same ~1.18x this file uses elsewhere, off the 21px base above. The
+   switch graphic itself (.evac-switch/.evac-switch-thumb) and the two
+   labels' shared size/weight are untouched by this rule. */
+.evac-flow.is-large-text .evac-a11y-label {
+  font-size: 25px;
 }
 
 /* Nested text carries its own explicit font-size (e.g. .evac-choice

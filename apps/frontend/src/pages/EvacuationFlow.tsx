@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { mockAlert, mockProfile, mockRoute, mockShelter } from '../mocks/evacuation'
+import { mockAlert, mockGuardian, mockProfile, mockRoute, mockShelter } from '../mocks/evacuation'
 import { speechScripts } from '../mocks/evacuationSpeech'
-import type { ShelterCaution } from '../api/types'
+import type { Guardian, ShelterCaution } from '../api/types'
 import './EvacuationFlow.css'
 
 // v0.9 (ADR-0016): 계약이 정의한 문구가 아니라 화면이 붙이는 라벨이다
@@ -21,7 +21,6 @@ export function EvacuationFlow() {
   const [currentStep, setCurrentStep] = useState<Step>('alert')
   const [preregistered] = useState(mockProfile.preregistered)
   const [selectedAction, setSelectedAction] = useState<Action>(null)
-  const [arrivalConfirmed, setArrivalConfirmed] = useState(false)
   const [largeText, setLargeText] = useState(false)
   const [speechEnabled, setSpeechEnabled] = useState(false)
 
@@ -43,7 +42,6 @@ export function EvacuationFlow() {
   const goHome = () => {
     setCurrentStep('alert')
     setSelectedAction(null)
-    setArrivalConfirmed(false)
   }
 
   const choose = (action: Exclude<Action, null>) => {
@@ -75,10 +73,10 @@ export function EvacuationFlow() {
       )}
       {currentStep === 'profile' && <ProfileInputStep onNext={() => setCurrentStep('choice')} />}
       {currentStep === 'choice' && <ActionChoiceStep selected={selectedAction} onChoose={choose} />}
-      {currentStep === 'help' && <HelpRequestStep onHome={goHome} />}
+      {currentStep === 'help' && <HelpRequestStep guardian={mockGuardian} onHome={goHome} />}
       {currentStep === 'shelter' && <ShelterRecommendationStep onNext={() => setCurrentStep('route')} />}
-      {currentStep === 'route' && <RouteGuidanceStep onArrival={() => { setArrivalConfirmed(true); setCurrentStep('arrival') }} />}
-      {currentStep === 'arrival' && <ArrivalCompleteStep confirmed={arrivalConfirmed} onHome={goHome} />}
+      {currentStep === 'route' && <RouteGuidanceStep onArrival={() => setCurrentStep('arrival')} />}
+      {currentStep === 'arrival' && <ArrivalCompleteStep onHome={goHome} />}
     </MobileFlowLayout>
   )
 }
@@ -241,7 +239,6 @@ function ProfileInputStep({ onNext }: { onNext: () => void }) {
               <option value="">선택하지 않음</option>
               <option value="female">여성</option>
               <option value="male">남성</option>
-              <option value="other">기타</option>
             </select>
           </label>
         </div>
@@ -278,11 +275,11 @@ function ActionChoiceStep({
             onClick={() => onChoose('help')}
           >
             <span className="evac-choice-icon accent" aria-hidden="true">
-              🛟
+              🤝
             </span>
             <span>
               <strong>도움이 필요해요</strong>
-              <small>선택한 사실을 표시하고 119 연결을 안내합니다</small>
+              <small>보호자 또는 119에 연락할 수 있도록 안내합니다</small>
             </span>
             <b aria-hidden="true">›</b>
           </button>
@@ -310,8 +307,40 @@ function ActionChoiceStep({
   )
 }
 
-function HelpRequestStep({ onHome }: { onHome: () => void }) {
-  return <section className="evac-step evac-step-centered evac-success"><div className="evac-content-group"><div className="evac-step-main"><div className="evac-check">✓</div><h1>도움이 필요하다고<br /><em>표시했습니다.</em></h1><p>긴급한 상황이라면 119에 바로 연락해주세요.</p></div><StepFooter><a className="evac-primary" href="tel:119">☎ 119 전화하기</a><button className="evac-secondary" type="button" onClick={onHome}>처음으로</button></StepFooter></div></section>
+function HelpRequestStep({
+  guardian,
+  onHome,
+}: {
+  guardian: Guardian | null
+  onHome: () => void
+}) {
+  // Guardian.phone is a required contract field, but a defensively-empty
+  // string should hide the button the same way a null guardian does —
+  // never render it disabled.
+  const guardianPhone = guardian !== null && guardian.phone.trim() !== '' ? guardian.phone : null
+  return (
+    <section className="evac-step evac-step-centered evac-success">
+      <div className="evac-content-group">
+        <div className="evac-step-main">
+          <div className="evac-check">✓</div>
+          <h1>어떤 도움이 필요하세요?</h1>
+          <p>연락할 곳을 선택해주세요.</p>
+        </div>
+        <StepFooter>
+          {/* Both contact routes carry equal weight — neither is the
+              "more correct" one, so both render as the same blue primary
+              button. Only 처음으로 below stays the outline secondary. */}
+          <div className="evac-help-contacts">
+            {guardianPhone !== null && (
+              <a className="evac-primary" href={`tel:${guardianPhone}`}>👤 보호자에게 연락하기</a>
+            )}
+            <a className="evac-primary" href="tel:119">🚨 119에 연락하기</a>
+          </div>
+          <button className="evac-secondary" type="button" onClick={onHome}>처음으로</button>
+        </StepFooter>
+      </div>
+    </section>
+  )
 }
 
 function EvacuationLevels() { return <div className="evac-levels" aria-label="대피 단계"><div><i />상황 주시<small>정보 확인</small></div><div><i />대피 준비<small>용품 준비</small></div><div className="active"><i />즉시 대피<small>현재 단계</small></div></div> }
@@ -469,6 +498,6 @@ function RouteGuidanceStep({
   )
 }
 
-function ArrivalCompleteStep({ confirmed, onHome }: { confirmed: boolean; onHome: () => void }) {
-  return <section className="evac-step evac-step-centered evac-success"><div className="evac-content-group"><div className="evac-step-main"><div className="evac-check">✓</div><h1>{confirmed ? '도착 완료로' : '도착 상태를'}<br /><em>표시했습니다.</em></h1><p>필요한 경우 재난문자와 공식 안내를 계속 확인해주세요.</p><div className="evac-card evac-user-confirmed"><strong>사용자가 직접 누른 기록</strong><span>GPS로 도착을 판정하지 않았습니다.</span></div></div><StepFooter><button className="evac-secondary" type="button" onClick={onHome}>처음으로</button></StepFooter></div></section>
+function ArrivalCompleteStep({ onHome }: { onHome: () => void }) {
+  return <section className="evac-step evac-step-centered evac-success"><div className="evac-content-group"><div className="evac-step-main"><div className="evac-check">✓</div><h1>도착 완료로<br /><em>표시했습니다.</em></h1><p>필요한 경우 재난문자와 공식 안내를 계속 확인해주세요.</p><div className="evac-card evac-user-confirmed"><strong>사용자가 직접 누른 기록</strong><span>GPS로 도착을 판정하지 않았습니다.</span></div></div><StepFooter><button className="evac-secondary" type="button" onClick={onHome}>처음으로</button></StepFooter></div></section>
 }

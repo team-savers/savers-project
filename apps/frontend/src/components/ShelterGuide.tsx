@@ -165,6 +165,20 @@ const CAUTION_LABEL_KEY: Record<ShelterCaution, StringKey> = {
   over_time: 'shelter.caution.overTime',
 }
 
+// Defensive guard against a caution value the FE has not been updated for
+// yet. `Shelter.cautions` is typed ShelterCaution[] at compile time, but
+// that is only a claim about the JSON the server sends — a future server
+// build could add a third caution value ahead of this file's next deploy,
+// and indexing straight into CAUTION_LABEL_KEY with it would render
+// `undefined` (or blow up t() on an unknown key) for the WHOLE list. Takes
+// `string` rather than ShelterCaution on purpose so it actually narrows an
+// unverified runtime value instead of trusting the compile-time type. An
+// unrecognized value is skipped, not guessed at — the rest of the shelter
+// card and its other cautions still render normally.
+function isKnownCaution(value: string): value is ShelterCaution {
+  return value === 'stairs' || value === 'over_time'
+}
+
 const cautionChip: CSSProperties = {
   padding: '5px 10px',
   borderRadius: '8px',
@@ -841,6 +855,9 @@ function ShelterListView(props: {
           // Bearing label is language-aware; null when the contract carries
           // no bearing for this shelter.
           const dirText = s.bearing != null ? bearingLabel(s.bearing, lang) : null
+          // See isKnownCaution above — filters out any caution value this
+          // build doesn't recognize instead of rendering it blind.
+          const knownCautions = s.cautions.filter(isKnownCaution)
           return (
             <li
               key={s.id}
@@ -919,7 +936,7 @@ function ShelterListView(props: {
               {/* v0.9 (ADR-0016): 요청자 기준 주의는 서버가 판정해 내려준
                   `s.cautions`가 권위다 — hasStairs를 다시 판정하지 않는다.
                   `cautions: []`면 아무것도 그리지 않는다. */}
-              {s.cautions.length > 0 && (
+              {knownCautions.length > 0 && (
                 <div
                   style={{
                     display: 'flex',
@@ -928,7 +945,7 @@ function ShelterListView(props: {
                     marginTop: '11px',
                   }}
                 >
-                  {s.cautions.map((caution) => (
+                  {knownCautions.map((caution) => (
                     <span key={caution} style={cautionChip}>
                       {t(CAUTION_LABEL_KEY[caution], lang)}
                     </span>

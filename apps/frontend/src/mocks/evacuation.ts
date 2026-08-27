@@ -1,4 +1,4 @@
-import type { ShelterCaution } from '../api/types'
+import type { Guardian, ShelterCaution } from '../api/types'
 
 export const mockAlert = {
   area: '관악구',
@@ -36,6 +36,19 @@ export const mockShelter = {
   recommendationDeadline: '21:35',
   minutesRemaining: 23,
 } as const
+
+// v0.9: HelpRequestStep offers a guardian contact button alongside 119,
+// same as the real Profile.guardian contract (Guardian: name/relation/
+// phone, null = no guardian). This demo reuses an existing guardian
+// example already used in mocks/profiles.ts (이영희 · 딸 ·
+// 010-0000-0001) instead of inventing new demo data. `null` here would
+// mean "no guardian" and HelpRequestStep hides the guardian button in
+// that case — this demo profile has one, so both contact buttons show.
+export const mockGuardian: Guardian | null = {
+  name: '이영희',
+  phone: '010-0000-0001',
+  relation: '딸',
+}
 
 export const mockRoute = {
   blockedSegments: 3,
