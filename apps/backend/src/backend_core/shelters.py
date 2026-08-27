@@ -120,18 +120,28 @@ class CachedShelterSource:
         return [r for r in self._records if r.dong_code == dong_code]
 
 
-def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> int:
-    """Straight-line distance in metres.
+def haversine_raw_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Straight-line distance in metres, unrounded.
 
-    Walking distance needs a routing API (카카오맵/TMAP) and is a separate field when it
-    lands — reporting a straight line as if it were a walking route would understate how
-    far someone actually has to move.
+    `over_time` 판정(도달 시간 = 거리 / 속도)은 이 원거리로 한다 — 표시용으로 반올림한
+    정수를 나누면 경계 근처에서 반올림 오차가 판정을 뒤집는다(정수화는 응답의 `distance_m`
+    표시에만 쓴다).
     """
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     d_phi = phi2 - phi1
     d_lambda = math.radians(lng2 - lng1)
     a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
-    return round(2 * _EARTH_RADIUS_M * math.asin(math.sqrt(a)))
+    return 2 * _EARTH_RADIUS_M * math.asin(math.sqrt(a))
+
+
+def haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> int:
+    """Straight-line distance in metres, rounded for display.
+
+    Walking distance needs a routing API (카카오맵/TMAP) and is a separate field when it
+    lands — reporting a straight line as if it were a walking route would understate how
+    far someone actually has to move.
+    """
+    return round(haversine_raw_m(lat1, lng1, lat2, lng2))
 
 
 def bearing_of(lat1: float, lng1: float, lat2: float, lng2: float) -> str:
@@ -216,7 +226,10 @@ class ShelterRepository:
 
         items = []
         for r in kept:
-            distance_m = haversine_m(origin[0], origin[1], r.lat, r.lng)
+            # 원거리(부동소수점)로 도달 시간을 판정하고, 응답의 distance_m은 그것을 반올림한다 —
+            # 반올림한 정수를 나눠 판정하면 경계 근처에서 오차가 over_time을 뒤집는다.
+            raw_distance_m = haversine_raw_m(origin[0], origin[1], r.lat, r.lng)
+            distance_m = round(raw_distance_m)
             items.append(
                 Shelter(
                     id=r.id,
@@ -230,7 +243,7 @@ class ShelterRepository:
                     has_stairs=r.has_stairs,
                     capacity=r.capacity,
                     cautions=self._cautions_for(
-                        distance_m=distance_m,
+                        reach_distance_m=raw_distance_m,
                         has_stairs=r.has_stairs,
                         stairs_ok=stairs_ok,
                         mobility=mobility,
@@ -262,7 +275,7 @@ class ShelterRepository:
     def _cautions_for(
         self,
         *,
-        distance_m: int,
+        reach_distance_m: float,
         has_stairs: bool,
         stairs_ok: bool,
         mobility: str,
@@ -273,6 +286,9 @@ class ShelterRepository:
         `cautions` never drops a candidate: a stepped shelter may be the only option a
         district has, and deleting it removes that choice entirely (ADR-0016). The
         response-only values are derived from the coordinate/distance and then discarded.
+
+        `reach_distance_m`은 반올림 전 원거리다 — 도달 시간 판정은 표시용 정수가 아니라
+        실거리로 해야 경계에서 반올림이 결과를 바꾸지 않는다.
         """
         cautions: list[Caution] = []
 
@@ -285,7 +301,7 @@ class ShelterRepository:
         # 대피소들의 평균 좌표(플레이스홀더)라 거리가 추정값이고, 추정값에 시간 초과를
         # 선언하면 없는 사실을 만든다. 경계(도달 시간 == 기준)는 통과라 붙지 않는다.
         if basis == "coordinate":
-            reach_time_s = distance_m / self._walk_speed_mps[mobility]
+            reach_time_s = reach_distance_m / self._walk_speed_mps[mobility]
             if reach_time_s > self._evac_time_limit_s:
                 cautions.append("over_time")
 

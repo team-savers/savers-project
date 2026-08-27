@@ -1,5 +1,6 @@
 """Shelter safety filtering, per-requester cautions, ranking and honest degradation."""
 
+import math
 from datetime import UTC, datetime
 
 import pytest
@@ -15,6 +16,7 @@ from backend_core.shelters import (
     UnavailableShelterSource,
     bearing_of,
     haversine_m,
+    haversine_raw_m,
 )
 
 DONG = "1162064500"
@@ -316,32 +318,56 @@ def test_over_time_never_attaches_on_dong_code_basis() -> None:
     assert all(s.cautions == [] for s in result.items)
 
 
-def test_over_time_boundary_is_not_attached() -> None:
-    """경계(도달 시간 == 기준 시간)는 통과다 — 초과가 아니므로 붙지 않는다."""
-    distance = haversine_m(ORIGIN[0], ORIGIN[1], POINT_500M[0], POINT_500M[1])
+def test_over_time_boundary_uses_raw_distance_not_rounded() -> None:
+    """경계 판정은 반올림 전 원거리로 한다 — 표시용 distance_m의 반올림이 판정을 바꾸지 않는다.
+
+    이 좌표쌍은 원거리(≈500.38m)가 표시용 정수(500m)보다 크다. 속도 1.0(ok)이라 도달
+    시간(초) == 원거리(m)이므로, 한계를 원거리 위/아래에 두어 경계 판정을 검증한다.
+    """
+    raw = haversine_raw_m(ORIGIN[0], ORIGIN[1], POINT_500M[0], POINT_500M[1])
+    rounded = haversine_m(ORIGIN[0], ORIGIN[1], POINT_500M[0], POINT_500M[1])
+    assert rounded < raw  # 반올림이 실거리를 내림하는 좌표쌍이라야 이 테스트가 유효하다
     record = _record(id="edge", lat=POINT_500M[0], lng=POINT_500M[1])
+    common = {
+        "dong_code": DONG,
+        "disaster_type": "flood",
+        "hazard": "inside",
+        "stairs_ok": True,
+        "mobility": "ok",  # 속도 1.0 → 도달 시간(초) == 원거리(m)
+        "lat": ORIGIN[0],
+        "lng": ORIGIN[1],
+    }
 
-    at_limit = _repo([record], evac_time_limit_s=distance).search(
+    # 원거리를 막 넘는 한계(원거리보다 큰 첫 정수)는 통과 — 초과가 아니다.
+    above = _repo([record], evac_time_limit_s=math.ceil(raw)).search(**common)
+    assert above.items[0].cautions == []
+
+    # 표시용 반올림 거리를 한계로 두면 실거리가 그보다 크므로 over_time이 붙는다 —
+    # 반올림된 거리로 판정하던 예전 코드는 여기서 경계로 보고 놓쳤다.
+    at_rounded = _repo([record], evac_time_limit_s=rounded).search(**common)
+    assert at_rounded.items[0].cautions == ["over_time"]
+
+
+def test_over_time_attaches_when_rounding_would_have_passed() -> None:
+    """반올림이 실거리를 한계 안으로 내려앉히던 케이스를, 원거리 판정이 바로잡는다.
+
+    origin(0,0)→대피소(0.00378155742072767, 0)의 원거리는 ≈420.49m. assisted(0.7)로
+    420.49 / 0.7 = 600.7s > 600s 라 over_time이 붙어야 한다. 반올림하면 420m가 되어
+    420 / 0.7 = 600.0s 로 경계가 되고, 예전 코드는 이를 통과로 판정했다(버그).
+    """
+    record = _record(id="edge", lat=0.00378155742072767, lng=0.0)
+    result = _repo([record], evac_time_limit_s=600).search(
         dong_code=DONG,
         disaster_type="flood",
         hazard="inside",
         stairs_ok=True,
-        mobility="ok",  # 속도 1.0 → 도달 시간(초) == 거리(m)
-        lat=ORIGIN[0],
-        lng=ORIGIN[1],
+        mobility="assisted",  # 0.7 m/s → 420.49/0.7 = 600.7s
+        lat=0.0,
+        lng=0.0,
     )
-    assert at_limit.items[0].cautions == []
-
-    one_below = _repo([record], evac_time_limit_s=distance - 1).search(
-        dong_code=DONG,
-        disaster_type="flood",
-        hazard="inside",
-        stairs_ok=True,
-        mobility="ok",
-        lat=ORIGIN[0],
-        lng=ORIGIN[1],
-    )
-    assert one_below.items[0].cautions == ["over_time"]
+    assert result.items[0].cautions == ["over_time"]
+    # 표시용 distance_m은 여전히 반올림 정수로 나간다(판정만 원거리로 한다).
+    assert result.items[0].distance_m == 420
 
 
 def test_over_time_speed_boundary_between_ok_and_assisted() -> None:
