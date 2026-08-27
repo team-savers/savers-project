@@ -11,8 +11,9 @@
   끝점을 최초 접수 `push_accepted` 로 좁혀 계측과 벌어지는 자리를 후속 조치로 배정.
   같은 날 3차로 결정 절과 결과 절에 남아 있던 옛 전제 넷을 정리했다 -
   "측정 방식은 바꾸지 않는다", "둘 다 계약 이벤트", "표본은 발송 시도 전건",
-  "이벤트 로그가 그대로 M1의 입력". 셋 다
-  [PR 153](https://github.com/team-savers/savers-project/pull/153) 리뷰)
+  "이벤트 로그가 그대로 M1의 입력".
+  2026-08-27 전 기기 미접수 세션을 표본에서 빼는 근거를 속도에서 끝점 부재로 바꿨다 -
+  넷 다 [PR 153](https://github.com/team-savers/savers-project/pull/153) 리뷰)
 - **결정자**: 신호정 (Tech Lead) 작성 /
   안은남 (PM) 확인 ([PR 110](https://github.com/team-savers/savers-project/pull/110) 승인).
   김도혁 (Backend) 은 같은 PR 에 코멘트만 남겨 승인 리뷰가 없다 - 위 상태 절 참고
@@ -162,7 +163,13 @@ M1 문구를 **코드가 실제로 보장하는 것**에 맞춘다.
   **다만 표본이 발송 시도 전건은 아니다** -
   한 대라도 접수된 세션만 들어가고, 전 기기 미접수 세션은 빠진다
   (`AlertRun.latencies_ms`의 `devices_notified > 0` 필터, `pipeline.py` 120행).
-  실패 발송은 실제 네트워크를 타지 않아 빠르므로, 넣으면 p95가 좋아 보이는 쪽으로 왜곡된다.
+  **빼는 이유는 그 세션에 끝점이 없기 때문이다** -
+  M1의 끝점은 `push_accepted`인데 전 기기 미접수 세션에는 그 이벤트가 남지 않으므로,
+  접수까지의 시간 자체가 정의되지 않는다.
+  속도 표본에서만 빠지는 것이고 `Delivery`로는 남으므로 도달률 보고에는 그대로 든다.
+  "실패 발송은 빨라서 p95를 좋게 만든다"는 속도 근거는 쓰지 않는다 -
+  `RecordingDispatcher`에만 맞는 말이고, `FcmDispatcher.send()`는 `messaging.send()` 뒤
+  `UnregisteredError`/`SenderIdMismatchError`에서 `False`를 돌려주므로 미접수도 실 네트워크를 탄다.
   단말이 오프라인이라 이벤트를 못 보내 표본에서 조용히 빠지는 2안의 결손과는 다르다 -
   이쪽은 서버가 접수 결과를 알고 명시적으로 뺀다.
 - 지표 전용 계측을 따로 만들지 않는다.
@@ -195,6 +202,7 @@ M1 문구를 **코드가 실제로 보장하는 것**에 맞춘다.
 | `Delivery.latency_ms` 계산 시점을 첫 `push_accepted` 시각으로 옮긴다 (`pipeline.py` 307행). 지금은 그 수신자의 기기 루프가 끝난 뒤라 다중 ward 기기에서만 정의와 벌어진다 | Backend | 대기, PR #153 리뷰 |
 | `run_latency_eval.py`의 표본을 `devicesNotified > 0`으로 좁혀 Backend `AlertRun.latencies_ms`와 같은 기준으로 맞춘다. 지금은 `deliveries` 전건을 담아 전 기기 실패 세션이 eval p95만 낮춘다. 응답 스키마에 `devicesNotified`가 이미 있다 | AI/RAG | 대기, PR #153 리뷰 |
 | M1 정의를 잠그는 테스트 - ward 기기 1대, 여러 대(첫 접수 기준인지), 전건 실패(속도 표본에서 빠지는지). Backend p95와 eval p95가 같은 입력에서 같은 값인지도 함께 | Backend | 대기, PR #153 리뷰 |
+| `pipeline.py` `latencies_ms` 주석(117 ~ 119행)의 "실패 send는 실제 네트워크가 없어 빠르므로" 정정. `FcmDispatcher.send()`는 `messaging.send()` 뒤 `UnregisteredError`/`SenderIdMismatchError`에서 `False`를 돌려주므로 미접수도 실 네트워크를 탄다. 제외 근거는 속도가 아니라 **끝점 부재**다 - 필터 자체는 그대로 둔다 | Backend | 대기, PR #153 리뷰 |
 | `test_pipeline.py` 250행 docstring "KPI 기산점은 특보 발표 시각이다" 정정. 단언 자체(`record.issued_at == event.issued_at`)는 옳다 - 세션이 특보 발효 시각을 그대로 지니는지 보는 테스트이고, 기산점 문장만 어긋난다 | Backend | 대기, PR #153 리뷰 |
 | 보호자 골든셋 40건에서 "전달" 표현 점검 | AI/RAG | 대기 |
 | 역할_일정의 "실기기 도달" 표현 | - | **손대지 않는다.** 그쪽은 8/22 수동 증빙 과제를 가리키며 지표 정의가 아니다 |
