@@ -26,9 +26,11 @@
 // Contract notes (POST /v1/shelters/search):
 //   - sessionToken in the body → server looks up stairsOk / disaster context
 //     internally. Health/disability fields are NEVER re-sent from the client.
-//   - The server is the single authority on which shelters to exclude
-//     (underground, closed, unreachable). The client renders `items` verbatim
-//     and only reorders for stairsOk.
+//   - v0.9 (ADR-0016): the server is the single authority on both exclusion
+//     (underground, closed, unreachable) AND order — it judges stairsOk fit
+//     into `Shelter.cautions` and returns the final order (주의 없는 것
+//     먼저, 그 안에서 가까운 순). The client renders `items` verbatim; no
+//     client-side re-sort.
 //   - availability carries the freshness/outage axis: cache_only and the
 //     upstream-outage value are normal 200 responses — the response body is
 //     served from cache or the upstream was unreachable. The client must
@@ -39,8 +41,9 @@
 //   - `dataAsOf !== null` means cached/stale data — disclose it honestly.
 //
 // Display rules preserved:
-//   - stairsOk: false on the profile → hasStairs:true shelters sink to the
-//     bottom while remaining visible.
+//   - stairsOk: false on the profile → the server's own order already sinks
+//     hasStairs-cautioned shelters toward the bottom; the client does not
+//     recompute this.
 //   - basis === 'dongCode' → the registered-home wording; never imply
 //     current location in this mode.
 //   - The shelter list is collapsed by default. Each list item with lat/lng
@@ -74,6 +77,7 @@ import type {
   Language,
   Profile,
   Shelter,
+  ShelterCaution,
   ShelterExclusion,
   ShelterList,
 } from '../api/types'
@@ -85,6 +89,7 @@ import {
   KoreanSpan,
   t,
 } from '../lib/i18n'
+import type { StringKey } from '../lib/i18n'
 import { LocationConsent } from './LocationConsent'
 import { ShelterMap } from './ShelterMap'
 import { C, FONT_MONO, SHADOW_CARD } from '../lib/tokens'
@@ -147,6 +152,27 @@ function banner(tone: 'info' | 'warn' | 'alert'): CSSProperties {
     letterSpacing: '-.012em',
     textWrap: 'pretty',
   }
+}
+
+// v0.9 (ADR-0016): per-shelter, per-requester caution — "주의"이지 제외나
+// 위험 판정이 아니다. 그래서 위 `alert`(붉음, "제외된 시설")이 아니라
+// `warn`(노랑, "정보는 유효하나 확인이 필요") 톤을 쓴다 — BANNER 위 코멘트가
+// 이미 명시한 색 의미 규칙과 같은 선이다. 카드 안의 작은 chip이지 배너가
+// 아니므로 `banner()`는 재사용하지 않고 같은 세 토큰(C.warnBg/warn/warnText)
+// 만 가져와 작은 pill로 그린다.
+const CAUTION_LABEL_KEY: Record<ShelterCaution, StringKey> = {
+  stairs: 'shelter.caution.stairs',
+  over_time: 'shelter.caution.overTime',
+}
+
+const cautionChip: CSSProperties = {
+  padding: '5px 10px',
+  borderRadius: '8px',
+  background: C.warnBg,
+  border: `1px solid ${C.warn}`,
+  color: C.warnText,
+  fontSize: '14px',
+  fontWeight: 700,
 }
 
 // 목록 아래 토글(지도 / 상세). 아우트라인 테두리는 흰 카드 위에서 3:1 이상
@@ -230,18 +256,17 @@ export function ShelterGuide({
   //   - fromRegistration === true  → 'unknown' (do NOT advise climbing)
   //   - stairsOk === false          → 'blocked'
   //   - otherwise (real profile, stairsOk true) → 'ok'
-  // `stairsState` drives the NextActionNotice copy; `stairsOkBoolean` is the
-  // boolean projection the list-sorting and per-item warning still consume
-  // (the sort keeps stairs shelters last under both 'blocked' and 'unknown' —
-  // under 'unknown' we must not PROMOTE stairs shelters, so we treat the list
-  // conservatively the same as 'blocked' for ordering).
+  // v0.9 (ADR-0016): `stairsState` drives ONLY the NextActionNotice copy now
+  // — the shelter list itself is not re-sorted client-side. The server
+  // judges stairsOk-based per-requester fit and returns `Shelter.cautions`
+  // plus a final order (주의 없는 것 먼저, 그 안에서 가까운 순); the client
+  // renders that order verbatim.
   const fromRegistration = profile?.fromRegistration === true
   const stairsState: 'ok' | 'blocked' | 'unknown' = fromRegistration
     ? 'unknown'
     : profile?.stairsOk === false
       ? 'blocked'
       : 'ok'
-  const stairsOkBoolean = stairsState !== 'ok'
 
   // Permission branch resolved once on mount. Until resolved this is null
   // and we render nothing location-related (the list is fetched regardless).
@@ -574,7 +599,6 @@ export function ShelterGuide({
         <ShelterListView
           result={result}
           lang={lang}
-          stairsOkBoolean={stairsOkBoolean}
           stairsState={stairsState}
           basis={result.response.basis}
           dongName={dongName}
@@ -613,10 +637,8 @@ function headerAfterDong(lang: Language): string {
 function ShelterListView(props: {
   result: Result
   lang: Language
-  // Boolean projection of stairsState for list-sorting and the per-item
-  // stairs warning: true means "treat stairs shelters as discouraged" (covers
-  // both 'blocked' and 'unknown'). The copy decision uses stairsState.
-  stairsOkBoolean: boolean
+  // NextActionNotice copy only (안내 가능한 대피소가 없을 때 다음 행동) —
+  // the shelter list itself no longer reads this. See its definition site.
   stairsState: 'ok' | 'blocked' | 'unknown'
   basis: 'dongCode' | 'coordinate'
   dongName: string
@@ -626,7 +648,6 @@ function ShelterListView(props: {
   const {
     result,
     lang,
-    stairsOkBoolean,
     stairsState,
     basis,
     dongName,
@@ -635,20 +656,16 @@ function ShelterListView(props: {
   } = props
   const { response } = result
 
-  // v0.3: the server is the authority on exclusions. The client renders
-  // `items` verbatim and only reorders for stairsOk. It does NOT filter
-  // isUnderground anymore — the server already excluded those.
+  // v0.9 (ADR-0016): the server is the sole authority on both exclusion and
+  // order — it already judges stairsOk-based per-requester fit and returns
+  // `Shelter.cautions` plus a final order (주의 없는 것 먼저, 그 안에서
+  // 가까운 순). The client renders `response.items` verbatim: no client-side
+  // filter, no client-side re-sort.
   const visible: Shelter[] = response.items
-  const ordered: Shelter[] = stairsOkBoolean
-    ? [...visible].sort((a, b) => a.distanceM - b.distanceM)
-    : [
-        ...visible.filter((s) => !s.hasStairs).sort(byDistance),
-        ...visible.filter((s) => s.hasStairs).sort(byDistance),
-      ]
 
   // 좌표가 있는 대피소만 지도에 표시할 수 있다. 단일 "지도로 모두 보기"
   // 버튼은 이 목록을 한 번에 지도에 그린다.
-  const sheltersWithCoords: Shelter[] = ordered.filter(
+  const sheltersWithCoords: Shelter[] = visible.filter(
     (s) => s.lat !== undefined && s.lng !== undefined,
   )
 
@@ -764,7 +781,7 @@ function ShelterListView(props: {
           it. Items are non-empty under cache_only in the normal case
           (they are usable safety data); this branch only fires when the
           snapshot itself was empty. */}
-      {isCacheOnly && ordered.length === 0 && (
+      {isCacheOnly && visible.length === 0 && (
         <>
           <p
             style={{
@@ -788,7 +805,7 @@ function ShelterListView(props: {
       {!isCacheOnly &&
         !isUpstreamUnavailable &&
         !allExcluded &&
-        ordered.length === 0 && (
+        visible.length === 0 && (
           <>
             <p
               style={{
@@ -815,7 +832,7 @@ function ShelterListView(props: {
           gap: '9px',
         }}
       >
-        {ordered.map((s) => {
+        {visible.map((s) => {
           // Only shelters carrying coords can be expanded — there is nothing
           // to plot on a map otherwise. Such rows render no expand affordance
           // and never become openId.
@@ -824,7 +841,6 @@ function ShelterListView(props: {
           // Bearing label is language-aware; null when the contract carries
           // no bearing for this shelter.
           const dirText = s.bearing != null ? bearingLabel(s.bearing, lang) : null
-          const showStairsWarning = s.hasStairs && stairsOkBoolean
           return (
             <li
               key={s.id}
@@ -900,26 +916,23 @@ function ShelterListView(props: {
                 </div>
               </div>
 
-              {/* 계단 경고. 이전에는 주소 문장 뒤에 " · 계단 있음"으로 붙어
-                  있어 가장 중요한 제약이 문장 중간에 묻혔다. 독립 블록으로
-                  올렸고 문구는 그대로다. */}
-              {showStairsWarning && (
+              {/* v0.9 (ADR-0016): 요청자 기준 주의는 서버가 판정해 내려준
+                  `s.cautions`가 권위다 — hasStairs를 다시 판정하지 않는다.
+                  `cautions: []`면 아무것도 그리지 않는다. */}
+              {s.cautions.length > 0 && (
                 <div
                   style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '6px',
                     marginTop: '11px',
-                    background: C.alertBg,
-                    border: `1px solid ${C.alertBorder}`,
-                    borderRadius: '11px',
-                    padding: '11px 13px',
-                    fontSize: '17px',
-                    fontWeight: 700,
-                    color: C.alertText,
-                    letterSpacing: '-.015em',
-                    lineHeight: 1.5,
-                    textWrap: 'pretty',
                   }}
                 >
-                  {t('shelter.hasStairs', lang)}
+                  {s.cautions.map((caution) => (
+                    <span key={caution} style={cautionChip}>
+                      {t(CAUTION_LABEL_KEY[caution], lang)}
+                    </span>
+                  ))}
                 </div>
               )}
 
@@ -1049,8 +1062,13 @@ function ShelterDetailBlind({
           </>
         )}
       </p>
+      {/* v0.9 (ADR-0016): hasStairs는 시설 속성일 뿐이고 개인 적합성
+          권위가 아니다 — 위험/주의 색을 쓰지 않고 위 문장들과 같은
+          중립색(container의 C.navy 상속)으로 둔다. 이 사용자에게 계단
+          이용 주의가 필요한지는 카드 목록의 cautions chip이 이미
+          표시하므로, 여기서 별도 경고 UI를 새로 만들지 않는다. */}
       {shelter.hasStairs && (
-        <p style={{ margin: 0, fontWeight: 700, color: C.alertText }}>
+        <p style={{ margin: 0, fontWeight: 700 }}>
           {t('shelter.blind.hasStairs', lang)}
         </p>
       )}
@@ -1067,10 +1085,6 @@ function formatExcluded(excluded: ShelterExclusion[], lang: Language): string {
   return parts.length > 0
     ? ` (${parts.join(t('shelter.allExcluded.reasonSeparator', lang))})`
     : ''
-}
-
-function byDistance(a: Shelter, b: Shelter): number {
-  return a.distanceM - b.distanceM
 }
 
 // ---- all_excluded notice ---------------------------------------

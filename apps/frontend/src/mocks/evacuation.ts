@@ -1,3 +1,5 @@
+import type { ShelterCaution } from '../api/types'
+
 export const mockAlert = {
   area: '관악구',
   warning: '호우 경보',
@@ -12,6 +14,17 @@ export const mockProfile = {
   mobility: '계단 이용에 도움이 필요함',
 } as const
 
+// v0.9 (ADR-0016): `cautions`는 실제 계약 `Shelter.cautions`와 같은 값
+// 집합('stairs' | 'over_time')을 쓴다 — 이 화면(/evacuation)은 다른 모든
+// 필드(name/address/type/tags/…)와 마찬가지로 실제 API가 아니라 고정
+// mock 하나를 그리는 자체 완결형 데모라, 이 필드도 같은 성격이다. 다만
+// 실제 계약이 정의한 값 밖의 새 caution 의미를 만들지 않기 위해 타입을
+// api/types.ts에서 그대로 가져와 쓴다.
+//
+// ['stairs'] 하나를 택했다 — mockProfile.mobility가 이미 "계단 이용에
+// 도움이 필요함"이라고 말하고 있어, 이 대피소에 계단 주의가 붙는 쪽이
+// 데모 시나리오 안에서 서로 앞뒤가 맞는다(새로 지어낸 맥락이 아니라 기존
+// mock 서사와 일치시킨 것).
 export const mockShelter = {
   name: '신림중학교 체육관',
   address: '서울 관악구 신림동',
@@ -19,6 +32,7 @@ export const mockShelter = {
   minutes: 13,
   distance: '520m',
   tags: ['지상 2층 이상', '여유고 +4.2m', '수용 380명', '야간 개방'],
+  cautions: ['stairs'] as ShelterCaution[],
   recommendationDeadline: '21:35',
   minutesRemaining: 23,
 } as const

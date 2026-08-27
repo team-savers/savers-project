@@ -1,7 +1,17 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { mockAlert, mockProfile, mockRoute, mockShelter } from '../mocks/evacuation'
 import { speechScripts } from '../mocks/evacuationSpeech'
+import type { ShelterCaution } from '../api/types'
 import './EvacuationFlow.css'
+
+// v0.9 (ADR-0016): 계약이 정의한 문구가 아니라 화면이 붙이는 라벨이다
+// (openapi.yaml Shelter.cautions는 문구를 고정하지 않고 값만 stairs/
+// over_time으로 좁힌다). "제외"가 아니라 "주의"라는 톤을 유지 —
+// 위험/사용불가 같은 과도한 표현을 쓰지 않는다.
+const CAUTION_LABEL: Record<ShelterCaution, string> = {
+  stairs: '계단 이용 주의',
+  over_time: '이동 시간 주의',
+}
 
 export type EvacuationStep = 'alert' | 'profile' | 'choice' | 'help' | 'shelter' | 'route' | 'arrival'
 type Step = EvacuationStep
@@ -335,6 +345,17 @@ function ShelterRecommendationStep({
                 <span key={tag}>{tag}</span>
               ))}
             </div>
+
+            {/* v0.9 (ADR-0016): cautions:[]면 아무것도 렌더하지 않는다 —
+                기존 카드와 완전히 동일. 값이 있을 때만 작은 chip 행을
+                기존 태그 바로 아래에 추가한다(별도 카드/모달/섹션 없음). */}
+            {mockShelter.cautions.length > 0 && (
+              <div className="evac-cautions">
+                {mockShelter.cautions.map((caution) => (
+                  <span key={caution}>{CAUTION_LABEL[caution]}</span>
+                ))}
+              </div>
+            )}
 
             <strong className="evac-distance">
               <b>{mockShelter.minutes}</b>분 · 침수 회피 경로{' '}

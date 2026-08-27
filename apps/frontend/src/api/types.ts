@@ -189,6 +189,12 @@ export interface SessionResponse {
   profile: Profile
 }
 
+// v0.9 (ADR-0016): "이 요청자 기준" 개인 적합성 주의. 시설 속성
+// (isUnderground/hasStairs)과는 다른 축 — 같은 대피소도 보는 사람에 따라
+// 값이 달라진다. 제외가 아니라 주의다: 주의가 붙어도 대피소는 목록에
+// 남고 정렬 순서만 뒤로 간다(openapi.yaml Shelter.cautions 설명 참고).
+export type ShelterCaution = 'stairs' | 'over_time'
+
 export interface Shelter {
   id: string
   name: string
@@ -204,6 +210,9 @@ export interface Shelter {
   isUnderground: boolean
   hasStairs: boolean
   capacity?: number | null
+  // v0.9 (ADR-0016): required, default []. 빈 배열 = 이 요청자에게 주의
+  // 없음. 키는 항상 존재한다(openapi.yaml Shelter.required에 포함).
+  cautions: ShelterCaution[]
 }
 
 // v0.3: server-side exclusion aggregate (ShelterList.excluded items).

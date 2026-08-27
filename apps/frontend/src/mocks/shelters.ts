@@ -6,6 +6,16 @@
 //   - two with hasStairs: true (must sink below for stairsOk:false).
 //   - a mix of bearing: Bearing and bearing: null (the latter happens when
 //     only the dongCode basis is known — no coordinate).
+//   - v0.9 (ADR-0016): `cautions` per shelter id, stable across every list
+//     below so the same shelter always carries the same caution regardless
+//     of which fixture it appears in:
+//       sh01 (서원복지회관)     → []                    (no caution)
+//       sh02 (신림체육관)       → ['stairs']            (hasStairs:true)
+//       sh04 (난향초교)         → ['stairs','over_time'] (복합 케이스)
+//       sh05 (관악민원센터)     → ['over_time']         (가장 먼 거리)
+//       sh06 (관악노인복지센터) → []                    (no caution)
+//     Covers all 4 label-rendering cases the FE needs to render:
+//     none / stairs-only / over_time-only / both together.
 //
 // ShelterList fixtures cover these branches:
 //   - hazardMatch:    inside / outside / unknown — one fixture each.
@@ -51,6 +61,7 @@ export const SHELTERS_DONG_INSIDE: ShelterList = {
       bearing: null,
       isUnderground: false,
       hasStairs: false,
+      cautions: [],
     },
     {
       id: 'sh02',
@@ -62,6 +73,7 @@ export const SHELTERS_DONG_INSIDE: ShelterList = {
       bearing: null,
       isUnderground: false,
       hasStairs: true,
+      cautions: ['stairs'],
     },
     {
       id: 'sh04',
@@ -73,6 +85,7 @@ export const SHELTERS_DONG_INSIDE: ShelterList = {
       bearing: null,
       isUnderground: false,
       hasStairs: true,
+      cautions: ['stairs', 'over_time'],
     },
     {
       id: 'sh05',
@@ -84,6 +97,7 @@ export const SHELTERS_DONG_INSIDE: ShelterList = {
       bearing: null,
       isUnderground: false,
       hasStairs: false,
+      cautions: ['over_time'],
     },
     {
       id: 'sh06',
@@ -95,6 +109,7 @@ export const SHELTERS_DONG_INSIDE: ShelterList = {
       bearing: null,
       isUnderground: false,
       hasStairs: false,
+      cautions: [],
     },
   ],
 }
@@ -117,6 +132,7 @@ export const SHELTERS_DONG_OUTSIDE: ShelterList = {
       bearing: null,
       isUnderground: false,
       hasStairs: false,
+      cautions: [],
     },
     {
       id: 'sh06',
@@ -128,6 +144,7 @@ export const SHELTERS_DONG_OUTSIDE: ShelterList = {
       bearing: null,
       isUnderground: false,
       hasStairs: false,
+      cautions: [],
     },
   ],
 }
@@ -151,6 +168,7 @@ export const SHELTERS_DONG_UNKNOWN: ShelterList = {
       bearing: null,
       isUnderground: false,
       hasStairs: false,
+      cautions: [],
     },
     {
       id: 'sh02',
@@ -162,6 +180,7 @@ export const SHELTERS_DONG_UNKNOWN: ShelterList = {
       bearing: null,
       isUnderground: false,
       hasStairs: true,
+      cautions: ['stairs'],
     },
   ],
 }
@@ -186,6 +205,7 @@ export const SHELTERS_COORDINATE_INSIDE: ShelterList = {
       bearing: 'NE' as Bearing,
       isUnderground: false,
       hasStairs: false,
+      cautions: [],
     },
     {
       id: 'sh02',
@@ -197,6 +217,7 @@ export const SHELTERS_COORDINATE_INSIDE: ShelterList = {
       bearing: 'SE' as Bearing,
       isUnderground: false,
       hasStairs: true,
+      cautions: ['stairs'],
     },
     {
       id: 'sh04',
@@ -208,6 +229,7 @@ export const SHELTERS_COORDINATE_INSIDE: ShelterList = {
       bearing: 'NW' as Bearing,
       isUnderground: false,
       hasStairs: true,
+      cautions: ['stairs', 'over_time'],
     },
     {
       id: 'sh05',
@@ -220,6 +242,7 @@ export const SHELTERS_COORDINATE_INSIDE: ShelterList = {
       bearing: 'N' as Bearing,
       isUnderground: false,
       hasStairs: false,
+      cautions: ['over_time'],
     },
     {
       id: 'sh06',
@@ -231,6 +254,7 @@ export const SHELTERS_COORDINATE_INSIDE: ShelterList = {
       bearing: 'S' as Bearing,
       isUnderground: false,
       hasStairs: false,
+      cautions: [],
     },
   ],
 }
@@ -255,6 +279,7 @@ export const SHELTERS_DONG_CACHE: ShelterList = {
       bearing: null,
       isUnderground: false,
       hasStairs: false,
+      cautions: [],
     },
     {
       id: 'sh06',
@@ -266,6 +291,7 @@ export const SHELTERS_DONG_CACHE: ShelterList = {
       bearing: null,
       isUnderground: false,
       hasStairs: false,
+      cautions: [],
     },
   ],
 }

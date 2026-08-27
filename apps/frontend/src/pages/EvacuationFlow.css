@@ -16,6 +16,13 @@
 .evac-check{width:88px;height:88px;margin-bottom:20px;font-size:50px}
 .evac-levels{margin-bottom:12px}
 .evac-tags{margin:10px 0}
+/* v0.9 (ADR-0016): cautions chip row — same shape as .evac-tags span but
+   tinted with the SAVERS accent (orange, "주의" not "위험") instead of the
+   neutral surface-soft used for tags. Same rgba(248,160,8,.14)/#8A5800
+   pairing already used for warn-tint chips elsewhere in the app (Guardian
+   palette's accentBg/accentText) — reused, not a new color. */
+.evac-cautions{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0}
+.evac-cautions span{padding:6px 8px;border-radius:7px;background:rgba(248,160,8,.14);color:#8A5800;font-size:14px;font-weight:750}
 .evac-deadline{margin-top:10px;padding:9px}
 .evac-route-note{padding:9px 11px;margin-top:9px}
 .evac-map{height:270px}
@@ -406,6 +413,10 @@
 }
 
 .evac-flow.is-large-text .evac-tags span {
+  font-size: 17px;
+}
+
+.evac-flow.is-large-text .evac-cautions span {
   font-size: 17px;
 }
 
