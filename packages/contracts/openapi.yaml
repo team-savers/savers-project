@@ -22,9 +22,33 @@ openapi: 3.1.0
 
 info:
   title: SAVERS API
-  version: 0.9.0-draft
+  version: 0.10.0-draft
   description: |
     재난 취약계층 대상 무설치 대피 안내 서비스의 모듈 간 계약 초안입니다.
+
+    > **변경 이력(v0.10)**: **1차 재난 알림이 `ward`와 `guardian` 양쪽으로 나갑니다**
+    > ([ADR-0015](../../docs/adr/0015-guardian-device-registration.md) 결정 2번,
+    > 2026-08-27 개정. 상태는 **제안**입니다).
+    > v0.7이 「1차는 `ward` 기기에만」으로 적은 것을 뒤집는 변경이며, 그 시점 기록인
+    > v0.7 이력은 고치지 않습니다. 피보호자가 30분 안에 정상적으로 대피를 마친 성공
+    > 경로에서 보호자에게 아무 알림도 가지 않아, 보호자 연계가 **실패 경로에서만
+    > 발화하던** 구조를 고칩니다.
+    > **두 사람이 받는 문안은 다릅니다** — 피보호자는 행동 지시를, 보호자는 재난
+    > 1건당 1회의 정보성 통지를 받습니다. 보호자 통지문은 생성물이 아니라 고정
+    > 문구이며 생성 계약을 타지 않습니다 - [ADR-0005](../../docs/adr/0005-webpush-primary-channel.md)가
+    > 폐기한 렌더링 어댑터를 되살리는 것이 아닙니다.
+    > 그 발송을 남기는 **`guardian_informed` 이벤트를 신설**해 시스템 이벤트가 5종에서
+    > 6종, 판별 유니온과 `GuardianEvidenceType`이 17종에서 18종이 됩니다.
+    > `guardian_notified`(2차)와 별개인 이유는 그쪽이 M4 분자의 예약어이고, 이쪽은
+    > 개입 요청이 아니라 정보 전달이기 때문입니다.
+    > 함께 **`GuardianStatus.lastNotice`**(`first`·`followup`·`none`)를 신설하고,
+    > `pushEnabled` 설명에 「용도는 2차 도달 설정이되 1차 통지도 같은 버킷을 읽는다」를
+    > 명시했습니다.
+    > ⚠️ **`guardian_informed`는 M1의 끝점이 아닙니다** — M1 끝점은 `ward` 기기 중
+    > 최초 접수이고([ADR-0013](../../docs/adr/0013-m1-measures-push-acceptance.md),
+    > 승인 - 2026-08-26),
+    > 이 변경이 그 정의를 바꾸지 않습니다. 다만 계측이 정의를 따라와야 하며 그 항목은
+    > ADR-0015 후속 조치 표에 있습니다.
 
     > **변경 이력(v0.9)**: 대피소 주의 표시(`Shelter.cautions`)를 신설했습니다
     > ([ADR-0016](../../docs/adr/0016-shelter-cautions-not-exclusion.md), 승인 - 2026-08-26).
@@ -305,7 +329,7 @@ paths:
       security: []
       description: |
         사용자 브라우저 FE가 현재 세션에서 관측한 화면 진입·버튼 선택 1건을 기록합니다.
-        시스템 이벤트 5종은 Backend·푸시 시스템이 직접 생성하므로 이 기록 요청으로
+        시스템 이벤트 6종은 Backend·푸시 시스템이 직접 생성하므로 이 기록 요청으로
         받지 않습니다. 기존 `/v1/session/{token}`과 같은 세션 토큰 모델을 사용합니다.
         브라우저 호출에 필요한 CORS와 실제 Backend 구현은 이 계약의 범위 밖입니다.
 
@@ -1400,7 +1424,7 @@ paths:
         '422':
           description: |
             `questionId`가 3종 목록 밖이거나, `events` 원소가 `SessionEvent`의
-            판별 유니온(17종) 밖이거나, 본문에 정의되지 않은 키가 있습니다
+            판별 유니온(18종) 밖이거나, 본문에 정의되지 않은 키가 있습니다
             (`GuardianAnswerRequest`는 `additionalProperties: false`입니다).
           content:
             application/json:
@@ -1740,6 +1764,7 @@ components:
         - $ref: '#/components/schemas/ArrivalConfirmedByUserEvent'
         - $ref: '#/components/schemas/AlertDispatchedEvent'
         - $ref: '#/components/schemas/PushAcceptedEvent'
+        - $ref: '#/components/schemas/GuardianInformedEvent'
         - $ref: '#/components/schemas/FollowupDueEvent'
         - $ref: '#/components/schemas/FollowupUnreachableEvent'
         - $ref: '#/components/schemas/GuardianNotifiedEvent'
@@ -1760,13 +1785,14 @@ components:
           arrival_confirmed_by_user: '#/components/schemas/ArrivalConfirmedByUserEvent'
           alert_dispatched: '#/components/schemas/AlertDispatchedEvent'
           push_accepted: '#/components/schemas/PushAcceptedEvent'
+          guardian_informed: '#/components/schemas/GuardianInformedEvent'
           followup_due: '#/components/schemas/FollowupDueEvent'
           followup_unreachable: '#/components/schemas/FollowupUnreachableEvent'
           guardian_notified: '#/components/schemas/GuardianNotifiedEvent'
       description: |
         보호자 상태 확인과 폐루프 측정의 근거가 되는 세션 단위 저장 이벤트입니다.
         사용자 행동 12종은 서비스가 직접 관측한 화면 진입·버튼 선택을, 시스템 이벤트
-        5종은 Backend·푸시 시스템이 관측한 발송 및 폐루프 상태를 표현합니다.
+        6종은 Backend·푸시 시스템이 관측한 발송 및 폐루프 상태를 표현합니다.
 
         이 계약은 실제 이동 중·경로 추종·경로 이탈·실제 대피소 도착을 표현하지
         않습니다. 특히 `arrival_confirmed_by_user`는 GPS 검증 결과가 아니라 사용자가
@@ -1779,8 +1805,8 @@ components:
         `route_guidance_started`, `next_guidance_requested`,
         `emergency_call_119_selected`. 화면 재진입·재선택은 새 행동으로 모두 기록합니다.
 
-        **세션당 1회:** `arrival_confirmed_by_user`와 시스템 이벤트 5종. 도착 완료
-        선택이나 최초·2차 발송 계측을 중복 집계하지 않습니다. 시스템 이벤트 5종이
+        **세션당 1회:** `arrival_confirmed_by_user`와 시스템 이벤트 6종. 도착 완료
+        선택이나 최초·2차 발송 계측을 중복 집계하지 않습니다. 시스템 이벤트 6종이
         이미 존재하면 새 이벤트를 쓰지 않고 최초 이벤트의 `at`을 유지합니다.
         `followup_unreachable`도 같습니다 — 30분마다 다시 남기면 TTL 6시간 동안 최대
         12건이 쌓여, 한 세션의 「보낼 곳이 없었다」가 열두 번 있었던 일처럼 읽힙니다.
@@ -1806,7 +1832,7 @@ components:
       description: |
         사용자 행동 기록 POST가 성공했을 때 반환하는 저장 이벤트입니다. 요청에서 허용한
         사용자 행동 12종에 서버가 생성한 UTC `at`을 더한 결과만 허용하며, 시스템 이벤트
-        5종은 이 응답에 포함하지 않습니다.
+        6종은 이 응답에 포함하지 않습니다.
 
     SituationCheckSelectedEvent:
       type: object
@@ -1956,6 +1982,37 @@ components:
       additionalProperties: false
       properties:
         type: { type: string, const: push_accepted }
+        at: { $ref: '#/components/schemas/EventTimestamp' }
+        payload: { $ref: '#/components/schemas/EmptyEventPayload' }
+
+    GuardianInformedEvent:
+      type: object
+      description: |
+        최초 재난 알림과 **같은 시점**에 보호자 기기로 나간 정보성 통지의 발송 요청을
+        푸시 서비스가 접수한 기록입니다. 30분 무응답 뒤의 2차 발송(`guardian_notified`)과
+        다른 이벤트입니다 — 이쪽은 **개입 요청이 아니라 정보 전달**이고,
+        재난 1건당 1회만 남습니다(ADR-0015 결정 2번, 제안).
+
+        **보호자가 받는 문안은 피보호자 문안과 다릅니다.** 피보호자는 행동 지시를,
+        보호자는 「어느 지역에 무슨 특보가 떠서 누구에게 안내를 보냈다」는 통지를
+        받습니다. 보호자 통지문은 생성물이 아니라 고정 문구이며 생성 계약(ADR-0006)을
+        타지 않습니다.
+
+        **보호자 기기가 없으면 이 이벤트는 남지 않고, 그것은 실패가 아닙니다.**
+        `Profile.guardian`이 `null`인 사람과 보호자는 있으나 구독이 없는 사람이
+        여기 해당합니다. 피보호자(`ward`) 발송이 성립하면 그 세션은 정상입니다.
+
+        ⚠️ **M1(알림 도달 속도)의 끝점이 아닙니다.** M1의 끝점은 그 사람의 `ward`
+        기기 중 최초로 접수된 발송이며(ADR-0013, 승인 - 2026-08-26),
+        이 이벤트가 그 정의를 바꾸지 않습니다.
+        M4(폐루프 2차 발송 성공률)도 `guardian_notified` 기준이므로 무관합니다.
+
+        ⚠️ **접수이지 전달이 아닙니다.** 보호자 단말에 알림이 떴다는 뜻도,
+        보호자가 읽었다는 뜻도 아닙니다.
+      required: [type, at, payload]
+      additionalProperties: false
+      properties:
+        type: { type: string, const: guardian_informed }
         at: { $ref: '#/components/schemas/EventTimestamp' }
         payload: { $ref: '#/components/schemas/EmptyEventPayload' }
 
@@ -2272,12 +2329,14 @@ components:
           description: |
             이 기기가 누구의 것인지. **기본값을 두지 않고 필수로 받는다.**
             생략을 `ward`로 해석하면 보호자 기기가 조용히 피보호자 기기로 등록되고,
-            그 결과는 「1차 재난 알림이 보호자 폰에도 그대로 간다」로 나타난다.
-            값이 틀렸을 때 화면이 아니라 **발송 대상**이 틀어지는 필드이므로,
+            그 결과는 「보호자 폰이 통지가 아니라 행동 지시를 받는다」로 나타난다.
+            값이 틀렸을 때 화면이 아니라 **어느 문안을 받는지**가 틀어지는 필드이므로,
             호출자가 매번 의사를 밝히게 한다.
 
-            - `ward` — 피보호자 기기. **1차 재난 알림만** 받는다.
-            - `guardian` — 보호자 기기. **30분 무응답 뒤의 2차 발송만** 받는다.
+            - `ward` — 피보호자 기기. 1차 재난 알림의 **행동 지시 문안**을 받는다.
+            - `guardian` — 보호자 기기. 1차 시점의 **정보성 통지**(`guardian_informed`)와
+              30분 무응답 뒤의 **2차 발송**(`guardian_notified`)을 받는다.
+              두 발송의 문안은 서로 다르고, 피보호자 문안과도 다르다.
               `Profile.guardian`이 `null`이면 400이다.
 
             한 사람에게 각 역할의 기기를 여러 대 붙일 수 있다(공용 단말, 기기 교체 중
@@ -2471,6 +2530,7 @@ components:
         - lastResponse
         - openedAt
         - respondedAt
+        - lastNotice
         - safetyStatus
         - pushEnabled
       properties:
@@ -2511,6 +2571,36 @@ components:
             누른 뒤 상황이 악화될 수도 있다. 보호자가 이 값을 "생존 확인"으로 받아
             추가 연락·구조 요청을 중단하면 위험하다 — 안전 확인은 `safetyStatus`가
             아닌, 명시적 도움 요청·구조 확인 절차를 통해서만 이루어진다.
+        lastNotice:
+          type: string
+          enum: [first, followup, none]
+          description: |
+            이 보호자에게 마지막으로 나간 통지가 **몇 차인지.**
+            `first`는 재난 발생과 함께 나간 정보성 통지(`guardian_informed`),
+            `followup`은 30분 무응답 뒤의 2차 발송(`guardian_notified`)입니다.
+
+            `none`은 **이 재난에서 보호자에게 아무것도 나가지 않은 상태**입니다.
+            `lastResponse`가 같은 이유로 `none`을 갖는 것과 같은 모양입니다 —
+            키는 항상 존재하고 값으로 부재를 말합니다.
+
+            ⚠️ **`none`은 두 상황을 뭉칩니다. `pushEnabled`와 함께 읽어야 갈립니다.**
+            `first`와 `followup`은 각각 `guardian_informed`·`guardian_notified`
+            **이벤트의 존재**로만 세팅되는데, 발송이 실패해도 이벤트가 남지 않기 때문입니다
+            (`run.send_errors`는 어댑터 예외만 세고 푸시 서비스의 정직한 거부는 세지
+            않습니다). 그래서 죽은 토큰으로 조용히 실패한 세션도 `none`으로 떨어집니다.
+
+            | `pushEnabled` | `lastNotice` | 뜻 |
+            |---|---|---|
+            | `false` | `none` | 보호자 기기가 등록되지 않았습니다 |
+            | `true` | `none` | 등록은 됐으나 **발송이 없었거나 조용히 실패**했습니다 |
+
+            **화면은 두 번째 줄을 성공으로 표시하면 안 됩니다.** 실패를 이벤트로 남기는
+            것은 ADR-0015 후속 조치의 Backend 항목이며, 그 전까지 이 교차 판독이
+            유일한 구분 수단입니다.
+
+            ⚠️ **차수이지 도달이 아닙니다.** 발송 요청이 접수됐다는 뜻이고,
+            보호자 단말에 알림이 떴다는 뜻도 보호자가 읽었다는 뜻도 아닙니다.
+            신호등 단계인 `stage`와는 축이 다릅니다.
         safetyStatus:
           type: string
           enum: [unknown]
@@ -2531,7 +2621,12 @@ components:
             이 피보호자에게 붙은 **보호자 기기가 하나 이상 있는지.**
             단위는 **피보호자**이며 브라우저가 아닙니다. FCM 토큰 값은 내려가지
             않습니다 — 이 값이 답하는 질문은 「이 사람에게 2차 발송이 나갈 수 있는가」
-            하나이고, 토큰 자체는 그 답에 필요하지 않습니다. `Guardian` 스키마에 기기
+            하나이고, 토큰 자체는 그 답에 필요하지 않습니다.
+
+            **용도는 2차 도달 설정 확인입니다.** 다만 1차 보호자 통지
+            (`guardian_informed`)도 같은 `guardian` 버킷을 읽으므로,
+            이 값이 `false`이면 2차뿐 아니라 **1차 통지도 나가지 않습니다.**
+            용도를 2차로 좁혀 적되 그 의존까지 감추지는 않습니다. `Guardian` 스키마에 기기
             필드를 두지 않은 것도 같은 이유입니다(`Profile.guardian`은 피보호자
             브라우저로 내려가는 값입니다).
 
@@ -2611,10 +2706,18 @@ components:
         **`help_request`·`arrival_status`는 접수도 도착도 아닙니다.** 버튼을 눌렀다는
         기록일 뿐이며, 그 이상은 각 이벤트 스키마가 이미 못박아 둔 제약입니다.
 
-        **어느 질문의 근거도 아닌 이벤트가 다섯 있습니다** — `alert_dispatched` ·
-        `push_accepted`(M1의 끝점이며 진행 상태가 아닙니다) · `followup_due` ·
-        `followup_unreachable` · `guardian_notified`(폐루프 계측이며, 보호자에게 왜
-        연락이 갔는지는 이번 3질문이 묻는 것이 아닙니다).
+        **어느 질문의 근거도 아닌 이벤트가 여섯 있습니다** — `alert_dispatched` ·
+        `push_accepted`(M1의 끝점이며 진행 상태가 아닙니다) · `guardian_informed` ·
+        `followup_due` · `followup_unreachable` · `guardian_notified`(폐루프 계측이며,
+        보호자에게 왜 연락이 갔는지는 이번 3질문이 묻는 것이 아닙니다).
+
+        **`guardian_informed`가 여기 있는 이유는 축이 다르기 때문입니다.**
+        이번 3질문은 셋 다 **피보호자의 행동과 상태**를 확인하는 질문인데,
+        1차 보호자 통지는 서비스가 보호자에게 한 행위이지 피보호자의 상태가 아닙니다.
+        스키마도 같은 방향으로 닫혀 있습니다 — `evacuation_progress`는 사용자 행동
+        12종으로 제한되고, 나머지 둘은 특정 사용자 행동으로 제한됩니다.
+        **보호자 통지 자체를 확인하는 질문이 추가되면 그 질문의 근거가 될 자리입니다**
+        (AI/RAG 확인, 2026-08-27). 그런 질문을 여는 것은 이번 구간 범위 밖입니다.
 
         `alert_dispatched`는 앞선 판(`e24f7c6`)에서 `evacuation_progress`에 넣어
         뒀다가 뺐습니다. 넣은 이유가 「사용자 행동이 하나도 없는 세션에서 **언제
@@ -2700,7 +2803,7 @@ components:
     GuardianEvidenceType:
       type: string
       description: |
-        인용 가능한 이벤트 종류. **`SessionEvent`의 `discriminator.mapping` 키 17종과
+        인용 가능한 이벤트 종류. **`SessionEvent`의 `discriminator.mapping` 키 18종과
         같은 목록이며, 늘리거나 줄일 때는 두 곳을 같은 PR에서 함께 고칩니다.**
 
         답변 쪽에 목록을 한 번 더 두는 이유는 `SessionEvent`가 `oneOf`라
@@ -2722,6 +2825,7 @@ components:
         - arrival_confirmed_by_user
         - alert_dispatched
         - push_accepted
+        - guardian_informed
         - followup_due
         - followup_unreachable
         - guardian_notified
@@ -2730,7 +2834,7 @@ components:
       type: string
       description: |
         `evacuation_progress` 답변이 인용할 수 있는 이벤트 — **`SessionEvent`의 사용자
-        행동 12종 전부**이며 시스템 이벤트 5종은 들어가지 않습니다. `RecordedUserActionEvent`가
+        행동 12종 전부**이며 시스템 이벤트 6종은 들어가지 않습니다. `RecordedUserActionEvent`가
         받는 목록과 같습니다.
       enum:
         - situation_check_selected
