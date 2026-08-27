@@ -111,16 +111,17 @@ export const GUARDIAN_MOCK: GuardianMockData = {
   alert: {
     disaster: '호우 경보',
     district: '관악구',
-    sentAt: '8월 21일 (수) 10:28',
+    sentAt: '8월 21일 (금) 14:00',
   },
   status: {
     wardName: '박순자',
     stage: 2,
     dongName: '신사동',
-    // 10:33 KST (2026-08-21). Link opened, no [집이에요]/[밖이에요] response
-    // yet — see the phrasing rule above for why this is shown as-is, not as
-    // a safety signal.
-    openedAt: '2026-08-21T01:33:00Z',
+    // 14:02 KST (2026-08-21), same session as the 14:05~14:18 행동 기록
+    // below. Link opened, no [집이에요]/[밖이에요] response yet — see the
+    // phrasing rule above for why this is shown as-is, not as a safety
+    // signal.
+    openedAt: '2026-08-21T05:02:00Z',
     respondedAt: null,
     lastResponse: 'none',
     // Always 'unknown' per contract — FE does not compute a safety status.
@@ -130,7 +131,11 @@ export const GUARDIAN_MOCK: GuardianMockData = {
     {
       questionId: 'evacuation_progress',
       question: '대피 관련 행동 기록이 있나요?',
-      answer: '14시 05분에 상황 선택 화면을 본 기록이 있습니다.',
+      // evacuation_progress answers with the most recently recorded action in
+      // this session, not the first — the mock session's latest recorded
+      // action is the 14:18 도착 완료 button press (see help_request/
+      // arrival_status below for the same session's earlier entries).
+      answer: '14시 18분에 도착 완료 버튼을 누른 기록이 있습니다.',
     },
     {
       questionId: 'help_request',

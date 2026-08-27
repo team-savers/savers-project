@@ -114,7 +114,11 @@ function guardianStatusFacts(status: GuardianStatus): string[] {
   const lines: string[] = []
   lines.push(status.openedAt ? `알림 열람 ${formatKstMinute(status.openedAt)}` : '알림 열람 기록 없음')
   if (status.lastResponse === 'none' || status.respondedAt === null) {
-    lines.push('응답 기록 없음')
+    // Narrowed from "응답 기록 없음": lastResponse:'none' means no
+    // [집이에요]/[밖이에요] button press was recorded — it says nothing about
+    // whether the session's SessionEvent action log (Q&A 화면의 근거) is
+    // empty, so a bare "응답 기록 없음" would misread as "no activity at all".
+    lines.push('집/밖 버튼 응답 기록 없음')
   } else {
     const buttonLabel = status.lastResponse === 'home' ? '[집이에요]' : '[밖이에요]'
     lines.push(`${buttonLabel} 버튼 응답 ${formatKstMinute(status.respondedAt)}`)
@@ -143,19 +147,20 @@ type GuardianScreen = 'alert' | 'status' | 'ai'
 // grow with content (dvh tracks the *actual* visible viewport, so a mobile
 // browser's collapsing address bar doesn't clip the bottom) — a scrollable
 // interior (AiScreen's turn list) can then grow without stretching the whole
-// document. minHeight:'100vh' stays as a fallback for browsers without dvh
-// support, where it lets the shell size to at least the static viewport.
-// overflowY:'auto' is a safety net, not the intended scroll path — AlertScreen
-// and StatusScreen are unchanged and expected to fit one viewport; AiScreen's
-// own turn list (flex:1, minHeight:0, overflowY:'auto') is the real scroll
-// container. This only engages if a screen's content is ever taller than the
-// fixed shell height, so it degrades gracefully instead of clipping content.
+// document. No minHeight:'100vh' alongside it — on a mobile browser 100vh can
+// resolve larger than 100dvh (it includes the area the collapsing address bar
+// covers), and a minHeight there would win over height:'100dvh' and defeat
+// the whole point of using dvh. overflowY:'auto' is a safety net, not the
+// intended scroll path — AlertScreen and StatusScreen are unchanged and
+// expected to fit one viewport; AiScreen's own turn list (flex:1,
+// minHeight:0, overflowY:'auto') is the real scroll container. This only
+// engages if a screen's content is ever taller than the fixed shell height,
+// so it degrades gracefully instead of clipping content.
 const SHELL: CSSProperties = {
   width: '100%',
   maxWidth: MOBILE_WIDTH,
   margin: '0 auto',
   height: '100dvh',
-  minHeight: '100vh',
   overflowY: 'auto',
   background: GC.bg,
   display: 'flex',
