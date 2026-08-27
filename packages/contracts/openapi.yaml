@@ -3034,7 +3034,10 @@ components:
           format: date-time
           description: |
             특보 발효 시각. **타임존이 포함된 값이어야 합니다**(naive datetime 금지) —
-            도달 속도 측정이 이 값 기준이라 KST/UTC가 섞이면 지표가 조용히 틀어집니다.
+            화면에 찍히는 판단 시각이 이 값 기준이라 KST/UTC가 섞이면 사용자에게 틀린
+            시각이 뜹니다. ⚠️ **M1(알림 도달 속도)의 기산점은 이 값이 아닙니다** —
+            파이프라인이 그 특보 처리를 시작한 시각이며, 유입 지연은 M1 밖입니다
+            ([ADR-0013](../../docs/adr/0013-m1-measures-push-acceptance.md)).
           example: '2026-08-10T11:30:00+09:00'
         disaster:
           $ref: '#/components/schemas/DisasterContext'
