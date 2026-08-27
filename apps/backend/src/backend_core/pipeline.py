@@ -233,6 +233,9 @@ def run_alert(
             disaster_type=event.type,
             hazard="inside",  # matched on this district, so it is inside the alert area
             stairs_ok=profile.stairs_ok,
+            # Dispatch has no user coordinate, so basis is dongCode and over_time never
+            # attaches; mobility is passed for signature completeness (walk-speed only).
+            mobility=profile.mobility,
             limit=1,
         )
         message = _generate(ai, event, build_context(event, profile, shelter_list))
