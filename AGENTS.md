@@ -32,7 +32,7 @@ First-target disaster type for the MVP: 호우·도시침수 (heavy rain / urban
 
 ## Planned architecture — three layers, three core technologies
 
-> ⚠️ **Row 1 is 확정 — [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) was accepted 2026-08-24. Rows 2 ~ 4 now each have an ADR (0018, 0017, 0019, all written 2026-08-26), but those three are **Proposed, not yet accepted** — so the rows stay 검토 중 until their decision owners confirm.**
+> ⚠️ **Row 1 is 확정 — [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) was accepted 2026-08-24.** Rows 2 ~ 4 now each have an ADR (0018, 0017, 0019, all written 2026-08-26), but those three are **Proposed, not yet accepted** — so the rows stay 검토 중 until their decision owners confirm.
 > Cite them that way in any outside-facing document, and switch the row to 확정 only when the ADR's own status line says 승인.
 > Row 4 was promoted as a **superseding ADR rather than an in-place amendment to [ADR-0002](docs/adr/0002-frontloaded-tech-lead.md)**:
 > ADR-0002 is accepted, and changing an accepted ADR's decision content is not one of the four
