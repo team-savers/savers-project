@@ -768,13 +768,19 @@ def followup_summary(
     )
 
 
+def _is_followup_scoreable(summary: FollowupSummary) -> bool:
+    """Whether a summary can be reported as the run's M4 score."""
+    return summary.rate is not None and summary.unscoreable == 0
+
+
 def format_followup_summary(summary: FollowupSummary) -> str:
     """Format the ADR-0012 7-a one-line M4 report without recalculating it."""
-    if summary.rate is None or summary.unscoreable:
+    if not _is_followup_scoreable(summary):
         return (
             f"M4 측정 불가 (n={summary.due}, unreachable={summary.unreachable}, "
             f"unscoreable={summary.unscoreable})"
         )
+    assert summary.rate is not None
     rate = f"{summary.rate * 100:.1f}".rstrip("0").rstrip(".") + "%"
     return f"M4 {rate} (n={summary.due}, unreachable={summary.unreachable})"
 
@@ -796,4 +802,4 @@ def followup_delivery_rate(
     this function is the convenience wrapper over it.
     """
     summary = followup_summary(session_logs)
-    return None if summary.unscoreable else summary.rate
+    return summary.rate if _is_followup_scoreable(summary) else None

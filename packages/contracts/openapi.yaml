@@ -2357,7 +2357,17 @@ components:
             **미정이며 팀 결정이 필요하다.**
         fcmToken:
           type: string
-          description: FCM 등록 토큰.
+          minLength: 1
+          pattern: '^\S+$'
+          description: |
+            FCM 등록 토큰. **빈 값과 공백만 있는 값은 받지 않습니다**(422).
+            받아 넣으면 닿지 않는 토큰이 목록에 남아 `pushEnabled`를 켜고,
+            실발송에서 그 세션이 M4 분모에 든 채 분자를 못 채웁니다(이슈 149).
+            FCM 토큰에는 공백이 없으므로 `^\S+$`가 실제 값을 거르지 않습니다.
+
+            ⚠️ **아직 서버에는 반영되지 않았습니다.** `models.py`가 이 계약을 손으로
+            미러하는 구조라, 이슈 149의 `Field` 반영 전까지 서버는 빈 값을 그대로
+            200으로 받습니다. 반영되면 이 문단을 지웁니다.
         userAgent:
           type: [string, 'null']
 
@@ -2375,7 +2385,16 @@ components:
           description: 등록 토큰. `DeviceRegisterRequest.registrationToken`과 같은 값이다.
         fcmToken:
           type: string
-          description: 해제할 FCM 등록 토큰.
+          minLength: 1
+          pattern: '^\S+$'
+          description: |
+            해제할 FCM 등록 토큰. **빈 값과 공백만 있는 값은 받지 않습니다**(422).
+            이 경로는 없는 토큰의 해제도 200이므로, 빈 값을 허용하면
+            아무것도 떼지 못한 채 성공을 받습니다(이슈 149).
+
+            ⚠️ **아직 서버에는 반영되지 않았습니다.** `models.py`가 이 계약을 손으로
+            미러하는 구조라, 이슈 149의 `Field` 반영 전까지 서버는 빈 값을 그대로
+            200으로 받습니다. 반영되면 이 문단을 지웁니다.
         userAgent:
           type: [string, 'null']
 
@@ -2392,7 +2411,17 @@ components:
       properties:
         fcmToken:
           type: string
-          description: FCM 등록 토큰.
+          minLength: 1
+          pattern: '^\S+$'
+          description: |
+            FCM 등록 토큰. **빈 값과 공백만 있는 값은 받지 않습니다**(422).
+            받아 넣으면 닿지 않는 토큰이 목록에 남아 `pushEnabled`를 켜고,
+            실발송에서 그 세션이 M4 분모에 든 채 분자를 못 채웁니다(이슈 149).
+            FCM 토큰에는 공백이 없으므로 `^\S+$`가 실제 값을 거르지 않습니다.
+
+            ⚠️ **아직 서버에는 반영되지 않았습니다.** `models.py`가 이 계약을 손으로
+            미러하는 구조라, 이슈 149의 `Field` 반영 전까지 서버는 빈 값을 그대로
+            200으로 받습니다. 반영되면 이 문단을 지웁니다.
         userAgent:
           type: [string, 'null']
 
