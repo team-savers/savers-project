@@ -1,11 +1,13 @@
-"""Shelter safety filtering, ranking and honest degradation."""
+"""Shelter safety filtering, per-requester cautions, ranking and honest degradation."""
 
 from datetime import UTC, datetime
 
 import pytest
 
+from backend_core.models import Shelter
 from backend_core.registry import UNDERGROUND_ONLY_DONG_CODE
 from backend_core.shelters import (
+    DEFAULT_EVAC_TIME_LIMIT_S,
     CachedShelterSource,
     ShelterRecord,
     ShelterRepository,
@@ -16,6 +18,12 @@ from backend_core.shelters import (
 )
 
 DONG = "1162064500"
+
+# 좌표 기준(basis=coordinate) 판정에 쓰는 원점과, 그 원점에서 정확히 500m 떨어진 점.
+# 500m는 기준 시간 600초에서 도보 속도의 경계다 — ok(1.0)는 500초로 통과, assisted(0.7)는
+# 714초로 초과한다. haversine_m로 검증한 값이다(test_over_time_speed_boundary 참고).
+ORIGIN = (37.4842, 126.9295)
+POINT_500M = (37.4887, 126.9295)
 
 
 class LiveSource:
@@ -41,12 +49,28 @@ def _record(**kwargs) -> ShelterRecord:  # type: ignore[no-untyped-def]
     return ShelterRecord(**{**base, **kwargs})
 
 
+def _repo(
+    records: list[ShelterRecord], *, evac_time_limit_s: int = DEFAULT_EVAC_TIME_LIMIT_S
+) -> ShelterRepository:
+    """Repository over a live source with a fixed candidate set, for deterministic cautions."""
+    return ShelterRepository(
+        LiveSource(records),
+        CachedShelterSource.from_jsonl(),
+        evac_time_limit_s=evac_time_limit_s,
+    )
+
+
 def test_underground_shelters_are_excluded_server_side(
     shelter_repository: ShelterRepository,
 ) -> None:
     """침수 재난에서 지하 시설은 서버가 뺀다 — 안전 판단을 클라이언트에 두지 않는다."""
     result = shelter_repository.search(
-        dong_code=DONG, disaster_type="flood", hazard="inside", stairs_ok=True, limit=10
+        dong_code=DONG,
+        disaster_type="flood",
+        hazard="inside",
+        stairs_ok=True,
+        mobility="ok",
+        limit=10,
     )
     assert result.items
     assert all(not s.is_underground for s in result.items)
@@ -54,37 +78,22 @@ def test_underground_shelters_are_excluded_server_side(
     assert result.excluded[0].count == 2
 
 
-def test_stair_free_options_rank_first_for_users_who_need_them(
+def test_nearest_first_within_the_no_caution_group(
     shelter_repository: ShelterRepository,
 ) -> None:
-    """계단 있는 가장 가까운 대피소는 '가장 가까운 이용 가능한 대피소'가 아니다."""
-    result = shelter_repository.search(
-        dong_code=DONG,
-        disaster_type="flood",
-        hazard="inside",
-        stairs_ok=False,
-        lat=37.4842,
-        lng=126.9295,
-        limit=10,
-    )
-    stair_flags = [s.has_stairs for s in result.items]
-    assert stair_flags == sorted(stair_flags), "계단 있는 대피소가 상위에 오면 안 된다"
-    # Still listed, not dropped — they may be all that exists.
-    assert any(stair_flags)
-
-
-def test_nearest_first_when_stairs_are_fine(shelter_repository: ShelterRepository) -> None:
+    """주의 없는 대피소끼리는 가까운 순이다."""
     result = shelter_repository.search(
         dong_code=DONG,
         disaster_type="flood",
         hazard="inside",
         stairs_ok=True,
+        mobility="ok",
         lat=37.4842,
         lng=126.9295,
         limit=10,
     )
-    distances = [s.distance_m for s in result.items]
-    assert distances == sorted(distances)
+    no_caution = [s.distance_m for s in result.items if not s.cautions]
+    assert no_caution == sorted(no_caution)
 
 
 def test_cache_fallback_is_labelled_not_disguised(
@@ -92,7 +101,7 @@ def test_cache_fallback_is_labelled_not_disguised(
 ) -> None:
     """실시간 API가 죽으면 캐시로 답하되, 낡은 데이터임을 응답에 드러낸다."""
     result = shelter_repository.search(
-        dong_code=DONG, disaster_type="flood", hazard="inside", stairs_ok=True
+        dong_code=DONG, disaster_type="flood", hazard="inside", stairs_ok=True, mobility="ok"
     )
     assert result.availability == "cache_only"
     assert result.data_as_of is not None
@@ -101,7 +110,7 @@ def test_cache_fallback_is_labelled_not_disguised(
 def test_live_source_marks_availability_ok() -> None:
     repository = ShelterRepository(LiveSource([_record()]), CachedShelterSource.from_jsonl())
     result = repository.search(
-        dong_code=DONG, disaster_type="flood", hazard="inside", stairs_ok=True
+        dong_code=DONG, disaster_type="flood", hazard="inside", stairs_ok=True, mobility="ok"
     )
     assert result.availability == "ok"
     assert result.data_as_of is None
@@ -113,7 +122,7 @@ def test_upstream_down_and_nothing_cached_says_so() -> None:
         UnavailableShelterSource(), CachedShelterSource([], as_of=datetime.now(UTC))
     )
     result = repository.search(
-        dong_code=DONG, disaster_type="flood", hazard="inside", stairs_ok=True
+        dong_code=DONG, disaster_type="flood", hazard="inside", stairs_ok=True, mobility="ok"
     )
     assert result.availability == "upstream_unavailable"
     assert result.items == []
@@ -125,11 +134,31 @@ def test_all_excluded_is_distinct_from_no_data() -> None:
         LiveSource([_record(id="u1", is_underground=True)]), CachedShelterSource.from_jsonl()
     )
     result = repository.search(
-        dong_code=DONG, disaster_type="flood", hazard="inside", stairs_ok=True
+        dong_code=DONG, disaster_type="flood", hazard="inside", stairs_ok=True, mobility="ok"
     )
     assert result.availability == "all_excluded"
     assert result.items == []
     assert result.excluded[0].count == 1
+
+
+def test_cautions_do_not_exclude_so_candidates_are_never_emptied() -> None:
+    """계단·시간 주의는 후보를 지우지 않는다 — 계단 대피소만 있어도 all_excluded로 가지 않는다.
+
+    가장 도움이 필요한 사람(계단 불가)을 안내 불가로 미는 것을 막는다(ADR-0016).
+    """
+    repository = _repo([_record(id="only-stairs", has_stairs=True)])
+    result = repository.search(
+        dong_code=DONG,
+        disaster_type="flood",
+        hazard="inside",
+        stairs_ok=False,
+        mobility="assisted",
+        lat=ORIGIN[0],
+        lng=ORIGIN[1],
+    )
+    assert result.availability == "ok"
+    assert [s.id for s in result.items] == ["only-stairs"]
+    assert result.items[0].cautions == ["stairs"]
 
 
 def test_underground_only_seed_dong_is_all_excluded_from_the_fixture(
@@ -145,6 +174,7 @@ def test_underground_only_seed_dong_is_all_excluded_from_the_fixture(
         disaster_type="flood",
         hazard="inside",
         stairs_ok=True,
+        mobility="ok",
         limit=10,
     )
     assert result.availability == "all_excluded"
@@ -160,11 +190,12 @@ def test_basis_reports_which_origin_was_used(shelter_repository: ShelterReposito
         disaster_type="flood",
         hazard="inside",
         stairs_ok=True,
+        mobility="ok",
         lat=37.4842,
         lng=126.9295,
     )
     without = shelter_repository.search(
-        dong_code=DONG, disaster_type="flood", hazard="inside", stairs_ok=True
+        dong_code=DONG, disaster_type="flood", hazard="inside", stairs_ok=True, mobility="ok"
     )
     assert with_coords.basis == "coordinate"
     assert without.basis == "dongCode"
@@ -176,6 +207,7 @@ def test_limit_is_applied_after_ranking(shelter_repository: ShelterRepository) -
         disaster_type="flood",
         hazard="inside",
         stairs_ok=True,
+        mobility="ok",
         lat=37.4842,
         lng=126.9295,
         limit=2,
@@ -188,7 +220,7 @@ def test_hazard_match_is_passed_through_unchanged(
 ) -> None:
     """`unknown`을 `outside`로 바꾸지 않는다 — 모르면 안전한 쪽으로."""
     result = shelter_repository.search(
-        dong_code=DONG, disaster_type="flood", hazard="unknown", stairs_ok=True
+        dong_code=DONG, disaster_type="flood", hazard="unknown", stairs_ok=True, mobility="ok"
     )
     assert result.hazard_match == "unknown"
 
@@ -205,3 +237,205 @@ def test_haversine_and_bearing_are_sane() -> None:
     assert haversine_m(37.4842, 126.9295, 37.4842, 126.9295) == 0
     assert bearing_of(37.4842, 126.9295, 37.4900, 126.9295) == "N"
     assert bearing_of(37.4842, 126.9295, 37.4842, 126.9400) == "E"
+
+
+# ── cautions: 계단 판정(stairs) ─────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("mobility", ["ok", "slow", "assisted"])
+def test_stairs_caution_is_decided_by_stairs_ok_not_mobility(mobility: str) -> None:
+    """계단 판정의 권위는 stairsOk다 — mobility가 무엇이든 결과가 같다(ADR-0016 결정 4)."""
+    repository = _repo([_record(id="stepped", has_stairs=True)])
+    result = repository.search(
+        dong_code=DONG,
+        disaster_type="flood",
+        hazard="inside",
+        stairs_ok=False,
+        mobility=mobility,
+    )
+    assert result.items[0].cautions == ["stairs"]
+
+
+def test_no_stairs_caution_when_stairs_ok_is_true() -> None:
+    """계단을 쓸 수 있으면 계단 시설이어도 주의가 붙지 않는다."""
+    repository = _repo([_record(id="stepped", has_stairs=True)])
+    result = repository.search(
+        dong_code=DONG,
+        disaster_type="flood",
+        hazard="inside",
+        stairs_ok=True,
+        mobility="assisted",
+    )
+    assert result.items[0].cautions == []
+
+
+def test_no_stairs_caution_for_step_free_facility() -> None:
+    repository = _repo([_record(id="flat", has_stairs=False)])
+    result = repository.search(
+        dong_code=DONG,
+        disaster_type="flood",
+        hazard="inside",
+        stairs_ok=False,
+        mobility="assisted",
+    )
+    assert result.items[0].cautions == []
+
+
+# ── cautions: 도달 시간(over_time) ───────────────────────────────────────────
+
+
+def test_over_time_attaches_only_on_coordinate_basis() -> None:
+    """좌표 기준에서 시간 초과면 over_time이 붙는다."""
+    repository = _repo([_record(id="far", lat=POINT_500M[0], lng=POINT_500M[1])])
+    result = repository.search(
+        dong_code=DONG,
+        disaster_type="flood",
+        hazard="inside",
+        stairs_ok=True,
+        mobility="assisted",  # 500m / 0.7 = 714s > 600s
+        lat=ORIGIN[0],
+        lng=ORIGIN[1],
+    )
+    assert result.items[0].cautions == ["over_time"]
+
+
+def test_over_time_never_attaches_on_dong_code_basis() -> None:
+    """동 중심(dongCode) 원점의 거리는 추정값이라, 초과해도 over_time을 붙이지 않는다."""
+    # 좌표를 주지 않으면 원점은 그 동 대피소들의 평균이고 basis=dongCode가 된다.
+    repository = _repo(
+        [
+            _record(id="a", lat=POINT_500M[0], lng=POINT_500M[1]),
+            _record(id="b", lat=ORIGIN[0], lng=ORIGIN[1]),
+        ],
+        evac_time_limit_s=1,  # 어떤 거리든 초과할 만큼 낮춰도
+    )
+    result = repository.search(
+        dong_code=DONG, disaster_type="flood", hazard="inside", stairs_ok=True, mobility="assisted"
+    )
+    assert result.basis == "dongCode"
+    assert all(s.cautions == [] for s in result.items)
+
+
+def test_over_time_boundary_is_not_attached() -> None:
+    """경계(도달 시간 == 기준 시간)는 통과다 — 초과가 아니므로 붙지 않는다."""
+    distance = haversine_m(ORIGIN[0], ORIGIN[1], POINT_500M[0], POINT_500M[1])
+    record = _record(id="edge", lat=POINT_500M[0], lng=POINT_500M[1])
+
+    at_limit = _repo([record], evac_time_limit_s=distance).search(
+        dong_code=DONG,
+        disaster_type="flood",
+        hazard="inside",
+        stairs_ok=True,
+        mobility="ok",  # 속도 1.0 → 도달 시간(초) == 거리(m)
+        lat=ORIGIN[0],
+        lng=ORIGIN[1],
+    )
+    assert at_limit.items[0].cautions == []
+
+    one_below = _repo([record], evac_time_limit_s=distance - 1).search(
+        dong_code=DONG,
+        disaster_type="flood",
+        hazard="inside",
+        stairs_ok=True,
+        mobility="ok",
+        lat=ORIGIN[0],
+        lng=ORIGIN[1],
+    )
+    assert one_below.items[0].cautions == ["over_time"]
+
+
+def test_over_time_speed_boundary_between_ok_and_assisted() -> None:
+    """같은 좌표·같은 기준 시간에서, assisted(0.7)는 초과하고 ok(1.0)는 통과하는 경계 1건."""
+    record = _record(id="edge", lat=POINT_500M[0], lng=POINT_500M[1])
+    repository = _repo([record], evac_time_limit_s=600)
+    common = {
+        "dong_code": DONG,
+        "disaster_type": "flood",
+        "hazard": "inside",
+        "stairs_ok": True,
+        "lat": ORIGIN[0],
+        "lng": ORIGIN[1],
+    }
+    assisted = repository.search(mobility="assisted", **common)  # 500/0.7 = 714 > 600
+    fast = repository.search(mobility="ok", **common)  # 500/1.0 = 500 <= 600
+    assert assisted.items[0].cautions == ["over_time"]
+    assert fast.items[0].cautions == []
+
+
+def test_stairs_and_over_time_compose() -> None:
+    """계단 불가 + 좌표 기준 시간 초과 → 두 주의가 함께 붙는다."""
+    repository = _repo([_record(id="both", has_stairs=True, lat=POINT_500M[0], lng=POINT_500M[1])])
+    result = repository.search(
+        dong_code=DONG,
+        disaster_type="flood",
+        hazard="inside",
+        stairs_ok=False,
+        mobility="assisted",
+        lat=ORIGIN[0],
+        lng=ORIGIN[1],
+    )
+    assert result.items[0].cautions == ["stairs", "over_time"]
+
+
+# ── cautions: 정렬·필드 계약 ────────────────────────────────────────────────
+
+
+def test_no_caution_shelters_sort_before_cautioned_ones() -> None:
+    """주의 없는 대피소가 먼저, 주의 붙은 대피소가 뒤. 각 그룹 안은 거리순.
+
+    주의 붙은 대피소가 더 가까워도 앞으로 오지 않는다 — 프론트 재정렬을 막는 근거다.
+    """
+    records = [
+        _record(id="flat-far", has_stairs=False, lat=37.4862, lng=126.9310),  # ~259m, 주의 없음
+        _record(id="flat-near", has_stairs=False, lat=37.4845, lng=126.9298),  # ~43m, 주의 없음
+        _record(id="stepped-mid", has_stairs=True, lat=37.4851, lng=126.9295),  # ~100m, stairs
+    ]
+    repository = _repo(records, evac_time_limit_s=10_000)  # over_time은 배제
+    result = repository.search(
+        dong_code=DONG,
+        disaster_type="flood",
+        hazard="inside",
+        stairs_ok=False,
+        mobility="ok",
+        lat=ORIGIN[0],
+        lng=ORIGIN[1],
+        limit=10,
+    )
+    # 주의 없는 둘이 거리순(43m, 259m)으로 먼저, 계단 주의(100m로 더 가까움)가 뒤.
+    assert [s.id for s in result.items] == ["flat-near", "flat-far", "stepped-mid"]
+    assert [bool(s.cautions) for s in result.items] == [False, False, True]
+
+
+def test_cautions_field_is_always_present_even_when_empty() -> None:
+    """계약상 required — 주의가 없어도 빈 배열로 항상 내려간다(required 회귀)."""
+    result = _repo([_record(id="flat", has_stairs=False)]).search(
+        dong_code=DONG, disaster_type="flood", hazard="inside", stairs_ok=True, mobility="ok"
+    )
+    item = result.items[0]
+    assert item.cautions == []
+    assert "cautions" in item.model_dump(by_alias=True)
+
+
+def test_shelter_has_no_estimated_distance_or_tier_field() -> None:
+    """군 구분(tier)·거리 추정 표시 필드는 두지 않는다 — 파생 값이라 어긋난 응답을 만든다."""
+    names = set(Shelter.model_fields)
+    assert not names & {"estimated_distance", "estimatedDistance", "tier"}
+    assert "cautions" in names
+
+
+def test_evac_time_limit_is_externalised_and_effective() -> None:
+    """기준 시간을 낮추면 좌표 기준 대피소에 over_time이 붙는다 — 파라미터 외부화 확인."""
+    record = _record(id="near", lat=POINT_500M[0], lng=POINT_500M[1])
+    common = {
+        "dong_code": DONG,
+        "disaster_type": "flood",
+        "hazard": "inside",
+        "stairs_ok": True,
+        "mobility": "ok",
+        "lat": ORIGIN[0],
+        "lng": ORIGIN[1],
+    }
+    generous = _repo([record], evac_time_limit_s=10_000).search(**common)
+    strict = _repo([record], evac_time_limit_s=100).search(**common)
+    assert generous.items[0].cautions == []
+    assert strict.items[0].cautions == ["over_time"]

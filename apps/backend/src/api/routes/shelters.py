@@ -54,11 +54,15 @@ def search_shelters(
         record.event, dong_code=payload.dong_code, lat=payload.lat, lng=payload.lng
     )
 
+    # `mobility` joins `stairsOk` from the same session-token profile lookup — never from
+    # the request body, which must not re-send health fields. It feeds the walking-speed of
+    # the `over_time` caution only; `stairsOk` alone decides the `stairs` caution.
     return repository.search(
         dong_code=payload.dong_code,
         disaster_type=record.event.type,
         hazard=hazard,
         stairs_ok=resident.profile.stairs_ok,
+        mobility=resident.profile.mobility,
         lat=payload.lat,
         lng=payload.lng,
         limit=payload.limit,
