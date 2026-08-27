@@ -443,6 +443,16 @@ def _canonical_claim(source: GuardianEvidence) -> str | None:
     return f"{display_time}에 {_PROGRESS_TEMPLATES[source.type]}"
 
 
+def _source_fact_key(
+    source: GuardianEvidence,
+) -> tuple[GuardianEvidenceType, bool, datetime | None]:
+    """ADR-0012 fact identity, with equivalent RFC3339 offsets collapsed."""
+    if source.at is None:
+        return source.type, source.present, None
+    _, at_utc = _parse_rfc3339(source.at)
+    return source.type, source.present, at_utc
+
+
 def _claim_violations(
     question_id: GuardianQuestionId,
     answer: str,
@@ -452,7 +462,7 @@ def _claim_violations(
     if sentences is None:
         return ["unsupported_claim"]
 
-    source_facts = [(source.type, source.present, source.at) for source in sources]
+    source_facts = [_source_fact_key(source) for source in sources]
     if len(source_facts) != len(set(source_facts)):
         return ["unsupported_claim"]
 

@@ -354,10 +354,8 @@ _KNOWN_GUARDIAN_CLAIMS: tuple[tuple[re.Pattern[str], str], ...] = (
 )
 
 
-def _known_claim_has_no_matching_source(
-    answer: str, evidence: Sequence[Mapping[str, object]]
-) -> bool:
-    """Runtime canonical 문안의 이벤트 타입과 존재/부재 방향을 sources와 대조한다."""
+def _known_claim_source_mismatch(answer: str, evidence: Sequence[Mapping[str, object]]) -> bool:
+    """Match recognized canonical claims and cited type/presence facts both ways."""
     cited_claims = {(item.get("type"), item.get("present")) for item in evidence}
     claimed: set[tuple[str, bool]] = set()
     for sentence in sentences(answer):
@@ -367,7 +365,9 @@ def _known_claim_has_no_matching_source(
             for pattern, event_type in _KNOWN_GUARDIAN_CLAIMS
             if pattern.search(sentence)
         )
-    return not claimed.issubset(cited_claims)
+    return not claimed.issubset(cited_claims) or (
+        bool(claimed) and not cited_claims.issubset(claimed)
+    )
 
 
 # 나열·대조 연결어미 — the joins that put two facts in one sentence. ADR-0012's claim unit
@@ -416,21 +416,23 @@ def _facts_cited(evidence: Sequence[Mapping[str, object]]) -> int:
     invented claim ride in behind a duplicated citation: two sentences, the same source
     pasted twice, and the count check sees 2 <= 2 and passes.
 
-    Compared on the UTC minute, like every other time comparison here (2절), so the same
-    event cited once as `+09:00` and once as `Z` collapses to the one fact it is. Values
-    that cannot be normalized are keyed by `repr` rather than dropped: they are already
-    `malformed_evidence`, and letting two unreadable items pass as two facts would reopen
-    the same hole one step further down.
+    Compared on the exact UTC instant, so equivalent `+09:00` and `Z` forms collapse but
+    two events in the same minute remain two facts. Minute truncation belongs only to the
+    evidence-vs-log check in `_instant_minute`. Values that cannot be normalized are keyed
+    by `repr` rather than dropped: they are already `malformed_evidence`, and letting two
+    unreadable items pass as two facts would reopen the same hole one step further down.
     """
     keys = set()
     for item in evidence:
         kind = item.get("type")
         present = item.get("present")
+        at = item.get("at")
+        instant = _instant(at)
         keys.add(
             (
                 kind if isinstance(kind, str) else repr(kind),
                 present if isinstance(present, bool) else repr(present),
-                _instant_minute(item.get("at")),
+                instant if instant is not None else repr(at),
             )
         )
     return len(keys)
@@ -648,14 +650,23 @@ def guardian_violations(
     #
     # The other side of the count is *facts*, not array entries — see `_facts_cited`.
     # Pasting one citation twice would otherwise buy a second claim for free.
-    if len(claims) > _facts_cited(evidence):
+    mismatches = evidence_mismatches(evidence, events)
+    facts_cited = _facts_cited(evidence)
+    if len(evidence) != facts_cited:
         reasons.append("unsupported_claim")
-    if _known_claim_has_no_matching_source(answer, evidence):
+    present_sources = sum(item.get("present") is True for item in evidence)
+    if len(evidence) == facts_cited and present_sources > len(claims):
+        if not mismatches and "forbidden_phrase" not in reasons:
+            reasons.append("time_mismatch")
+        reasons.append("unsupported_claim")
+    if len(claims) > facts_cited:
+        reasons.append("unsupported_claim")
+    if _known_claim_source_mismatch(answer, evidence):
         reasons.append("unsupported_claim")
     if _UNSUPPORTED_STATE.search(answer):
         reasons.append("unsupported_claim")
 
-    return _distinct([*evidence_mismatches(evidence, events), *reasons])
+    return _distinct([*mismatches, *reasons])
 
 
 def guardian_accuracy(case_violations: Sequence[Sequence[str]]) -> float | None:
