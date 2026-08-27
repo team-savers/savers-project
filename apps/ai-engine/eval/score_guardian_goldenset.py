@@ -17,15 +17,41 @@ verifier를 통과하는가"만 증명하고, "실제 `guardian_log_qa.py`가 �
 `--runtime`은 두 가지를 따로 검사한다 — 규약 위반 여부와, 골든 케이스가 적어 둔
 기대값(answer/evidence)과의 일치 여부. 전자만으로는 "runtime이 규약을 지키는
 *어떤* 답을 냈다"만 증명하고, 그 답이 골든 케이스가 의도한 답인지는 증명하지
-못한다(PR #162 리뷰 Blocking). `_matches_golden()`이 후자를 담당한다. 이 비교를
-실제로 넣어 보면 30건 전부 불일치한다 — `guardian_log_qa.py`가 관련 이벤트 중
-*가장 최근 것 하나*(+ evacuation_progress는 도착 여부)만 인용하는 반면, 골든셋은
-케이스가 겪은 이벤트를 전부 순서대로 서술하도록 작성됐다. 이 간극은 questionId를
-카테고리별로 좁혀도(§리뷰 3) 좁혀지지 않는다 — 한 이벤트만 인용하는 것과 여러
-이벤트를 순서대로 인용하는 것은 CITATION_SCOPE가 아니라 `_answer_progress`/
-`_answer_help`/`_answer_arrival`의 구현 자체가 가르는 문제이기 때문이다. 즉 지금
-`guardian_log_qa.py`와 골든셋 중 어느 쪽이 07절 스펙이 의도한 계약인지는 이 파일이
-결정할 수 없다 — 구현 오너(김소원) 또는 Tech Lead 확인이 필요하다 (후속 과제).
+못한다(PR #162 리뷰 Blocking). `_matches_golden()`이 후자를 담당한다.
+
+**2026-08-27 해소.** 이 비교를 처음 넣었을 때는 30건 전부 불일치했다 — 원인은
+두 가지가 겹쳐 있었다. (1) `guardian_log_qa.py`가 관련 이벤트 중 *가장 최근 것
+하나*(+ evacuation_progress는 도착 여부, help_request는 CITATION_SCOPE 내 이벤트
+전체)만 인용하는 반면, 골든셋은 케이스가 겪은 이벤트를 CITATION_SCOPE 밖의 것까지
+포함해 전부 순서대로 서술하도록 작성돼 있었다. (2) `_matches_golden()`이 `at`을
+문자열 그대로 비교해, 같은 시각도 오프셋 표기 차이(`+09:00` vs `Z`)만으로
+mismatch로 잡혔다. 구현 오너(김소원) 확인 결과 — runtime의 질문별 인용 범위
+(evacuation_progress=최근 1건+도착 부재 / help_request=CITATION_SCOPE 내 이벤트
+전체 / arrival_status=최근 1건)가 의도한 계약이며, 골든셋 쪽을 이에 맞춰 재작성
+했다(30건, `guardian_log_qa.py`가 실제로 낸 answer/sources를 그대로 채택). 동시에
+`_matches_golden()`에 `_normalize_at()`을 추가해 인스턴트 기준으로 비교하도록
+고쳤다. 재검증 결과: 골든 기대값 일치 30/30, 적대 회귀 12/12 차단, exit 0.
+
+**작성 이력을 정확히 남긴다(소원님 2026-08-27 15:06 요청)** — 위 30건은 계약을
+먼저 읽고 처음부터 독립적으로 다시 쓴 것이 **아니다.** `guardian_log_qa.py`
+실행 결과를 먼저 채택한 뒤, 그 값을 계약 문서(구현 코드가 아님)인
+[ADR-0012](../../../docs/adr/0012-verifier-rules-and-closed-loop.md) 2절과
+[openapi.yaml](../../../packages/contracts/openapi.yaml) `GuardianQuestionId`
+(2512행~)에 사후 대조했다. 세 질문 모두 계약 원문과 일치했다 —
+evacuation_progress의 "최근 1건+도착부재"는 openapi.yaml 2543행·ADR-0012 2절
+116행에 그대로 명시돼 있고, help_request·arrival_status의 인용 가능 이벤트도
+openapi.yaml 2521~2523행 표와 정확히 같다(오히려 수정 전 골든셋이 표 밖 이벤트
+`direct_evacuation_selected`/`route_guidance_started`를 근거로 쓰고 있어 계약을
+어기고 있었다).
+
+**단, help_request가 "관련 이벤트 전체를 서술해야 한다"는 완전성 자체는 계약에
+명시돼 있지 않다** — ADR-0012·openapi.yaml 어디에도 "빠짐없이"·"전부 서술"류의
+문구가 없다. 명시된 것은 (a) 근거 타입이 `help_request_selected`·
+`emergency_call_119_selected` 둘로 제한된다는 것과 (b) 사실이 여럿이면 문장을
+쪼갠다는 서식 규칙뿐이다. `_answer_help()`가 present 이벤트만 문장으로 만들고
+absent 쪽을 항상 덧붙이진 않는 지금 동작은 계약에 **어긋나지도 요구되지도**
+않는 구현 선택이다 — evacuation_progress의 "행동 0건이면 전 종류 부재 하나로
+닫는다" 같은 명시적 특례가 help_request에는 없다.
 
 M2(guardian_accuracy)의 분모는 거절(`answer: null`) 5건을 뺀 답변 35건이다 —
 `metrics.py`의 `guardian_accuracy` docstring이 경고하는 대로, 거절을 M2에 섞으면 전부
@@ -110,15 +136,30 @@ def _to_runtime_event(event: dict) -> dict:
     }
 
 
+def _normalize_at(value: str | None) -> str | None:
+    """골든셋(+09:00 등 임의 오프셋)과 runtime(UTC `Z`)이 같은 시각을 다른 문자열로 적을 수
+    있다 — instant 기준으로 정규화해야 표기 차이가 아닌 실제 불일치만 걸린다(PR #162,
+    소원님 2026-08-27 14:09 코멘트)."""
+    if value is None:
+        return None
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC).isoformat()
+
+
 def _matches_golden(case: dict, response: GuardianLogAnswer) -> bool:
     """runtime 응답이 골든 케이스가 적어 둔 기대값(answer/evidence)과 같은지 비교한다.
 
     규약 위반 여부(`metrics.guardian_violations`)는 "runtime이 규약을 지키는 *어떤*
     답을 냈다"만 증명한다 — 그 답이 이 골든 케이스가 의도한 답인지는 별개다. evidence는
-    (type, present, at) 집합으로 비교해 순서 차이는 무시하고 사실 집합만 견준다.
+    (type, present, at) 집합으로 비교해 순서 차이는 무시하고 사실 집합만 견준다. `at`은
+    인스턴트 기준으로 정규화한 뒤 비교한다 — 그렇지 않으면 같은 시각도 오프셋 표기
+    차이(`+09:00` vs `Z`)만으로 mismatch로 잡힌다.
     """
-    golden_evidence = {(item["type"], item["present"], item.get("at")) for item in case["evidence"]}
-    runtime_evidence = {(source.type, source.present, source.at) for source in response.sources}
+    golden_evidence = {
+        (item["type"], item["present"], _normalize_at(item.get("at"))) for item in case["evidence"]
+    }
+    runtime_evidence = {
+        (source.type, source.present, _normalize_at(source.at)) for source in response.sources
+    }
     return response.answer == case["answer"] and golden_evidence == runtime_evidence
 
 
