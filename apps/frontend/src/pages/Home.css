@@ -79,6 +79,21 @@
   }
 }
 
+/* Narrow phones (320px viewport class): brand wordmark + CTA must both stay
+   fully on-screen. The tagline is the only header element with no functional
+   role (nav is already hidden above), so it is the one thing dropped here —
+   logo, wordmark, and CTA are unchanged down to 320px. */
+@media (max-width: 360px) {
+  .home-header {
+    padding: 14px 12px;
+    gap: 10px;
+  }
+
+  .home-header-tagline {
+    display: none;
+  }
+}
+
 /* ------------------------------------------------------------------ hero */
 .home-hero {
   padding: 56px 24px;

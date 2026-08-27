@@ -335,7 +335,7 @@ function Header() {
           <span style={{ display: 'block', fontSize: '20px', fontWeight: 800, color: 'var(--h-blue)' }}>
             SAVERS
           </span>
-          <span style={{ display: 'block', fontSize: '12px', color: 'var(--h-text-muted)' }}>
+          <span className="home-header-tagline" style={{ display: 'block', fontSize: '12px', color: 'var(--h-text-muted)' }}>
             안전한 연결, 함께 지키는 삶
           </span>
         </span>
