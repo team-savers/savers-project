@@ -59,4 +59,8 @@ def shelters() -> ShelterRepository:
     That is the intended P1 behaviour and it is visible in the response
     (`availability: cache_only`) rather than being disguised as live data.
     """
-    return ShelterRepository(UnavailableShelterSource(), CachedShelterSource.from_jsonl())
+    return ShelterRepository(
+        UnavailableShelterSource(),
+        CachedShelterSource.from_jsonl(),
+        evac_time_limit_s=settings().evac_time_limit_s,
+    )

@@ -285,6 +285,7 @@ def mean(values: Sequence[float | None]) -> float | None:
 # current names). Named here so a contract rename is one edit, not a grep across the file.
 FOLLOWUP_DUE = "followup_due"  # 재진입 확정 — M4의 분모
 GUARDIAN_NOTIFIED = "guardian_notified"  # 2차 발송 성공 — M4의 분자
+FOLLOWUP_UNREACHABLE = "followup_unreachable"  # 도달 불가 — M4 분모 밖 별도 집계
 
 # ADR-0012 3절 forbids three *categories*, not one list. 안전 단정 is the only one that is
 # a set of fixed sentences; the other two are grammatical and are matched as patterns
@@ -675,6 +676,10 @@ class FollowupSummary:
     but carry a `followup_due` or `guardian_notified` whose `at` cannot be ordered, so
     "did the send follow its own timer" has no answer for them.
 
+    `unreachable` counts sessions with at least one `followup_unreachable` event. These
+    sessions are outside the M4 denominator and are reported separately; they do not
+    contribute to `rate`, even if a log contains the event more than once.
+
     They are deliberately neither successes nor failures. Dropping them silently inflates
     M4 — a run with one clean success and one unreadable session would report 100%. But
     counting them as failures is just as wrong: it makes a timestamp bug indistinguishable
@@ -685,6 +690,7 @@ class FollowupSummary:
     due: int
     sent: int
     unscoreable: int
+    unreachable: int
     rate: float | None
 
 
@@ -737,22 +743,46 @@ def _score_session(events: Sequence[Mapping[str, object]]) -> _LoopOutcome:
 def followup_summary(
     session_logs: Sequence[Sequence[Mapping[str, object]]],
 ) -> FollowupSummary:
-    """M4 (ADR-0012 7절): 분모는 `followup_due`가 있는 세션, 분자는 `guardian_notified`까지 간 세션.
+    """M4 (ADR-0012 7절, 7-a절)와 분모 밖 `followup_unreachable` 세션 요약.
 
     A session with no `followup_due` at all never re-entered the loop and is out of both
-    counts — that is not a failure, it is a person who answered.
+    rate counts. A session with `followup_unreachable` is also outside the denominator,
+    but is counted separately for reporting.
     """
     scored = [_score_session(events) for events in session_logs]
     reentered = [outcome for outcome in scored if outcome.due]
     scoreable = [outcome for outcome in reentered if outcome.readable]
     sent_count = sum(1 for outcome in scoreable if outcome.sent)
+    unreachable_count = sum(
+        1
+        for events in session_logs
+        if any(event.get("type") == FOLLOWUP_UNREACHABLE for event in events)
+    )
 
     return FollowupSummary(
         due=len(scoreable),
         sent=sent_count,
         unscoreable=len(reentered) - len(scoreable),
+        unreachable=unreachable_count,
         rate=_share(sent_count, len(scoreable)),
     )
+
+
+def _is_followup_scoreable(summary: FollowupSummary) -> bool:
+    """Whether a summary can be reported as the run's M4 score."""
+    return summary.rate is not None and summary.unscoreable == 0
+
+
+def format_followup_summary(summary: FollowupSummary) -> str:
+    """Format the ADR-0012 7-a one-line M4 report without recalculating it."""
+    if not _is_followup_scoreable(summary):
+        return (
+            f"M4 측정 불가 (n={summary.due}, unreachable={summary.unreachable}, "
+            f"unscoreable={summary.unscoreable})"
+        )
+    assert summary.rate is not None
+    rate = f"{summary.rate * 100:.1f}".rstrip("0").rstrip(".") + "%"
+    return f"M4 {rate} (n={summary.due}, unreachable={summary.unreachable})"
 
 
 def followup_delivery_rate(
@@ -772,4 +802,4 @@ def followup_delivery_rate(
     this function is the convenience wrapper over it.
     """
     summary = followup_summary(session_logs)
-    return None if summary.unscoreable else summary.rate
+    return summary.rate if _is_followup_scoreable(summary) else None
