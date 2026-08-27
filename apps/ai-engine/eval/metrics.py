@@ -26,9 +26,10 @@ from __future__ import annotations
 
 import math
 import re
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 
 # Character bigrams over Hangul + digits only. Whitespace, punctuation and particles carry
 # no claim, and dropping them keeps "지하차도는 통행하지 마세요" comparable to the source
@@ -337,6 +338,8 @@ _GUARDIAN_EXTRA_FORBIDDEN = re.compile(
 _UNSUPPORTED_STATE = re.compile(r"이동\s*중입니다|대피\s*중입니다|도착했습니다")
 _BRACKETED_LABEL = re.compile(r"\[[^]]+\]")
 _NON_HAPSYO_ENDING = re.compile(r"(?:해요|했어요|맞아요|이네요|그렇죠|예요|아요|어요)(?=[.!?]|$)")
+_DISPLAY_TIME = re.compile(r"(?<!\d)(\d{2})시 (\d{2})분(?!\d)")
+_SEOUL = timezone(timedelta(hours=9))
 
 _KNOWN_GUARDIAN_CLAIMS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"상황 확인하기.*버튼을 누(?:르|른)"), "situation_check_selected"),
@@ -436,6 +439,72 @@ def _facts_cited(evidence: Sequence[Mapping[str, object]]) -> int:
             )
         )
     return len(keys)
+
+
+def _event_backed_fact_capacity(
+    evidence: Sequence[Mapping[str, object]],
+    events: Sequence[Mapping[str, object]],
+) -> int:
+    """Count distinct cited facts that can consume distinct matching log rows.
+
+    Fact identity stays exact-instant based in `_facts_cited`, while ADR-0012 matches a
+    present citation to a log row by `(type, UTC minute)`. Applying both rules as a
+    capacity calculation prevents two different-second citations from borrowing the same
+    row, without collapsing two real same-minute occurrences into one fact.
+
+    A valid absence fact needs no row to support it; it contributes once when its type is
+    absent. Malformed and mismatching citations contribute no support capacity.
+    """
+    event_rows = Counter(
+        (event_type, minute)
+        for event in events
+        if isinstance((event_type := event.get("type")), str)
+        if (minute := _instant_minute(event.get("at"))) is not None
+    )
+    occurred = {
+        event_type for event in events if isinstance((event_type := event.get("type")), str)
+    }
+    present_facts: set[tuple[str, bool, datetime]] = set()
+    absent_types: set[str] = set()
+    for item in evidence:
+        item_type = item.get("type")
+        present = item.get("present")
+        if not isinstance(item_type, str) or not isinstance(present, bool):
+            continue
+        if not present:
+            if item.get("at") is None and item_type not in occurred:
+                absent_types.add(item_type)
+            continue
+        instant = _instant(item.get("at"))
+        if instant is not None:
+            present_facts.add((item_type, True, instant))
+
+    cited_rows = Counter(
+        (item_type, instant.strftime("%Y-%m-%dT%H:%M"))
+        for item_type, _present, instant in present_facts
+    )
+    matched_present = sum(
+        min(cited_count, event_rows[(item_type, minute)])
+        for (item_type, minute), cited_count in cited_rows.items()
+    )
+    return matched_present + len(absent_types)
+
+
+def _answer_display_time_mismatch(answer: str, evidence: Sequence[Mapping[str, object]]) -> bool:
+    """Whether any human-visible KST minute lacks a present evidence occurrence."""
+    displayed = Counter(
+        f"{int(hour):02d}시 {int(minute):02d}분" for hour, minute in _DISPLAY_TIME.findall(answer)
+    )
+    expected = Counter(
+        instant.astimezone(_SEOUL).strftime("%H시 %M분")
+        for item in evidence
+        if item.get("present") is True
+        if (instant := _instant(item.get("at"))) is not None
+    )
+    # This direction is intentional: an extra source is a support/coverage problem, not
+    # a claim that the answer displayed a wrong time. The reverse direction (an answer
+    # minute with no source occurrence) is the actual `time_mismatch` contract.
+    return any(count > expected[display_time] for display_time, count in displayed.items())
 
 
 def _distinct(codes: Sequence[str]) -> list[str]:
@@ -648,18 +717,23 @@ def guardian_violations(
     # 대피소로 이동 중입니다」 is one sentence with one citation, so the invented half rides
     # in free. `_claim_units` splits at the 연결어미 for that reason.
     #
-    # The other side of the count is *facts*, not array entries — see `_facts_cited`.
-    # Pasting one citation twice would otherwise buy a second claim for free.
+    # Fact identity and support capacity are deliberately different. `_facts_cited`
+    # rejects duplicate triplets; `_event_backed_fact_capacity` additionally prevents
+    # distinct-second citations from reusing one minute-matched event row.
     mismatches = evidence_mismatches(evidence, events)
     facts_cited = _facts_cited(evidence)
     if len(evidence) != facts_cited:
         reasons.append("unsupported_claim")
+    # Duplicate facts are rejected before Runtime compares display-time Counters. Keep
+    # that opposite-direction guard explicit so changing duplicate handling cannot add a
+    # spurious time reason as a side effect.
+    if len(evidence) == facts_cited and _answer_display_time_mismatch(answer, evidence):
+        reasons.append("time_mismatch")
+    support_capacity = _event_backed_fact_capacity(evidence, events)
     present_sources = sum(item.get("present") is True for item in evidence)
     if len(evidence) == facts_cited and present_sources > len(claims):
-        if not mismatches and "forbidden_phrase" not in reasons:
-            reasons.append("time_mismatch")
         reasons.append("unsupported_claim")
-    if len(claims) > facts_cited:
+    if len(claims) > facts_cited or (not mismatches and len(claims) > support_capacity):
         reasons.append("unsupported_claim")
     if _known_claim_source_mismatch(answer, evidence):
         reasons.append("unsupported_claim")

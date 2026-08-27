@@ -671,9 +671,8 @@ class TestGuardianRuntimeMetricParity:
             (
                 ("2026-08-27T01:30:01Z", "2026-08-27T01:30:50Z"),
                 1,
-                ("time_mismatch", "unsupported_claim"),
+                ("unsupported_claim",),
             ),
-            (("2026-08-27T01:30:01Z", "2026-08-27T01:30:50Z"), 2, ()),
             (
                 ("2026-08-27T10:30:00+09:00", "2026-08-27T01:30:00Z"),
                 1,
@@ -714,6 +713,91 @@ class TestGuardianRuntimeMetricParity:
         )
         assert runtime == expected
         assert scorer == list(expected)
+
+    def test_two_same_minute_event_rows_support_two_distinct_facts(self) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "help_request_selected", "at": "2026-08-27T01:30:01Z", "payload": {}},
+            {"type": "help_request_selected", "at": "2026-08-27T01:30:50Z", "payload": {}},
+        ]
+        response = answer_guardian_question(GuardianQuestionId.HELP_REQUEST, events)
+
+        assert (
+            verify_guardian_answer_detailed(
+                GuardianQuestionId.HELP_REQUEST, response, events
+            ).violations
+            == ()
+        )
+        assert (
+            metrics.guardian_violations(
+                answer=response.answer,
+                evidence=[source.model_dump(mode="python") for source in response.sources],
+                events=events,
+            )
+            == []
+        )
+
+    def test_two_distinct_second_sources_cannot_reuse_one_event_row(self) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "arrival_confirmed_by_user", "at": "2026-08-27T01:30:01Z", "payload": {}}
+        ]
+        evidence = [
+            {"type": "arrival_confirmed_by_user", "present": True, "at": stamp}
+            for stamp in ("2026-08-27T01:30:01Z", "2026-08-27T01:30:50Z")
+        ]
+        answer = "10시 30분에 [도착 완료] 버튼을 누르셨습니다. 대피소 이름은 서울초등학교입니다."
+
+        response = GuardianLogAnswer(
+            question_id=GuardianQuestionId.ARRIVAL_STATUS,
+            answer=answer,
+            sources=tuple(GuardianEvidence.model_validate(item) for item in evidence),
+            refusal_reason=None,
+        )
+        runtime = verify_guardian_answer_detailed(
+            GuardianQuestionId.ARRIVAL_STATUS, response, events
+        ).violations
+        scorer = metrics.guardian_violations(answer=answer, evidence=evidence, events=events)
+
+        assert metrics._facts_cited(evidence) == 2
+        assert runtime == ("unsupported_claim",)
+        assert scorer == list(runtime)
+
+    def test_mixed_mismatches_do_not_hide_time_reason(self) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "help_request_selected", "at": "2026-08-27T01:30:01Z", "payload": {}}
+        ]
+        response = GuardianLogAnswer(
+            question_id=GuardianQuestionId.HELP_REQUEST,
+            answer="10시 31분에 [도움이 필요해요]를 선택하셨습니다.",
+            sources=(
+                GuardianEvidence(
+                    type="emergency_call_119_selected",
+                    present=True,
+                    at="2026-08-27T01:32:01Z",
+                ),
+                GuardianEvidence(
+                    type="help_request_selected",
+                    present=True,
+                    at="2026-08-27T01:31:01Z",
+                ),
+            ),
+            refusal_reason=None,
+        )
+
+        runtime = verify_guardian_answer_detailed(
+            GuardianQuestionId.HELP_REQUEST, response, events
+        ).violations
+        scorer = metrics.guardian_violations(
+            answer=response.answer,
+            evidence=[source.model_dump(mode="python") for source in response.sources],
+            events=events,
+        )
+
+        assert runtime == (
+            "present_claim_mismatch",
+            "time_mismatch",
+            "unsupported_claim",
+        )
+        assert scorer == list(runtime)
 
     def test_duplicate_absent_evidence_is_blocked_by_both(self) -> None:
         response = answer_guardian_question(GuardianQuestionId.ARRIVAL_STATUS, [])
