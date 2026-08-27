@@ -199,7 +199,7 @@ M1 문구를 **코드가 실제로 보장하는 것**에 맞춘다.
 | 이벤트 이름 `push_accepted` 확정 | AI/RAG, PR #108 | 완료, 2026-08-24 머지 |
 | `DisasterEvent` 주석의 "`issued_at`이 KPI 시계 시작" 정정 (`backend_core/models.py`) | Backend | 대기 |
 | `GenerationContext.issuedAt` 설명의 "도달 속도 측정이 이 값 기준" 정정 (`packages/contracts/openapi.yaml`). **타임존 필수 규칙은 그대로 두고 근거만 바꾼다** - 이 값은 지표 기산점이 아니게 됐을 뿐, 화면의 판단 시각 표기로 계속 쓰이므로 KST/UTC가 섞이면 사용자에게 틀린 시각이 뜬다 | Tech Lead | 완료, 이 PR |
-| `Delivery.latency_ms` 계산 시점을 첫 `push_accepted` 시각으로 옮긴다 (`pipeline.py` 307행). 지금은 그 수신자의 기기 루프가 끝난 뒤라 다중 ward 기기에서만 정의와 벌어진다 | Backend | 대기, PR #153 리뷰 |
+| `Delivery.latency_ms` 계산 시점을 최초 접수 `push_accepted` 시각으로 옮긴다 (`pipeline.py` 307행). 지금은 그 수신자의 **기기 루프가 다 끝난 뒤**에 계산되므로, 루프가 도는 기기가 두 대 이상인 세션에서 정의와 벌어진다. 1차 발송이 `ward` 버킷만 읽는 현재 구조에서는 다중 ward 기기 세션에 한정되지만, **루프가 읽는 버킷이 늘면 그 한정은 사라진다** - 한정은 이 행의 조건이지 근거가 아니므로, 그때 우선순위만 올라가고 할 일은 같다 | Backend | 대기, PR #153 리뷰 |
 | `run_latency_eval.py`의 표본을 `devicesNotified > 0`으로 좁혀 Backend `AlertRun.latencies_ms`와 같은 기준으로 맞춘다. 지금은 `deliveries` 전건을 담아 전 기기 실패 세션이 eval p95만 낮춘다. 응답 스키마에 `devicesNotified`가 이미 있다 | AI/RAG | 대기, PR #153 리뷰 |
 | M1 정의를 잠그는 테스트 - ward 기기 1대, 여러 대(첫 접수 기준인지), 전건 실패(속도 표본에서 빠지는지). Backend p95와 eval p95가 같은 입력에서 같은 값인지도 함께 | Backend | 대기, PR #153 리뷰 |
 | `pipeline.py` `latencies_ms` 주석(117 ~ 119행)의 "실패 send는 실제 네트워크가 없어 빠르므로" 정정. `FcmDispatcher.send()`는 `messaging.send()` 뒤 `UnregisteredError`/`SenderIdMismatchError`에서 `False`를 돌려주므로 미접수도 실 네트워크를 탄다. 제외 근거는 속도가 아니라 **끝점 부재**다 - 필터 자체는 그대로 둔다 | Backend | 대기, PR #153 리뷰 |
