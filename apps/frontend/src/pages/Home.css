@@ -1,10 +1,6 @@
 /* Home landing page layout — scoped to .home-page only.
-   Colors are a LOCAL SAVERS palette (matches /evacuation's
-   EvacuationFlow.css) defined as CSS custom properties here, deliberately
-   NOT touching lib/tokens.ts (navy/teal) so Register/Join/Ops/other
-   screens are unaffected. This is a desktop-first responsive page —
-   unlike the rest of this app, Home is not pinned to the 402px mobile
-   width (ADR-0004 exception agreed for this page only). */
+   Colors are defined as local CSS custom properties so Register/Join/Ops
+   and other screens that use lib/tokens.ts remain unaffected. */
 
 .home-page {
   --h-blue: #1877F2;
@@ -28,6 +24,10 @@
 .home-page button:focus-visible {
   outline: 3px solid var(--h-orange);
   outline-offset: 2px;
+}
+
+.home-page section[id] {
+  scroll-margin-top: 88px;
 }
 
 /* ---------------------------------------------------------------- header */
@@ -126,6 +126,14 @@
   padding: 0 24px 40px;
 }
 
+.home-features h2,
+.home-promises h2 {
+  font-size: 26px;
+  font-weight: 800;
+  margin: 0 0 28px;
+  text-align: center;
+}
+
 .home-features-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -149,6 +157,46 @@
   max-width: 1200px;
   margin: 0 auto;
   padding: 0 24px 56px;
+}
+
+/* ------------------------------------------------------------ promises */
+.home-promises {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px 72px;
+}
+
+.home-promises-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.home-promise-card {
+  background: var(--h-card);
+  border: 1px solid var(--h-line);
+  border-radius: 16px;
+  padding: 24px 20px;
+  color: var(--h-blue);
+}
+
+.home-promise-card h3 {
+  margin: 14px 0 8px;
+  color: var(--h-text);
+  font-size: 18px;
+}
+
+.home-promise-card p {
+  margin: 0;
+  color: var(--h-text-muted);
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+@media (max-width: 760px) {
+  .home-promises-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .home-privacy-bar {

@@ -4,13 +4,9 @@
 // 랜딩과 이름이 겹치므로 이 파일은 Home 으로 둔다. App.tsx 의 HomeView()
 // 스텁을 이것으로 교체하면 된다.
 //
-// 2026-08-25 재구성: 데스크톱 우선 랜딩으로 새로 구성했다(이전에는
-// ADR-0004에 따라 402px 모바일 전용 단일 컬럼이었음 — 이 페이지에 한해서만
-// 예외로 데스크톱/태블릿 반응형을 추가하기로 결정됨; /evacuation과 다른
-// 화면들은 여전히 그 제약을 그대로 따른다). 색상도 이 페이지 안에서만
-// /evacuation과 같은 SAVERS 팔레트(파랑/오렌지 계열, Home.css의 CSS 변수)를
-// 쓰고, lib/tokens.ts의 navy/teal 톤은 건드리지 않는다 — Register/Join/Ops
-// 등 다른 화면이 그 토큰을 계속 쓰기 때문이다.
+// 2026-08-25 재구성: 데스크톱·태블릿·모바일 반응형 랜딩으로 구성했다.
+// 색상은 Home.css의 지역 CSS 변수로 한정해 Register/Join/Ops 등
+// lib/tokens.ts를 사용하는 다른 화면에 영향을 주지 않는다.
 //
 // 재사용: useReveal 스크롤 등장 훅, REGISTER_URL 상수·경로, public/logo.png
 // (EvacuationFlow.tsx와 동일한 로고 asset), lib/tokens.ts의 ICON 스타일.
@@ -20,7 +16,7 @@
 
 import { Fragment, useEffect, type ReactElement, type ReactNode } from 'react'
 import { ICON } from '../lib/tokens'
-import heroIllustration from '../assets/home.png'
+import heroIllustration from '../assets/home.webp'
 import './Home.css'
 
 // ---------------------------------------------------------------------------
@@ -99,6 +95,28 @@ interface FeatureCardProps {
   icon: ReactElement
   title: string
   body: string
+}
+
+interface PromiseCardProps {
+  title: string
+  body: string
+}
+
+function PromiseCard({ title, body }: PromiseCardProps) {
+  return (
+    <div className="home-promise-card" data-reveal>
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        style={{ ...ICON, width: 24, height: 24 }}
+      >
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
+        <path d="m9 11 2 2 4-4" />
+      </svg>
+      <h3>{title}</h3>
+      <p>{body}</p>
+    </div>
+  )
 }
 
 function FeatureCard({ icon, title, body }: FeatureCardProps) {
@@ -328,6 +346,7 @@ function Header() {
       <nav className="home-header-nav" aria-label="주요 메뉴">
         <a href="#hero">서비스 소개</a>
         <a href="#how-it-works">이용 방법</a>
+        <a href="/ops">담당자 등록</a>
         <span>안전 정보</span>
         <span>고객센터</span>
       </nav>
@@ -485,6 +504,7 @@ function Footer() {
             <div style={{ fontSize: '14px', fontWeight: 700, marginBottom: '6px' }}>서비스</div>
             <a href="#hero">서비스 소개</a>
             <a href="#how-it-works">이용 방법</a>
+            <a href="/ops">복지관·지자체 담당자 등록</a>
           </div>
           <div>
             <div style={{ fontSize: '14px', fontWeight: 700, marginBottom: '6px' }}>이용 안내</div>
@@ -520,6 +540,7 @@ export function Home(): React.ReactElement {
 
       {/* ===================== 핵심 기능 ===================== */}
       <section id="features" className="home-features">
+        <h2 data-reveal>핵심 기능</h2>
         <div className="home-features-grid">
           {FEATURES.map((f) => (
             <FeatureCard key={f.title} {...f} />
@@ -542,6 +563,27 @@ export function Home(): React.ReactElement {
           </span>
         </div>
       </div>
+
+      {/* ===================== 서비스 원칙 ===================== */}
+      <section className="home-promises" aria-labelledby="promises-title">
+        <h2 id="promises-title" data-reveal>
+          안심하고 사용할 수 있도록 약속합니다
+        </h2>
+        <div className="home-promises-grid">
+          <PromiseCard
+            title="위치는 딱 한 번만 확인해요"
+            body="알림을 열 때 현재 위치를 1회만 확인하고 저장하지 않습니다."
+          />
+          <PromiseCard
+            title="설치할 앱이 없어요"
+            body="앱스토어에서 별도 앱을 설치하지 않고 알림의 링크로 바로 이용합니다."
+          />
+          <PromiseCard
+            title="공식 근거 안에서 안내해요"
+            body="근거를 찾지 못하면 답하지 않으며, 긴급재난문자를 대체하지 않고 행동 안내를 보완합니다."
+          />
+        </div>
+      </section>
 
       {/* ===================== 이용 방법 ===================== */}
       <section id="how-it-works" className="home-steps">
