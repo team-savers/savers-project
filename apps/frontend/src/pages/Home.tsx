@@ -9,7 +9,7 @@
 // lib/tokens.ts를 사용하는 다른 화면에 영향을 주지 않는다.
 //
 // 재사용: useReveal 스크롤 등장 훅, REGISTER_URL 상수·경로,
-// 기존 화면과 동일한 SAVERS 로고 asset, lib/tokens.ts의 ICON 스타일.
+// public/logo.png의 SAVERS 로고 asset, lib/tokens.ts의 ICON 스타일.
 //
 // 데이터 의존 없음: api / mocks 를 호출하지 않는 정적 화면이다. 그래서
 // 로딩·실패 상태가 없고, 어떤 상황에서도 빈 화면이 되지 않는다.
@@ -17,7 +17,6 @@
 import { Fragment, useEffect, type ReactElement, type ReactNode } from 'react'
 import { ICON } from '../lib/tokens'
 import heroIllustration from '../assets/home.webp'
-import logoLight from '../assets/logo-mark-light.png'
 import './Home.css'
 
 // ---------------------------------------------------------------------------
@@ -328,7 +327,7 @@ function Header() {
     <header className="home-header">
       <a href="#hero" className="home-header-brand">
         <img
-          src={logoLight}
+          src="/logo.png"
           alt="SAVERS 로고"
           style={{ width: '34px', height: '34px', display: 'block', objectFit: 'contain' }}
         />
@@ -487,7 +486,7 @@ function Footer() {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
             <img
-              src={logoLight}
+              src="/logo.png"
               alt="SAVERS 로고"
               style={{ width: '24px', height: '24px', display: 'block', objectFit: 'contain' }}
             />
