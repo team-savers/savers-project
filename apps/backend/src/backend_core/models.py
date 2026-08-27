@@ -67,6 +67,8 @@ ResponseChoice = Literal["home", "outside"]
 Availability = Literal["ok", "all_excluded", "cache_only", "upstream_unavailable"]
 HazardMatch = Literal["inside", "outside", "unknown"]
 ExclusionReason = Literal["underground", "closed", "unreachable"]
+# 요청자 기준 주의. `excluded`(시설 속성)와 다른 축이며 후보를 지우지 않는다 (ADR-0016).
+Caution = Literal["stairs", "over_time"]
 ErrorCode = Literal[
     "SESSION_NOT_FOUND",
     "SESSION_EXPIRED",
@@ -236,6 +238,9 @@ class Shelter(ContractModel):
     is_underground: bool
     has_stairs: bool
     capacity: int | None = None
+    # 요청자 기준 주의(계약상 required, 기본 빈 배열). 서버가 판정해 항상 내려준다 —
+    # 비어 있으면 주의가 없다는 뜻이다. 값은 서버가 정하며 클라이언트가 유도할 수 없다.
+    cautions: list[Caution] = Field(default_factory=list)
 
 
 class Exclusion(ContractModel):
