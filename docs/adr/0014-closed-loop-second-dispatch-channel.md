@@ -95,4 +95,4 @@ ADR-0005 본문에는 2차 발송도 SMS 미채택도 없다. 인용이 문서�
 | [정량목표_검증설계.md](../공유_문서/정량목표_검증설계.md) M4 행에 발송 채널 명시 | PM | 완료 ([PR 127](https://github.com/team-savers/savers-project/pull/127)) |
 | [ADR-0012](0012-verifier-rules-and-closed-loop.md) 5절 전이표 5단계 "전달" 행에 채널 주석을 달지 판단. ADR-0012 가 2026-08-26 승인됐으므로 수정하려면 개정 절차를 따른다 | Tech Lead | 대기 |
 | 결정자 확인 후 상태를 승인으로 변경 | Tech Lead | 완료, 이 PR |
-| 결정 1번의 1차 수신자 서술 정정 ([ADR-0005](0005-webpush-primary-channel.md) 사후편집 예외 (2)). [ADR-0015](0015-guardian-device-registration.md) 결정 2번 2026-08-27 개정에 따른 것이고 채널 결정은 불변이다 | Tech Lead | 완료, 2026-08-27 정정 PR |
+| 결정 1번의 1차 수신자 서술 정정 ([ADR-0005](0005-webpush-primary-channel.md) 사후편집 예외 (2)). [ADR-0015](0015-guardian-device-registration.md) 결정 2번 2026-08-27 개정에 따른 것이고 채널 결정은 불변이다 | Tech Lead | 완료 ([PR 177](https://github.com/team-savers/savers-project/pull/177)) |
