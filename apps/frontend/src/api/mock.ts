@@ -594,19 +594,17 @@ export const mockAdapter: ApiClient = {
     if (profile === undefined) {
       throw new Error(`unknown guardian token: ${token}`)
     }
-    // No mock SessionEvent log exists yet (see postSessionEvent above), so
-    // every question truthfully answers from the "not found in this
-    // session's log" branch — the same shape a real ward who has not acted
-    // yet would produce. Per openapi.yaml GuardianEvidence, an absence
-    // entry IS evidence, so this is the DELIVERED branch, not a refusal —
-    // nothing here infers or asserts a real-world state.
+    // Exercise both successful contract branches without inventing a real
+    // event log: help/progress return delivered answers backed by explicit
+    // `present:false` evidence, while arrival returns the normal 200
+    // no-evidence refusal shape. Unsupported ids remain a 422.
     switch (req.questionId) {
       case 'arrival_status':
         return {
           questionId: 'arrival_status',
-          answer: '[도착 완료] 버튼을 누른 사실은 기록에서 확인되지 않습니다.',
-          sources: [{ type: 'arrival_confirmed_by_user', present: false }],
-          refusalReason: null,
+          answer: null,
+          sources: [],
+          refusalReason: 'no_evidence',
         }
       case 'help_request':
         return {
