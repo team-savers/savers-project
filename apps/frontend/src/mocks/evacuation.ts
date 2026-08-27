@@ -4,7 +4,7 @@ export const mockAlert = {
   area: '관악구',
   warning: '호우 경보',
   announcedAt: '8월 21일 (수) 10:28',
-  source: '기상청 공식 특보',
+  source: '[데모] 기상청 공식 특보',
 } as const
 
 export const mockProfile = {
@@ -26,7 +26,7 @@ export const mockProfile = {
 // 데모 시나리오 안에서 서로 앞뒤가 맞는다(새로 지어낸 맥락이 아니라 기존
 // mock 서사와 일치시킨 것).
 export const mockShelter = {
-  name: '신림중학교 체육관',
+  name: '[데모] 신림중학교 체육관',
   address: '서울 관악구 신림동',
   type: '지상 대피소',
   minutes: 13,

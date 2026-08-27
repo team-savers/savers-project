@@ -857,7 +857,11 @@ function ShelterListView(props: {
           const dirText = s.bearing != null ? bearingLabel(s.bearing, lang) : null
           // See isKnownCaution above — filters out any caution value this
           // build doesn't recognize instead of rendering it blind.
-          const knownCautions = s.cautions.filter(isKnownCaution)
+          // `?? []` guards a server that hasn't shipped `cautions` yet: the
+          // OpenAPI type says it's always an array, but that's only a claim
+          // about the JSON the server sends — a missing field must not throw
+          // on `.filter` and take down the whole shelter row.
+          const knownCautions = (s.cautions ?? []).filter(isKnownCaution)
           return (
             <li
               key={s.id}
