@@ -1,10 +1,16 @@
 """보호자 응답 골든셋 40건 + 적대 회귀 12건 채점 스크립트.
 
 `metrics.guardian_violations` / `metrics.guardian_accuracy` (M2)에 직접 물린다 — 이 파일은
-새 검증 로직을 추가하지 않는다. 골든셋은 `apps/ai-engine/src/ai_engine/guardian_log_qa.py`
-(실제 구현)를 호출해서 만들지 않았다 — 구현자가 자기 채점을 만들면 편향이라는 07절 원칙을
-지키기 위해, ADR-0012 규칙과 계약(`openapi.yaml` UserActionEventType) 12종만 보고 독립적으로
-작성했다.
+새 검증 로직을 추가하지 않는다. 골든셋 최초 작성(40건)은 `apps/ai-engine/src/ai_engine/
+guardian_log_qa.py`(실제 구현)를 호출해서 만들지 않았다 — 구현자가 자기 채점을 만들면
+편향이라는 07절 원칙을 지키기 위해, ADR-0012 규칙과 계약(`openapi.yaml`
+UserActionEventType) 12종만 보고 독립적으로 작성했다.
+
+**단, questionId를 가진 30건은 이후 다시 쓰였고 그 30건에는 위 원칙이 더 이상
+적용되지 않는다** — runtime(`guardian_log_qa.py`)이 실제로 낸 answer/sources를
+먼저 채택한 뒤 계약 문서에 사후 대조하는 순서였다. 정확한 이력은 아래
+"작성 이력을 정확히 남긴다" 절 참고. 독립 작성 원칙이 그대로 유지되는 것은
+questionId가 없는 나머지 10건(자유질문)과 적대 회귀 12건뿐이다.
 
 기본 실행은 케이스에 미리 적어 둔 `answer`/`evidence`를 그대로 채점한다 — "정답 문장이
 verifier를 통과하는가"만 증명하고, "실제 `guardian_log_qa.py`가 이 답을 만드는가"는
