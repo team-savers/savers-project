@@ -1,6 +1,13 @@
 # ADR-0015: 보호자 기기는 사전등록에서 등록하고 보호자 페이지에서 갱신한다
 
-- **상태**: 제안 (Proposed) - 2026-08-24 팀 메신저에서 Backend 가 A안으로 제기하고 AI/RAG 가 확인, 계약과 함께 작성. 결정자 확인 대기
+- **상태**: 제안 (Proposed) - 2026-08-24 팀 메신저에서 Backend 가 A안으로 제기하고 AI/RAG 가 확인, 계약과 함께 작성.
+  김도혁 (Backend) 확인 완료
+  ([PR 122](https://github.com/team-savers/savers-project/pull/122) 승인).
+  **김소원 (AI/RAG/프론트엔드) 확인 대기** - 사전등록 화면과 보호자 페이지가 그쪽 소관이고
+  [PR 122](https://github.com/team-savers/savers-project/pull/122),
+  [PR 147](https://github.com/team-savers/savers-project/pull/147) 어디에도 리뷰가 없다.
+  결과 절의 리허설 잔여 등록 정리 절차는
+  [이슈 151](https://github.com/team-savers/savers-project/issues/151) 의 A, B, C 판정을 기다린다
 - **개정**: 2026-08-25, 제안 상태에서 결과 절의 폰 고정 방어를 고쳤다.
   승인 전이므로 사후편집 금지에 해당하지 않는다.
   화면의 `GuardianStatus.pushEnabled` 를 눈으로 확인하는 값싼 방어가 정작 그 실패를 잡지 못한다는
@@ -8,11 +15,11 @@
   확인 수단을 본선 당일 아침 데모 발송으로 바꾸고 리허설 잔여 등록 정리를 조건으로 넣었다.
   같은 이유로 브라우저 구독이 죽었을 때의 결과를 한 갈래에서 두 갈래로 갈랐다
 - **날짜**: 2026-08-24
-- **결정자**: 신호정 (Tech Lead) 작성 / 김도혁 (Backend), 김소원 (AI/RAG/프론트엔드) 확인 대기
+- **결정자**: 신호정 (Tech Lead) 작성 / 김도혁 (Backend) 확인 완료, 김소원 (AI/RAG/프론트엔드) 확인 대기
 - **관련 문서**: [ADR-0005](0005-webpush-primary-channel.md) (1차 채널),
-  [ADR-0012](0012-verifier-rules-and-closed-loop.md)(제안) 5절, 7절, 7-a절 (폐루프 상태, M4 분모와 분자.
-  7-a절은 [PR 120](https://github.com/team-savers/savers-project/pull/120) 개정분으로 머지됨. 상태는 제안),
-  [ADR-0014](0014-closed-loop-second-dispatch-channel.md) (2차 발송 채널, 제안 - [PR 119](https://github.com/team-savers/savers-project/pull/119)),
+  [ADR-0012](0012-verifier-rules-and-closed-loop.md)(승인, 2026-08-26) 5절, 7절, 7-a절 (폐루프 상태, M4 분모와 분자.
+  7-a절은 [PR 120](https://github.com/team-savers/savers-project/pull/120) 개정분이다),
+  [ADR-0014](0014-closed-loop-second-dispatch-channel.md) (2차 발송 채널, 승인 - 2026-08-25, [PR 119](https://github.com/team-savers/savers-project/pull/119)),
   [packages/contracts/openapi.yaml](../../packages/contracts/openapi.yaml) v0.7,
   [역할_일정/04-백엔드.md](../역할_일정/04-백엔드.md) 8/25
 
@@ -249,7 +256,7 @@ M4 가 폐루프 신뢰성이 아니라 **보호자 가입률 지표**가 되기
 | 계약에 `followup_unreachable` 신설, 시스템 이벤트 4종 표기를 5종으로 (`SessionEvent` oneOf/discriminator, 세션당 1회 목록, `POST /v1/session/{token}/events`, `RecordedUserActionEvent`) | Tech Lead | 완료, 이 PR |
 | `GuardianEvidenceType` 에 `followup_unreachable` 추가, 열거 16종을 17종으로. 3질문 매핑표에는 넣지 않고 "어느 질문의 근거도 아닌 이벤트" 목록을 셋에서 넷으로 늘린다 - 이번 구간의 질문 셋이 폐루프 계측을 묻지 않기 때문이며, 검증기가 문장을 막는 것이 아니다. **두 스키마는 이 브랜치에 없고 보호자 Q&A 계약(PR 104)이 소유한다** - 이 브랜치는 건드리지 않는다 | Tech Lead (PR 104) | 완료 |
 | **머지 순서: 이 PR 이 PR 104 보다 먼저 간다.** 뒤집히면 main 에 `GuardianEvidenceType` 17종과 `SessionEvent` 16종이 잠시 공존하고, 존재하지 않는 이벤트를 가리키는 근거 타입이 생긴다 | Tech Lead | 대기 |
-| [ADR-0012](0012-verifier-rules-and-closed-loop.md) 7-a절에 **보호자가 없는 세션은 2단계에 들어가지 않는다**(위 결정 8번, 리뷰 반영으로 신설), 분모 소속 고정 불변식, `followup_unreachable` 세션당 1회, 별도 계상 단위, 소급 발송 at-least-once. 종료 조건에 `guardian_notified` 1건 | Tech Lead | 완료 ([PR 120](https://github.com/team-savers/savers-project/pull/120), 제안) |
+| [ADR-0012](0012-verifier-rules-and-closed-loop.md) 7-a절에 **보호자가 없는 세션은 2단계에 들어가지 않는다**(위 결정 8번, 리뷰 반영으로 신설), 분모 소속 고정 불변식, `followup_unreachable` 세션당 1회, 별도 계상 단위, 소급 발송 at-least-once. 종료 조건에 `guardian_notified` 1건 | Tech Lead | 완료 ([PR 120](https://github.com/team-savers/savers-project/pull/120), ADR-0012 는 2026-08-26 승인) |
 | [후속_과제.md](../공통_가이드/후속_과제.md) 팀 결정 대기 행에 등재됨([PR 126](https://github.com/team-savers/savers-project/pull/126)). 등록 토큰의 TTL, 1인당 발급 매수, 분실 시 재발급이 계약에 "미정"으로 남아 있다(`DeviceRegisterRequest.registrationToken`). 보호자 기기가 이 토큰에 매이므로 2차 발송 신뢰성에 걸린다. 갱신 경로(`/g/`)가 있어 완전 차단은 아니다 | Tech Lead | 대기 |
 | [정량목표_검증설계.md](../공유_문서/정량목표_검증설계.md) M4 행에 분모 제외 조건과 그 보고 방식 | PM | 대기 |
 | [워킹_스켈레톤_설명.md](../공통_가이드/워킹_스켈레톤_설명.md) API 표에 새 경로와 `role`, [워킹_스켈레톤_점검.md](../공통_가이드/워킹_스켈레톤_점검.md) 13절의 `curl` 예시와 `GuardianStatus` 기대 응답 | Tech Lead | 완료, 이 PR (PM 리뷰 5, 6, 7번) |

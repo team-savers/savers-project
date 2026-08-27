@@ -4,7 +4,7 @@
 - **번호**: 초안은 ADR-0012로 썼으나 [ADR-0012](0012-verifier-rules-and-closed-loop.md)(검증기 대조 규칙, 폐루프 상태, PR #106)가 먼저 머지됐고 0013은 [PR #110](https://github.com/team-savers/savers-project/pull/110)이 쓰고 있어 0014로 잡는다. [ADR-0011](0011-m3-no-storage-not-no-receipt.md)에서 같은 충돌이 한 번 났다
 - **날짜**: 2026-08-24 (작성) / 2026-08-25 (승인)
 - **결정자**: 신호정 (Tech Lead) 작성 / 안은남 (PM), 김도혁 (Backend) 확인
-- **관련 문서**: [ADR-0005](0005-webpush-primary-channel.md) (1차 채널), [ADR-0012](0012-verifier-rules-and-closed-loop.md) 5절, 7절 (폐루프 상태와 M4 분모, 분자), [ADR-0013](https://github.com/team-savers/savers-project/pull/110) (M1은 발송 접수까지, 제안), [ADR-0015](0015-guardian-device-registration.md) (제안, 보호자 기기 등록과 `role` 구분), `packages/contracts/openapi.yaml` (`FollowupDueEvent`, `GuardianNotifiedEvent`, `DeviceRegisterRequest.role`), [서비스_기획서.md](../공유_문서/서비스_기획서.md) 정정 항목 표 4번, [정량목표_검증설계.md](../공유_문서/정량목표_검증설계.md) M4, [역할_일정/04-백엔드.md](../역할_일정/04-백엔드.md) 8/25
+- **관련 문서**: [ADR-0005](0005-webpush-primary-channel.md) (1차 채널), [ADR-0012](0012-verifier-rules-and-closed-loop.md) 5절, 7절 (폐루프 상태와 M4 분모, 분자), [ADR-0013](0013-m1-measures-push-acceptance.md) (M1은 발송 접수까지, 승인 - 2026-08-26), [ADR-0015](0015-guardian-device-registration.md) (제안, 보호자 기기 등록과 `role` 구분), `packages/contracts/openapi.yaml` (`FollowupDueEvent`, `GuardianNotifiedEvent`, `DeviceRegisterRequest.role`), [서비스_기획서.md](../공유_문서/서비스_기획서.md) 정정 항목 표 4번, [정량목표_검증설계.md](../공유_문서/정량목표_검증설계.md) M4, [역할_일정/04-백엔드.md](../역할_일정/04-백엔드.md) 8/25
 
 ## 배경 (Context)
 
@@ -45,7 +45,7 @@ ADR-0005 본문에는 2차 발송도 SMS 미채택도 없다. 인용이 문서�
 
 - **ADR-0005가 정한 절차의 답이다.** "재검토 조건" 절은 "도달률을 위한 보조 채널이 필요해지면 알림톡이 아닌 다른 수단(SMS 폴백, 보호자 경유 등)을 별도 ADR로 검토한다"고 적었다. 이 문서가 그 검토이고, 결론은 "본선 범위에서는 필요하지 않다"이다.
 - **남은 구현 창구에 자리가 없다.** SMS는 코드만의 문제가 아니라 발신번호 사전등록이 앞에 붙고, 그 등록은 사업자 서류를 요구한다(추정 - 알림톡 발신 프로필에서 확인된 것과 같은 종류의 자격 장벽이다). 8/25의 4.5시간은 FCM 2차 경로에 이미 배정돼 있다.
-- **지표 두 개가 같은 접수 신호 위에 선다.** M1은 발송 접수까지를 재고([ADR-0013](https://github.com/team-savers/savers-project/pull/110), 제안), M4는 `guardian_notified` 접수를 센다([ADR-0012](0012-verifier-rules-and-closed-loop.md) 7절). 둘 다 `Dispatcher.send()`의 접수 신호 하나에서 나온다. 채널이 둘이면 그 신호가 갈라지고, 지표 두 개의 근거도 함께 갈라진다.
+- **지표 두 개가 같은 접수 신호 위에 선다.** M1은 발송 접수까지를 재고([ADR-0013](0013-m1-measures-push-acceptance.md), 승인 - 2026-08-26), M4는 `guardian_notified` 접수를 센다([ADR-0012](0012-verifier-rules-and-closed-loop.md) 7절). 둘 다 `Dispatcher.send()`의 접수 신호 하나에서 나온다. 채널이 둘이면 그 신호가 갈라지고, 지표 두 개의 근거도 함께 갈라진다.
 
 ## 결과 (Consequences)
 
@@ -74,5 +74,5 @@ ADR-0005 본문에는 2차 발송도 SMS 미채택도 없다. 인용이 문서�
 | 정정 항목 표 4번 행의 근거란을 ADR-0005에서 이 ADR로 교체. "Q&A 근거는 ADR-0005 하나" 문장도 함께 | PM | 대기 |
 | [비용_산정.md](../공통_가이드/비용_산정.md) 14행 "실패 시 SMS 폴백 포함", 80 ~ 85행 대행사 SMS 단가 표 정리 | PM | 미처리 ([ADR-0005](0005-webpush-primary-channel.md) 후속 조치 표에 이미 있던 항목) |
 | [정량목표_검증설계.md](../공유_문서/정량목표_검증설계.md) M4 행에 발송 채널 명시 | PM | 대기 |
-| [ADR-0012](0012-verifier-rules-and-closed-loop.md) 5절 전이표 5단계 "전달" 행에 채널 주석을 달지 판단. 제안 상태라 수정은 가능하다 | Tech Lead | 대기 |
+| [ADR-0012](0012-verifier-rules-and-closed-loop.md) 5절 전이표 5단계 "전달" 행에 채널 주석을 달지 판단. ADR-0012 가 2026-08-26 승인됐으므로 수정하려면 개정 절차를 따른다 | Tech Lead | 대기 |
 | 결정자 확인 후 상태를 승인으로 변경 | Tech Lead | 완료, 이 PR |
