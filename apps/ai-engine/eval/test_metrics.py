@@ -1590,3 +1590,24 @@ class TestFormatFollowupSummary:
         assert metrics.format_followup_summary(summary) == (
             "M4 측정 불가 (n=1, unreachable=0, unscoreable=1)"
         )
+
+
+class TestFollowupScoreabilityRule:
+    def test_no_due_and_unscoreable_runs_share_the_unmeasurable_verdict(self) -> None:
+        summaries = [
+            metrics.FollowupSummary(due=0, sent=0, unscoreable=0, unreachable=1, rate=None),
+            metrics.FollowupSummary(due=1, sent=1, unscoreable=1, unreachable=1, rate=1.0),
+        ]
+
+        for summary in summaries:
+            assert metrics._is_followup_scoreable(summary) is False
+            assert metrics.format_followup_summary(summary).startswith("M4 측정 불가")
+
+    def test_rate_wrapper_uses_the_shared_scoreability_rule(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        summary = metrics.FollowupSummary(due=1, sent=1, unscoreable=0, unreachable=0, rate=1.0)
+        monkeypatch.setattr(metrics, "followup_summary", lambda _logs: summary)
+        monkeypatch.setattr(metrics, "_is_followup_scoreable", lambda _summary: False)
+
+        assert metrics.followup_delivery_rate([]) is None

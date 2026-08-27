@@ -1,6 +1,7 @@
 """Push delivery.
 
-Web push (FCM) is the primary channel — 알림톡 is out of preliminary scope (ADR-0005).
+Web push (FCM) is the primary channel — 알림톡 is not adopted, in the preliminary
+round or the finals (ADR-0005).
 Two consequences are load-bearing here:
 
 - **The body is delivered verbatim.** There is no template, no approved slot set, no

@@ -1,11 +1,11 @@
 # ADR-0016: 개인 적합성은 대피소를 제외하지 않고 주의로 표시한다
 
-- **상태**: 제안 (Proposed) - 2026-08-25 Backend 가 판정 규칙 2건을 제기하고,
+- **상태**: 승인 (Accepted) - 2026-08-26 Tech Lead 승인.
+  2026-08-25 Backend 가 판정 규칙 2건을 제기하고,
   같은 날 스스로 결함을 찾아 2단 추천으로 고쳐 왔다.
   이 문서는 그 형태를 계약이 받을 수 있는 모양으로 좁힌 것이다.
-  김도혁 (Backend) 확인 완료
-  ([PR 146](https://github.com/team-savers/savers-project/pull/146) 승인),
-  안은남 (PM) 확인 대기
+  김도혁 (Backend), 안은남 (PM) 확인 완료
+  ([PR 146](https://github.com/team-savers/savers-project/pull/146) 리뷰에 두 승인이 다 남아 있다)
 - **날짜**: 2026-08-26
 - **결정자**: 신호정 (Tech Lead) 작성 / 안은남 (PM), 김도혁 (Backend) 확인
 - **관련 문서**: [ADR-0006](0006-generation-contract.md) (생성 입력과 폴백 결정권),
