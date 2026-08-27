@@ -21,7 +21,7 @@ from pathlib import Path
 
 import metrics
 
-GOLDEN_DIR = Path(__file__).parent / "golden_dataset"
+GOLDEN_DIR = Path(__file__).parent / "golden_dataset" / "guardian"
 MAIN_SET = GOLDEN_DIR / "guardian_v0.jsonl"
 ADVERSARIAL_SET = GOLDEN_DIR / "guardian_adversarial_v0.jsonl"
 
