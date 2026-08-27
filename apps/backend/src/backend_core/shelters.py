@@ -20,7 +20,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol
+from typing import Literal, Protocol
 
 from backend_core.models import (
     Availability,
@@ -34,6 +34,11 @@ from backend_core.models import (
 )
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "shelters.jsonl"
+
+# 이동능력 리터럴(계약 `Profile.mobility`와 동일 값). 걷기 속도 조회 키가 이 셋으로
+# 좁혀지지만, `_walk_speed_mps`가 `Mapping[str, float]`이라 리터럴만으로는 키 존재를
+# 보장하지 못한다 — 방어는 조회부의 `.get()`이 한다(ADR-0016 결정 5).
+Mobility = Literal["ok", "slow", "assisted"]
 
 # 도보 속도(m/s). 도달 시간 = 직선거리 / 속도로 `over_time` 주의를 판정한다.
 # 출처: 서울시 보도자료의 보행약자 통행 속도 구간. `slow`·`assisted`는 같은 값을 쓰되
@@ -191,7 +196,7 @@ class ShelterRepository:
         disaster_type: DisasterType,
         hazard: HazardMatch,
         stairs_ok: bool,
-        mobility: str,
+        mobility: Mobility,
         lat: float | None = None,
         lng: float | None = None,
         limit: int = 5,
@@ -278,7 +283,7 @@ class ShelterRepository:
         reach_distance_m: float,
         has_stairs: bool,
         stairs_ok: bool,
-        mobility: str,
+        mobility: Mobility,
         basis: str,
     ) -> list[Caution]:
         """Per-requester cautions for one shelter — a warning, never an exclusion.
@@ -300,8 +305,14 @@ class ShelterRepository:
         # `over_time`은 `basis`가 `coordinate`일 때만 붙인다. `dongCode` 원점은 그 동
         # 대피소들의 평균 좌표(플레이스홀더)라 거리가 추정값이고, 추정값에 시간 초과를
         # 선언하면 없는 사실을 만든다. 경계(도달 시간 == 기준)는 통과라 붙지 않는다.
-        if basis == "coordinate":
-            reach_time_s = reach_distance_m / self._walk_speed_mps[mobility]
+        #
+        # 속도표에 없는 이동능력은 `.get()`이 None을 주고, 그때는 over_time을 붙이지 않는다 —
+        # 없는 속도로 도달 시간을 지어내느니 주의를 생략한다(ADR-0016 결정 5: cautions는
+        # 근거가 있을 때만, 정보를 지우지 않고 등급화한다). `mobility` 리터럴을 넓혀도
+        # 키 누락은 mypy가 못 잡으므로, 실제 방어는 이 조회부에 둔다.
+        speed_mps = self._walk_speed_mps.get(mobility)
+        if basis == "coordinate" and speed_mps is not None:
+            reach_time_s = reach_distance_m / speed_mps
             if reach_time_s > self._evac_time_limit_s:
                 cautions.append("over_time")
 
