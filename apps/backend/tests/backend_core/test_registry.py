@@ -89,6 +89,39 @@ def test_register_guardian_device_by_user_is_idempotent(registry: ResidentRegist
     assert "fcm_g_new" not in resident.devices["ward"]
 
 
+def test_register_guardian_device_by_user_replaces_previous(registry: ResidentRegistry) -> None:
+    """갱신은 추가가 아니라 교체다 - 새 토큰으로 재등록하면 옛 토큰이 사라지고 개수는 그대로다.
+
+    보호자는 대상당 단수이므로(Profile.guardian), FCM 토큰 회전 시 죽은 토큰이 쌓이지 않고
+    갈아끼워진다(이슈 #151, PR #154 결정 D).
+    """
+    registry.register_guardian_device_by_user("p001", "fcm_g_old")
+    resident = registry.register_guardian_device_by_user("p001", "fcm_g_rotated")
+    assert resident.devices["guardian"] == ["fcm_g_rotated"]
+    assert "fcm_g_old" not in resident.devices["guardian"]
+
+
+def test_register_guardian_device_by_user_drops_seed_token(registry: ResidentRegistry) -> None:
+    """첫 갱신에서 시드의 가공 보호자 토큰(fcm_demo_guardian_p001)도 함께 사라진다.
+
+    사라진 브라우저 안 값을 요구하던 DELETE 정리 경로가 닿지 못하던 바로 그 죽은 토큰을,
+    교체 시맨틱이 갱신 한 번으로 떨군다(이슈 #151).
+    """
+    resident = registry.register_guardian_device_by_user("p001", "fcm_g_real")
+    assert resident.devices["guardian"] == ["fcm_g_real"]
+    assert "fcm_demo_guardian_p001" not in resident.devices["guardian"]
+
+
+def test_register_guardian_device_by_user_leaves_ward_bucket_intact(
+    registry: ResidentRegistry,
+) -> None:
+    """교체는 guardian 버킷에만 적용된다 - ward 등록은 회귀 없이 그대로 유지된다."""
+    resident = registry.register_device("r_demo_resident_p001", "fcm_ward_extra", "ward")
+    before = list(resident.devices["ward"])
+    registry.register_guardian_device_by_user("p001", "fcm_g_swap")
+    assert resident.devices["ward"] == before
+
+
 def test_register_guardian_device_by_user_rejected_when_no_guardian(
     registry: ResidentRegistry,
 ) -> None:
