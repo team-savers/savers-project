@@ -16,6 +16,8 @@
 //   /mockup                 → PRESENTATION-ONLY static mockups, 5 screens
 //                             (pages/Mockup.tsx). Not wired to ../api/* at
 //                             all — hardcoded example data only.
+//   /evacuation             → interactive mobile evacuation demo. Local state
+//                             and static mock data only; no API/geolocation.
 //
 // The guardian route (/g/{token}), its page, and the ?s= stage parameter are
 // intentionally not part of the route set. Landing takes only the session
@@ -35,6 +37,7 @@ import { Home } from './pages/Home'
 import { Register } from './pages/Register'
 import { Preview } from './pages/Preview'
 import { Mockup } from './pages/Mockup'
+import { EvacuationFlow } from './pages/EvacuationFlow'
 import { initSwUpdates } from './lib/swUpdate'
 import { PROFILES } from './mocks/profiles'
 import type { Profile } from './api/types'
@@ -620,6 +623,9 @@ function AppRoutes({ pathname }: { pathname: string }): React.ReactElement {
   }
   if (pathname === '/mockup') {
     return <Mockup />
+  }
+  if (pathname === '/evacuation') {
+    return <EvacuationFlow />
   }
   return <HomeView />
 }
