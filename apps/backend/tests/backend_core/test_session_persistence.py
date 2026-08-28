@@ -1,6 +1,8 @@
 """SQLite write-through and restart recovery for SessionStore."""
 
+import os
 import sqlite3
+import stat
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -43,6 +45,44 @@ def _create(store: SessionStore, *, now: datetime | None = None):  # type: ignor
 
 def _user_event(type_: str, payload: dict | None = None) -> UserActionEventCreate:
     return UserActionEventCreate(type=type_, payload=payload or {})
+
+
+def _mode(path: Path) -> int:
+    return stat.S_IMODE(path.stat().st_mode)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes are not enforced on Windows")
+def test_new_database_is_owner_read_write_only(tmp_path: Path) -> None:
+    path = tmp_path / "sessions.sqlite3"
+
+    _store(path)
+
+    assert _mode(path) == 0o600
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes are not enforced on Windows")
+def test_existing_database_mode_is_restricted_on_open(tmp_path: Path) -> None:
+    path = tmp_path / "sessions.sqlite3"
+    path.touch(mode=0o644)
+    path.chmod(0o644)
+
+    _store(path)
+
+    assert _mode(path) == 0o600
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes are not enforced on Windows")
+def test_wal_sidecars_are_not_more_permissive_than_database(tmp_path: Path) -> None:
+    path = tmp_path / "sessions.sqlite3"
+    store = _store(path)
+
+    _create(store)
+
+    assert _mode(path) == 0o600
+    for suffix in ("-wal", "-shm"):
+        sidecar = Path(f"{path}{suffix}")
+        if sidecar.exists():
+            assert _mode(sidecar) & 0o077 == 0
 
 
 def test_restart_restores_session_identity_and_context(tmp_path: Path) -> None:
