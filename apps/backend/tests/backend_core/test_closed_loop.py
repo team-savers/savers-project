@@ -827,6 +827,51 @@ def test_worker_rejects_duplicate_start_and_stops() -> None:
     assert worker.is_running is False
 
 
+def test_worker_tick_error_preserves_observation_state_and_cadence(caplog) -> None:
+    clock_values = iter(
+        [
+            START,
+            START + timedelta(seconds=5),
+            START + timedelta(seconds=10),
+            START + timedelta(seconds=15),
+        ]
+    )
+    monotonic_values = iter([0.0, 0.0, 1.0, 5.0, 6.0, 10.0, 11.0, 15.0])
+    calls: list[tuple[datetime, datetime, bool]] = []
+
+    def tick(previous: datetime, current: datetime, bootstrap: bool) -> None:
+        calls.append((previous, current, bootstrap))
+        if len(calls) == 1:
+            raise RuntimeError("unexpected tick failure")
+
+    class ScriptedStop:
+        def __init__(self) -> None:
+            self.timeouts: list[float] = []
+
+        def wait(self, timeout: float) -> bool:
+            self.timeouts.append(timeout)
+            return len(self.timeouts) == 4
+
+    worker = ReconcileWorker(
+        tick,
+        interval_s=5,
+        monotonic=lambda: next(monotonic_values),
+        clock=lambda: next(clock_values),
+    )
+    stop = ScriptedStop()
+    worker._stop = stop  # type: ignore[assignment]  # deterministic run-loop seam
+
+    worker.run()
+
+    assert calls == [
+        (START, START + timedelta(seconds=5), True),
+        (START, START + timedelta(seconds=10), True),
+        (START + timedelta(seconds=10), START + timedelta(seconds=15), False),
+    ]
+    assert stop.timeouts == [5.0, 5.0, 5.0, 5.0]
+    assert "reconcile worker tick failed" in caplog.text
+
+
 @pytest.mark.parametrize(
     ("finished_at", "expected"),
     [(8.0, 10.0), (13.0, 15.0), (17.0, 20.0)],

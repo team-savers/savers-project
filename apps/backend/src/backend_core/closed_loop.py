@@ -246,9 +246,13 @@ class ReconcileWorker:
         bootstrap = True
         while not self._stop.wait(max(0.0, deadline - self._monotonic())):
             observed_at = self._clock()
-            self._tick(previous_observed_at, observed_at, bootstrap)
-            bootstrap = False
-            previous_observed_at = observed_at
+            try:
+                self._tick(previous_observed_at, observed_at, bootstrap)
+            except Exception:
+                logger.exception("reconcile worker tick failed")
+            else:
+                bootstrap = False
+                previous_observed_at = observed_at
             deadline = _next_deadline(deadline, self._monotonic(), self._interval_s)
 
     def stop(self) -> None:
