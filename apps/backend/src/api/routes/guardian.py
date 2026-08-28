@@ -83,7 +83,7 @@ def post_guardian_acknowledge(
     except SessionExpiredError:
         errors.session_expired()
 
-    record.acknowledged_by_guardian = True
+    store.acknowledge_guardian(record)
     return Ack(ok=True)
 
 
