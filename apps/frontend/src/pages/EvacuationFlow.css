@@ -1,0 +1,501 @@
+.evac-flow{--color-primary:#1877F2;--color-accent:#F8A008;--color-danger:#E5483F;--color-bg:#F8F9FA;--color-surface:#FFFFFF;--color-surface-soft:#EEF3F7;--color-text:#111111;--color-text-muted:#4B5563;--line:#D9E0E7;width:100%;max-width:402px;height:100dvh;min-height:620px;margin:0 auto;overflow:hidden;background:var(--color-bg);color:var(--color-text);font-family:'Pretendard',system-ui,sans-serif;box-shadow:0 0 28px rgba(17,17,17,.08)}
+.evac-header{height:52px;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:0 14px;background:var(--color-surface);border-bottom:1px solid var(--line);position:relative;z-index:10}.evac-header strong{font-size:18px;letter-spacing:.04em}.evac-back{min-width:70px;min-height:48px;padding:0;border:0;background:transparent;color:var(--color-primary);font:inherit;font-weight:800;text-align:left;cursor:pointer}.evac-back.is-hidden{visibility:hidden}.evac-content{height:calc(100dvh - 52px);min-height:568px;overflow-y:auto;overscroll-behavior:contain}
+.evac-step{position:relative;box-sizing:border-box;min-height:100%;display:flex;flex-direction:column;padding:18px 16px 64px}.evac-step h1{font-size:29px;line-height:1.28;letter-spacing:-.035em;margin:0 0 8px}.evac-step h1 em{color:var(--color-danger);font-style:normal}.evac-step h1 em.blue{color:var(--color-primary)}.evac-lead{margin:0 0 14px;color:var(--color-text-muted);font-size:17px;line-height:1.45}.evac-card{background:var(--color-surface);border:1px solid var(--line);border-radius:17px;box-shadow:0 6px 18px rgba(17,17,17,.06);font-size:17px}.evac-footer{width:100%;margin-top:20px;flex:none}.evac-primary{width:100%;min-height:52px;display:flex;align-items:center;justify-content:center;border:0;border-radius:14px;background:var(--color-primary);color:#fff;font:inherit;font-size:18px;font-weight:850;text-decoration:none;cursor:pointer}.evac-secondary{width:100%;min-height:50px;margin-top:8px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;border:2px solid var(--color-primary);border-radius:14px;background:var(--color-surface);color:var(--color-primary);font:inherit;font-size:18px;font-weight:800;text-decoration:none;cursor:pointer}.evac-footer>.evac-secondary:first-child{margin-top:0}.evac-primary:focus-visible,.evac-secondary:focus-visible,.evac-choice:focus-visible,.evac-back:focus-visible{outline:3px solid var(--color-accent);outline-offset:3px}.evac-footnote{position:absolute;right:16px;bottom:12px;left:16px;min-height:36px;text-align:center;color:var(--color-text-muted);font-size:13px;line-height:1.4;margin:0}
+.evac-alert-step{text-align:center;align-items:stretch}.evac-kicker{margin:0 0 8px;color:var(--color-danger);font-size:18px;font-weight:850}.evac-alert-step h1{font-size:31px}.evac-notice{display:flex;align-items:center;gap:13px;padding:14px;text-align:left}.evac-notice>span{width:40px;height:40px;display:grid;place-items:center;border-radius:50%;background:var(--color-surface-soft);font-size:21px}.evac-notice strong,.evac-notice small{display:block}.evac-notice strong{font-size:17px}.evac-notice small{margin-top:4px;color:var(--color-text-muted);font-size:13px}
+.evac-profile{padding:18px}.evac-status{display:block;margin-bottom:14px;padding:9px 11px;border-radius:10px;background:var(--color-surface-soft);color:var(--color-primary);font-weight:800}.evac-profile dl{margin:0}.evac-profile dl div{display:grid;grid-template-columns:90px 1fr;gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}.evac-profile dl div:last-child{border:0}.evac-profile dt{color:var(--color-text-muted)}.evac-profile dd{margin:0;font-weight:750}.evac-profile label{display:grid;gap:8px;margin-bottom:16px;font-weight:800}.evac-profile input,.evac-profile select{min-height:50px;padding:0 12px;border:1px solid var(--line);border-radius:11px;background:#fff;color:var(--color-text);font:inherit}
+.evac-choice-list{display:grid;gap:13px}.evac-choice{width:100%;min-height:94px;display:grid;grid-template-columns:54px 1fr auto;align-items:center;gap:13px;padding:15px;text-align:left;color:var(--color-text);font:inherit;cursor:pointer}.evac-choice.selected{border:2px solid var(--color-primary)}.evac-choice-icon{width:50px;height:50px;display:grid;place-items:center;border-radius:50%;background:var(--color-surface-soft);font-size:26px}.evac-choice-icon.accent{background:#FFF4DB}.evac-choice strong,.evac-choice small{display:block}.evac-choice strong{font-size:19px}.evac-choice small{margin-top:5px;color:var(--color-text-muted);font-size:14px;line-height:1.35}.evac-choice>b{font-size:30px;color:var(--color-text-muted)}
+.evac-success{align-items:center;text-align:center;padding-top:48px}.evac-check{width:92px;height:92px;display:grid;place-items:center;margin-bottom:24px;border-radius:50%;background:var(--color-accent);color:#fff;font-size:54px;font-weight:900;box-shadow:0 10px 28px rgba(248,160,8,.25)}.evac-success>p{max-width:310px;margin:0;color:var(--color-text-muted);font-size:17px;line-height:1.55}.evac-success .evac-actions{width:100%}.evac-user-confirmed{width:100%;margin-top:24px;padding:16px;text-align:left}.evac-user-confirmed strong,.evac-user-confirmed span{display:block}.evac-user-confirmed span{margin-top:5px;color:var(--color-text-muted);font-size:15px}
+.evac-levels{display:grid;grid-template-columns:repeat(3,1fr);margin-bottom:20px;border:1px solid var(--line);border-radius:13px;overflow:hidden;background:#fff}.evac-levels div{padding:14px 7px;font-size:16px;font-weight:800;border-right:1px solid var(--line)}.evac-levels div:last-child{border:0}.evac-levels i{display:inline-block;width:12px;height:12px;margin-right:6px;border-radius:50%;background:#6CBF9F}.evac-levels div:nth-child(2) i{background:var(--color-accent)}.evac-levels .active{background:#FFF0EE;color:var(--color-danger)}.evac-levels .active i{background:var(--color-danger)}.evac-levels small{display:block;margin:4px 0 0 15px;color:var(--color-text-muted);font-weight:500;font-size:14px}.evac-shelter{padding:18px}.evac-shelter h2{font-size:24px;margin:0 0 5px}.evac-shelter p{margin:0;color:var(--color-text-muted);font-size:15px}.evac-tags{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0}.evac-tags span{padding:6px 8px;border-radius:7px;background:var(--color-surface-soft);color:var(--color-text);font-size:14px;font-weight:750}.evac-distance{display:block;font-size:18px}.evac-distance b{font-size:34px}.evac-deadline{display:flex;justify-content:space-between;margin-top:14px;padding:11px;border-radius:11px;background:#FFF0EE;color:var(--color-danger);font-size:14px;font-weight:800}.evac-deadline span:last-child{text-align:right}.evac-deadline b{display:block;font-size:20px;margin-top:3px}.evac-route-note{padding:12px;margin:12px 0 0;border-radius:11px;background:var(--color-surface-soft);color:var(--color-text-muted);font-size:14px;font-weight:700}
+.evac-map{position:relative;height:330px;flex:none;overflow:hidden;border:1px solid var(--line);border-radius:16px;background-color:#DCE4EB;background-image:linear-gradient(90deg,transparent 18%,#fff 18%,#fff 21%,transparent 21%,transparent 48%,#fff 48%,#fff 51%,transparent 51%,transparent 78%,#fff 78%,#fff 81%,transparent 81%),linear-gradient(transparent 18%,#fff 18%,#fff 21%,transparent 21%,transparent 48%,#fff 48%,#fff 51%,transparent 51%,transparent 78%,#fff 78%,#fff 81%,transparent 81%)}.flood-zone{position:absolute;left:29%;top:35%;width:46%;height:34%;display:grid;place-items:center;border:2px dashed var(--color-primary);background:rgba(24,119,242,.15);color:var(--color-primary);font-size:11px;font-weight:800;transform:rotate(-5deg)}.safe-line{position:absolute;background:var(--color-danger);border-radius:4px}.line-a{left:13%;top:22%;width:4px;height:66%}.line-b{left:13%;bottom:12%;width:74%;height:4px}.line-c{right:12%;bottom:12%;width:4px;height:22%}.short-line{position:absolute;left:14%;top:34%;width:70%;height:45%;border-top:3px dashed var(--color-text-muted);border-right:3px dashed var(--color-text-muted)}.map-label{position:absolute;z-index:3;padding:5px 8px;border-radius:10px;background:var(--color-text);color:#fff;font-size:11px;font-weight:800}.map-label.start{left:16%;top:17%}.map-label.end{right:15%;bottom:29%}.blocked{position:absolute;z-index:4;width:22px;height:22px;display:grid;place-items:center;border-radius:50%;background:var(--color-danger);color:#fff;font-weight:900}.b1{left:35%;top:32%}.b2{left:51%;top:48%}.b3{right:19%;top:62%}.evac-route-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:11px}.evac-route-stats div{padding:11px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--color-text-muted);font-size:13px}.evac-route-stats div.active{border-color:var(--color-danger);background:#FFF4F2;color:var(--color-danger)}.evac-route-stats strong{display:block;margin-top:4px;color:var(--color-text);font-size:17px}.evac-legend{display:flex;flex-wrap:wrap;justify-content:center;gap:8px 12px;margin-top:10px;color:var(--color-text-muted);font-size:12px}.evac-legend span{display:flex;align-items:center;gap:4px}.evac-legend i{width:14px;height:4px;background:var(--color-danger)}.evac-legend i.short{height:0;background:transparent;border-top:2px dashed var(--color-text-muted)}.evac-legend i.water{width:10px;height:10px;background:rgba(24,119,242,.2);border:1px dashed var(--color-primary)}.evac-legend i.block{width:9px;height:9px;border-radius:50%}
+@media(max-width:370px){.evac-step{padding-left:14px;padding-right:14px}.evac-step h1{font-size:27px}.evac-levels div{font-size:14px}.evac-choice{grid-template-columns:48px 1fr auto;padding:12px}.evac-choice-icon{width:46px;height:46px}.evac-map{height:300px}}
+
+/* Compact app-screen proportions: preserve readable controls while reducing
+   accumulated page whitespace and reserving one stable footer zone. */
+.evac-alert-icon{width:104px;height:104px;margin:6px auto 13px;display:grid;place-items:center;border-radius:50%;background:var(--color-danger);color:#fff;font-size:54px;font-weight:900;box-shadow:0 0 0 11px rgba(229,72,63,.08)}
+.evac-success{padding-top:18px}
+.evac-check{width:88px;height:88px;margin-bottom:20px;font-size:50px}
+.evac-levels{margin-bottom:12px}
+.evac-tags{margin:10px 0}
+/* v0.9 (ADR-0016): cautions chip row — same shape as .evac-tags span but
+   tinted with the SAVERS accent (orange, "주의" not "위험") instead of the
+   neutral surface-soft used for tags. Same rgba(248,160,8,.14)/#8A5800
+   pairing already used for warn-tint chips elsewhere in the app (Guardian
+   palette's accentBg/accentText) — reused, not a new color. */
+.evac-cautions{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0}
+.evac-cautions span{padding:6px 8px;border-radius:7px;background:rgba(248,160,8,.14);color:#8A5800;font-size:14px;font-weight:750}
+.evac-deadline{margin-top:10px;padding:9px}
+.evac-route-note{padding:9px 11px;margin-top:9px}
+.evac-map{height:270px}
+.evac-route-stats{margin-top:8px}
+.evac-route-stats div{padding:8px}
+.evac-legend{margin-top:7px}
+.evac-user-note{margin:7px 0 0;color:var(--color-text-muted);font-size:12px;line-height:1.35;text-align:center}
+.evac-route-step .evac-footer{margin-top:20px;padding-top:0}
+.evac-brand{display:inline-flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap}
+.evac-brand img{display:block;width:24px;height:24px;object-fit:contain}
+.evac-content-group {
+  width: 100%;
+}
+
+.evac-step-main {
+  width: 100%;
+}
+
+/* 도움 요청 / 도착 완료처럼 내용이 짧은 성공 화면 */
+.evac-step-centered {
+  display: flex;
+  justify-content: center;
+  padding-top: 12px;
+  padding-bottom: 64px;
+}
+
+.evac-success .evac-step-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+/* HelpRequestStep: two equal-weight contact routes (보호자/119), both
+   .evac-primary, stacked with the same 8px rhythm .evac-secondary already
+   uses elsewhere in this file — scoped to this wrapper only so it doesn't
+   touch .evac-primary's spacing on every other step that has just one. */
+.evac-help-contacts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.evac-success .evac-step-main > p {
+  max-width: 310px;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 17px;
+  line-height: 1.55;
+}
+
+/*
+ * 프로필 / 대피소 / 경로 화면
+ * 제목 - 핵심 내용 - CTA 세 덩어리를
+ * 한 곳에 몰지 않고 화면 전체에 나눠 배치
+ */
+.evac-step-distributed {
+  padding-top: 12px;
+  padding-bottom: 64px;
+}
+
+.evac-step-distributed .evac-content-group {
+  flex: 1 0 auto;
+  display: grid;
+  grid-template-rows: auto auto auto;
+  align-content: space-evenly;
+  row-gap: 12px;
+}
+
+/*
+ * 행동 선택 화면은 CTA가 따로 없으므로
+ * 제목 + 두 카드 묶음을 화면 중앙 영역에 배치
+ */
+.evac-step-choice {
+  padding-top: 12px;
+  padding-bottom: 64px;
+}
+
+.evac-step-choice .evac-content-group {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 24px;
+  padding-top: clamp(64px, 8vh, 84px);
+}
+
+.evac-intro,
+.evac-shelter-intro,
+.evac-shelter-body,
+.evac-route-intro,
+.evac-route-body {
+  width: 100%;
+}
+
+.evac-intro .evac-lead,
+.evac-route-intro .evac-lead {
+  margin-bottom: 0;
+}
+
+/* 첫 화면은 지금 잘 나온 상태 유지 */
+.evac-alert-step {
+  display: flex;
+  justify-content: stretch;
+  padding-top: 12px;
+  padding-bottom: 64px;
+}
+
+.evac-alert-step .evac-content-group {
+  width: 100%;
+  flex: 1;
+  min-height: 100%;
+  display: grid;
+  grid-template-rows: auto auto auto;
+  align-content: space-evenly;
+}
+
+.evac-alert-main {
+  width: 100%;
+  transform: translateY(22px);
+}
+
+.evac-alert-step .evac-footer {
+  margin: 0;
+}
+@media(max-width:370px){.evac-map{height:250px}}
+@media(max-height:680px){.evac-step{padding-top:14px}.evac-alert-icon{width:88px;height:88px;margin-top:2px;font-size:46px}.evac-success{padding-top:22px}.evac-map{height:230px}.evac-footnote{min-height:32px;font-size:12px}}
+
+/* Calm emergency pulse. Transform and opacity do not affect layout.
+   Only position/isolation/margin-top/transform/animation live here — the
+   shape/color/size properties are set once above (before the max-height
+   media query, so that query's own width/height/font-size overrides for
+   short viewports still win there). margin-top alone is re-set (not the
+   whole shorthand) so it doesn't clobber the margin's right/bottom values
+   already in place. */
+.evac-alert-icon {
+  position: relative;
+  isolation: isolate;
+  /* 느낌표 원 전체를 살짝 위로 */
+  margin-top: -10px;
+  transform: translateY(-16px);
+  animation: evac-alert-breathe 1.8s ease-in-out infinite;
+}
+
+/* 긴급 재난 아이콘 위치 */
+.evac-alert-icon-wrap {
+  transform: translateY(-24px);
+}
+
+/* 바깥으로 퍼지는 링 */
+.evac-alert-icon::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -14px;
+
+  border: 3px solid var(--color-danger);
+  border-radius: 50%;
+
+  opacity: 0;
+  animation: evac-alert-ring 1.8s ease-out infinite;
+}
+
+@keyframes evac-alert-ring {
+  0% {
+    opacity: 0.42;
+    transform: scale(0.92);
+  }
+
+  75%,
+  100% {
+    opacity: 0;
+    transform: scale(1.24);
+  }
+}
+
+@keyframes evac-alert-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.025);
+  }
+}
+
+/* 모션 감소 설정 사용자는 애니메이션 제거 */
+@media (prefers-reduced-motion: reduce) {
+  .evac-alert-icon,
+  .evac-alert-icon::before {
+    animation: none;
+  }
+}
+
+/* Accessibility settings row — sits in normal document flow inside the
+   alert step's footer (CTA, then this row, then the footnote), not a
+   fixed overlay. It only ever renders on the alert step (DisasterAlertStep
+   is the sole place AccessibilityRow is used), so no extra visibility
+   condition is needed here. The existing space-evenly grid on
+   .evac-alert-step .evac-content-group absorbs its height on its own —
+   nothing about that grid's own rules changes. */
+.evac-accessibility-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 28px;
+  margin-top: 14px;
+}
+
+/* Plain-text toggle rows, not chip/pill buttons: no background, no
+   border, no shadow on the row itself — the switch graphic is the only
+   shape here, per "박스형/pill 버튼 없음, 아이콘 없음, 그림자 없음". */
+.evac-a11y-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  padding: 4px 0;
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.evac-a11y-toggle:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+
+/* Both toggle labels share one typography — same size/weight/line-height,
+   neither emphasized over the other. font-size/font-weight/line-height
+   only; the toggle switch size, row gap, and everything else in this
+   component is untouched. */
+.evac-a11y-large-text .evac-a11y-label,
+.evac-a11y-speech .evac-a11y-label {
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+/* Compact switch: --line gray track when off, primary blue when on — both
+   reuse existing palette tokens, no new color. State reads from track
+   color + thumb position together, not color alone. */
+.evac-switch {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--line);
+  transition: background-color .15s ease;
+}
+
+.evac-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-surface);
+  transition: transform .15s ease;
+}
+
+.evac-a11y-toggle[aria-checked="true"] .evac-switch {
+  background: var(--color-primary);
+}
+
+.evac-a11y-toggle[aria-checked="true"] .evac-switch-thumb {
+  transform: translateX(16px);
+}
+
+.evac-profile-skip {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--color-primary);
+  font: inherit;
+  font-size: 17px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.evac-primary:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.evac-profile-input label:last-child {
+  margin-bottom: 0;
+}
+
+/* Typography scale, recomputed 2026-08-24: new base ≈ old large-text * 0.92,
+   new large-text ≈ new base * 1.18 — so "large text" now reads as one more
+   step up from a base that is itself close to what large-text used to be,
+   instead of base being noticeably small and large-text being the only
+   comfortable size. Anchoring off the old large-text value (not the old
+   base) is deliberate: it keeps every role's relative hierarchy exactly as
+   it was, just shifted up. See EvacuationFlow.tsx / this file's base rules
+   above for the new-base values these are stacked on top of. */
+.evac-flow.is-large-text .evac-step h1 {
+  font-size: 34px;
+  line-height: 1.3;
+}
+
+/* .evac-alert-step h1 (31px base) overrides the generic 29px h1 rule above
+   in default mode, so it needs its own large-text override too — same
+   pattern as the base rules a few lines up in this file. */
+.evac-flow.is-large-text .evac-alert-step h1 {
+  font-size: 37px;
+}
+
+.evac-flow.is-large-text .evac-lead,
+.evac-flow.is-large-text .evac-success .evac-step-main > p {
+  font-size: 20px;
+  line-height: 1.55;
+}
+
+/* .evac-card now carries an explicit 17px base (see the base rule above),
+   same tier as .evac-profile-skip's 17px base. */
+.evac-flow.is-large-text .evac-card,
+.evac-flow.is-large-text .evac-profile-skip {
+  font-size: 20px;
+  line-height: 1.5;
+}
+
+.evac-flow.is-large-text .evac-primary,
+.evac-flow.is-large-text .evac-secondary {
+  font-size: 21px;
+  line-height: 1.4;
+}
+
+.evac-flow.is-large-text .evac-footnote {
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+/* Toggle labels ("글자 크게", "음성 안내") also scale in large-text mode —
+   same ~1.18x this file uses elsewhere, off the 21px base above. The
+   switch graphic itself (.evac-switch/.evac-switch-thumb) and the two
+   labels' shared size/weight are untouched by this rule. */
+.evac-flow.is-large-text .evac-a11y-label {
+  font-size: 25px;
+}
+
+/* Nested text carries its own explicit font-size (e.g. .evac-choice
+   strong), so the blanket .evac-card override above never reaches it
+   through inheritance. One override per such selector below, each sized
+   to ~15-20% over that selector's own new base — font-size/line-height
+   only, nothing positional — so the existing title/body/caption hierarchy
+   stays intact instead of flattening to one size. */
+.evac-flow.is-large-text .evac-kicker {
+  font-size: 21px;
+}
+
+.evac-flow.is-large-text .evac-notice strong {
+  font-size: 20px;
+}
+
+.evac-flow.is-large-text .evac-notice small {
+  font-size: 15px;
+}
+
+.evac-flow.is-large-text .evac-choice strong {
+  font-size: 22px;
+}
+
+.evac-flow.is-large-text .evac-choice small {
+  font-size: 17px;
+  line-height: 1.4;
+}
+
+/* .evac-levels div/small bases just went from 13px/13px(inherited) to
+   16px/14px (2026-08-24 signal-bar pass) — large-text recomputed off the
+   new bases at the same ~1.18x this file already uses elsewhere. .evac-i
+   dot stays fixed at every text scale, same as other icon-like marks in
+   this file (choice-icon, alert-icon, …). */
+.evac-flow.is-large-text .evac-levels div {
+  font-size: 19px;
+}
+
+.evac-flow.is-large-text .evac-levels small {
+  font-size: 17px;
+}
+
+/* Shelter card bases also moved in the same pass (h2 22→24, p 14→15, tags
+   13→14, distance 17→18/32→34, deadline 13→14/19→20) — these are that
+   same ~1.18x step re-applied on top of the new bases. */
+.evac-flow.is-large-text .evac-shelter h2 {
+  font-size: 28px;
+}
+
+.evac-flow.is-large-text .evac-shelter p {
+  font-size: 18px;
+}
+
+.evac-flow.is-large-text .evac-tags span {
+  font-size: 17px;
+}
+
+.evac-flow.is-large-text .evac-cautions span {
+  font-size: 17px;
+}
+
+.evac-flow.is-large-text .evac-distance {
+  font-size: 21px;
+}
+
+.evac-flow.is-large-text .evac-distance b {
+  font-size: 40px;
+}
+
+.evac-flow.is-large-text .evac-deadline {
+  font-size: 17px;
+}
+
+.evac-flow.is-large-text .evac-deadline b {
+  font-size: 24px;
+}
+
+.evac-flow.is-large-text .evac-route-note {
+  font-size: 17px;
+}
+
+.evac-flow.is-large-text .evac-route-stats div {
+  font-size: 15px;
+}
+
+.evac-flow.is-large-text .evac-route-stats strong {
+  font-size: 20px;
+}
+
+.evac-flow.is-large-text .evac-legend {
+  font-size: 14px;
+}
+
+.evac-flow.is-large-text .evac-user-note {
+  font-size: 14px;
+}
+
+/* .evac-user-confirmed strong has no own base font-size (inherits from the
+   .evac-card override above), so only the span (which does set one) needs
+   an explicit large-text rule. */
+.evac-flow.is-large-text .evac-user-confirmed span {
+  font-size: 18px;
+}
+
+/* Header speech toggle — every step after 'alert' (blocking #3), replacing
+   the header's third-column filler span. Icon-only so it stays inside the
+   existing 52px header and doesn't crowd .evac-brand out of center; sized
+   to match .evac-back's tap target rather than the full AccessibilityRow
+   switch, which is too wide for a header cell. */
+.evac-header-speech-toggle {
+  justify-self: end;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.evac-header-speech-toggle:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 2px;
+}

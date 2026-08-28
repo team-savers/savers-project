@@ -20,6 +20,8 @@
 //                             (pages/Guardian.tsx). Reads only fixed data
 //                             from mocks/guardianStatus.ts — not wired to
 //                             ../api/* at all.
+//   /evacuation             → interactive mobile evacuation demo. Local state
+//                             and static mock data only; no API/geolocation.
 //
 // The `/g/{token}` guardian route and its ?s= stage parameter are not part
 // of the route set yet — `/guardian` above is a mock-only stand-in until the
@@ -43,6 +45,7 @@ import { Register } from './pages/Register'
 import { Preview } from './pages/Preview'
 import { Mockup } from './pages/Mockup'
 import { GuardianPreview } from './pages/Guardian'
+import { EvacuationFlow } from './pages/EvacuationFlow'
 import { initSwUpdates } from './lib/swUpdate'
 import { PROFILES } from './mocks/profiles'
 import type { Profile } from './api/types'
@@ -631,6 +634,9 @@ function AppRoutes({ pathname }: { pathname: string }): React.ReactElement {
   }
   if (pathname === '/guardian') {
     return <GuardianPreview />
+  }
+  if (pathname === '/evacuation') {
+    return <EvacuationFlow />
   }
   return <HomeView />
 }
