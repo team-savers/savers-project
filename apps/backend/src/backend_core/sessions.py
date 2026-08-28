@@ -15,6 +15,7 @@ Session records and events are persisted in SQLite and restored across process r
 from __future__ import annotations
 
 import json
+import os
 import re
 import secrets
 import sqlite3
@@ -119,6 +120,8 @@ class SessionStore:
             connection_path,
             check_same_thread=False,
         )
+        if connection_path != ":memory:" and os.name == "posix":
+            Path(connection_path).chmod(0o600)
         self._connection.row_factory = sqlite3.Row
         self._connection.execute("PRAGMA foreign_keys = ON")
         self._connection.execute("PRAGMA busy_timeout = 5000")
