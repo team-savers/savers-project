@@ -26,7 +26,7 @@ from backend_core.models import (
     GuardianQuestionId,
 )
 from backend_core.registry import ResidentRegistry
-from backend_core.sessions import SessionRecord, SessionStore
+from backend_core.sessions import FollowupDueAppendResult, SessionRecord, SessionStore
 
 START = datetime(2026, 8, 28, 0, 0, tzinfo=UTC)
 AFTER_S = 1800
@@ -144,6 +144,41 @@ def test_due_guardian_device_sends_and_converges_once(
     ]
     assert len(dispatcher.sent) == 1
     assert dispatcher.sent[0].link == f"{BASE_URL}/g/{record.guardian_token}"
+
+
+def test_arrival_after_snapshot_atomically_cancels_followup_due(
+    registry: ResidentRegistry,
+    dispatcher: RecordingDispatcher,
+    event: DisasterEvent,
+) -> None:
+    class ArrivalBeforeDueStore(SessionStore):
+        def append_followup_due_unless_arrived(
+            self, record: SessionRecord, *, now: datetime | None = None
+        ) -> FollowupDueAppendResult:
+            self.append_user_event(
+                record,
+                key="evt_arrival_during_due_race",
+                create=UserActionEventCreate(type="arrival_confirmed_by_user", payload={}),
+                now=now,
+            )
+            return super().append_followup_due_unless_arrived(record, now=now)
+
+    sessions = ArrivalBeforeDueStore(ttl_s=6 * 60 * 60)
+    record = _record(sessions, event)
+    ai = GuardianAi(_generated_answer("호출되면 안 됩니다."))
+
+    summary = _tick(
+        sessions,
+        registry,
+        dispatcher,
+        now=START + timedelta(seconds=AFTER_S),
+        ai=ai,
+    )
+
+    assert summary.due == summary.notified == 0
+    assert ai.calls == []
+    assert dispatcher.sent == []
+    assert _types(sessions, record) == ["alert_dispatched", "arrival_confirmed_by_user"]
 
 
 def test_normal_notification_records_actual_acceptance_time(

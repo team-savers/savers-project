@@ -260,6 +260,24 @@ def test_followup_due_and_unreachable_cannot_coexist(
     ]
 
 
+def test_arrival_can_still_be_recorded_after_followup_due(
+    sessions: SessionStore, event: DisasterEvent
+) -> None:
+    record = _create(sessions, event)
+    assert sessions.append_followup_due_unless_arrived(record) == "recorded"
+
+    sessions.append_user_event(
+        record,
+        key="evt_arrival_after_due_0",
+        create=_user_event("arrival_confirmed_by_user"),
+    )
+
+    assert [event.type for event in record.events] == [
+        "followup_due",
+        "arrival_confirmed_by_user",
+    ]
+
+
 def test_once_per_session_holds_under_concurrent_requests(
     sessions: SessionStore, event: DisasterEvent
 ) -> None:

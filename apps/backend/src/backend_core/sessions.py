@@ -23,6 +23,7 @@ import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 from backend_core.events import (
     EXCLUSIVE_SYSTEM_EVENT,
@@ -39,6 +40,7 @@ from backend_core.models import AlertMessage, DisasterEvent, ResponseChoice, Sta
 # guardian phone, so the token is the only thing standing between a guessed URL and that
 # payload — sequential ids or short tokens are not an option here.
 TOKEN_BYTES = 32
+FollowupDueAppendResult = Literal["recorded", "cancelled_by_arrival"]
 
 
 class SessionNotFoundError(LookupError):
@@ -487,19 +489,35 @@ class SessionStore:
 
         같은 타입 재append는 첫 이벤트 유지(멱등), `followup_due`와 `followup_unreachable`
         교차는 둘 다 참일 수 없어 raise."""
-        exclusive = EXCLUSIVE_SYSTEM_EVENT.get(type)
         with self._lock:
-            for event in record.events:
-                if event.type == type:
-                    return event
-                if event.type == exclusive:
-                    raise ExclusiveSystemEventError(type, exclusive)
-            event = SessionEvent(type=type, at=now or _now(), payload={})
-            with self._connection:
-                event_id = self._insert_event(record, event)
-            record.events.append(event)
-            self._event_ids[id(event)] = event_id
-            return event
+            return self._append_system_event_locked(record, type, now=now)
+
+    def append_followup_due_unless_arrived(
+        self, record: SessionRecord, *, now: datetime | None = None
+    ) -> FollowupDueAppendResult:
+        """Atomically cancel on arrival or record the normal-path M4 denominator event."""
+        with self._lock:
+            if any(event.type == "arrival_confirmed_by_user" for event in record.events):
+                return "cancelled_by_arrival"
+            self._append_system_event_locked(record, "followup_due", now=now)
+            return "recorded"
+
+    def _append_system_event_locked(
+        self, record: SessionRecord, type: SystemEventType, *, now: datetime | None = None
+    ) -> SessionEvent:
+        """Append with ``self._lock`` already held; keeps check, SQLite and memory atomic."""
+        exclusive = EXCLUSIVE_SYSTEM_EVENT.get(type)
+        for event in record.events:
+            if event.type == type:
+                return event
+            if event.type == exclusive:
+                raise ExclusiveSystemEventError(type, exclusive)
+        event = SessionEvent(type=type, at=now or _now(), payload={})
+        with self._connection:
+            event_id = self._insert_event(record, event)
+        record.events.append(event)
+        self._event_ids[id(event)] = event_id
+        return event
 
     def events_of(self, record: SessionRecord) -> list[SessionEvent]:
         """All events for this session, `at` ascending. Ties keep insertion order — a stable

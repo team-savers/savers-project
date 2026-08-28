@@ -184,7 +184,9 @@ def reconcile_once(
                 unreachable += 1
                 continue
 
-            sessions.append_system_event(record, "followup_due", now=observed_at)
+            due_result = sessions.append_followup_due_unless_arrived(record, now=observed_at)
+            if due_result == "cancelled_by_arrival":
+                continue
             due += 1
             followup_events = sessions.events_of(record)
             accepted_at = _send_followup(
