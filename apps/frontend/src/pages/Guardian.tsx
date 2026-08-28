@@ -881,8 +881,32 @@ type QaDisplayTurn =
   | { kind: 'answer'; questionId: GuardianQuestionId; question: string; answer: string }
   | { kind: 'no_evidence'; questionId: GuardianQuestionId; question: string }
   | { kind: 'unsupported'; questionId: GuardianQuestionId; question: string }
+  | { kind: 'timeout'; questionId: GuardianQuestionId; question: string }
   | { kind: 'error'; questionId: GuardianQuestionId; question: string }
   | { kind: 'malformed'; questionId: GuardianQuestionId; question: string }
+
+const GUARDIAN_ASK_DEADLINE_MS = 10_000
+
+class GuardianAskTimeoutError extends Error {}
+
+function withGuardianAskDeadline<T>(request: Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const deadline = window.setTimeout(() => {
+      reject(new GuardianAskTimeoutError('Guardian Q&A request timed out'))
+    }, GUARDIAN_ASK_DEADLINE_MS)
+
+    request.then(
+      (result) => {
+        window.clearTimeout(deadline)
+        resolve(result)
+      },
+      (error: unknown) => {
+        window.clearTimeout(deadline)
+        reject(error)
+      },
+    )
+  })
+}
 
 function classifyGuardianAnswer(
   result: GuardianAnswer,
@@ -929,9 +953,9 @@ function AiScreen({
   // not something the render output depends on.
   const turnsEndRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (turns.length === 0) return
+    if (turns.length === 0 && !isAsking) return
     turnsEndRef.current?.scrollIntoView({ block: 'end' })
-  }, [turns])
+  }, [turns, isAsking])
 
   // Each recommended question already carries its own answer (QaTurn) —
   // just append it. No string-key lookup that could silently miss.
@@ -943,10 +967,12 @@ function AiScreen({
     if (isAsking) return
     setIsAsking(true)
     try {
-      const result = await api.postGuardianAsk(token, {
-        questionId: turn.questionId,
-        locale: 'ko',
-      })
+      const result = await withGuardianAskDeadline(
+        api.postGuardianAsk(token, {
+          questionId: turn.questionId,
+          locale: 'ko',
+        }),
+      )
       const outcome = classifyGuardianAnswer(result)
       if (outcome === 'delivered') {
         setTurns((prev) => [
@@ -965,8 +991,9 @@ function AiScreen({
         ])
       }
     } catch (error) {
-      const kind =
-        error instanceof BackendApiError && error.status === 422
+      const kind = error instanceof GuardianAskTimeoutError
+        ? 'timeout'
+        : error instanceof BackendApiError && error.status === 422
           ? 'unsupported'
           : 'error'
       setTurns((prev) => [
@@ -1110,32 +1137,15 @@ function AiScreen({
                   <p style={{ margin: 0, fontSize: '15.5px', lineHeight: 1.55, color: GC.text, fontWeight: 700 }}>{turn.answer}</p>
                 )}
                 {'kind' in turn && turn.kind === 'no_evidence' && (
-                  <>
-                    <p style={{ margin: 0, fontSize: '15.5px', lineHeight: 1.55, color: GC.text, fontWeight: 700 }}>
-                      확인할 수 있는 기록이 없습니다
-                    </p>
-                    <a
-                      href="tel:119"
-                      style={{
-                        marginTop: '10px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        width: '100%',
-                        minHeight: `${touchTarget.minimum}px`,
-                        borderRadius: `${radius.button}px`,
-                        background: GC.danger,
-                        color: GC.surface,
-                        fontWeight: 800,
-                        textDecoration: 'none',
-                      }}
-                    >
-                      119 신고하기
-                    </a>
-                  </>
+                  <p style={{ margin: 0, fontSize: '15.5px', lineHeight: 1.55, color: GC.text, fontWeight: 700 }}>
+                    확인할 수 없습니다
+                  </p>
                 )}
                 {'kind' in turn && turn.kind === 'unsupported' && (
                   <p style={{ margin: 0, color: GC.textMuted }}>지원하지 않는 질문입니다.</p>
+                )}
+                {'kind' in turn && turn.kind === 'timeout' && (
+                  <p style={{ margin: 0, color: GC.textMuted }}>응답이 늦어지고 있습니다. 잠시 뒤 다시 시도해 주세요.</p>
                 )}
                 {'kind' in turn && turn.kind === 'error' && (
                   <p style={{ margin: 0, color: GC.textMuted }}>답변을 가져오지 못했습니다. 잠시 뒤 다시 시도해 주세요.</p>
@@ -1146,10 +1156,52 @@ function AiScreen({
               </div>
             </div>
           ))}
+          {isAsking && (
+            <div
+              role="status"
+              style={{
+                alignSelf: 'flex-start',
+                background: GC.surface,
+                border: `1px solid ${GC.line}`,
+                borderRadius: '4px 16px 16px 16px',
+                padding: '10px 14px',
+                color: GC.textMuted,
+                fontSize: '14px',
+              }}
+            >
+              답변을 확인하고 있어요.
+            </div>
+          )}
           {/* 스크롤 앵커 — 새 turn이 추가될 때마다 useEffect가 이 sentinel로
               scrollIntoView해 최신 답변이 보이게 한다. 화면에는 아무것도
               그리지 않는다(높이 0). */}
           <div ref={turnsEndRef} />
+        </div>
+
+        <div
+          style={{
+            padding: `10px ${gutter}px calc(10px + env(safe-area-inset-bottom, 0px))`,
+            borderTop: `1px solid ${GC.line}`,
+            background: GC.surface,
+          }}
+        >
+          <a
+            href="tel:119"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '100%',
+              minHeight: `${touchTarget.minimum}px`,
+              borderRadius: `${radius.button}px`,
+              background: GC.danger,
+              color: GC.surface,
+              fontWeight: 800,
+              textDecoration: 'none',
+            }}
+          >
+            119 신고하기
+          </a>
         </div>
       </main>
     </>

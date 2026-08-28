@@ -594,17 +594,16 @@ export const mockAdapter: ApiClient = {
     if (profile === undefined) {
       throw new Error(`unknown guardian token: ${token}`)
     }
-    // Exercise both successful contract branches without inventing a real
-    // event log: help/progress return delivered answers backed by explicit
-    // `present:false` evidence, while arrival returns the normal 200
-    // no-evidence refusal shape. Unsupported ids remain a 422.
+    // Exercise delivered answers backed by explicit `present:false`
+    // evidence without inventing a real event log. Unsupported ids remain
+    // a 422.
     switch (req.questionId) {
       case 'arrival_status':
         return {
           questionId: 'arrival_status',
-          answer: null,
-          sources: [],
-          refusalReason: 'no_evidence',
+          answer: '[도착 완료] 버튼을 누른 사실은 기록에서 확인되지 않습니다.',
+          sources: [{ type: 'arrival_confirmed_by_user', present: false }],
+          refusalReason: null,
         }
       case 'help_request':
         return {
