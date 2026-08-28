@@ -51,9 +51,15 @@ def _send_followup(
     return accepted
 
 
-def _unreachable_due(at: datetime, now: datetime, followup_after_s: int) -> bool:
+def _unreachable_due(
+    at: datetime,
+    now: datetime,
+    followup_after_s: int,
+    reconcile_interval_s: int,
+) -> bool:
     """ADR-0012 7-a: re-observe on multiples of the unreachable event's interval."""
-    return now >= at + timedelta(seconds=followup_after_s)
+    elapsed_s = (now - at).total_seconds()
+    return elapsed_s >= followup_after_s and elapsed_s % followup_after_s < reconcile_interval_s
 
 
 _RECONCILE_LOCK = threading.Lock()
@@ -65,6 +71,7 @@ def reconcile_once(
     dispatcher: Dispatcher,
     *,
     followup_after_s: int,
+    reconcile_interval_s: int,
     public_base_url: str,
     now: datetime | None = None,
 ) -> ReconcileSummary:
@@ -98,7 +105,12 @@ def reconcile_once(
                 (event for event in events if event.type == "followup_unreachable"), None
             )
             if unreachable_event is not None:
-                if not _unreachable_due(unreachable_event.at, observed_at, followup_after_s):
+                if not _unreachable_due(
+                    unreachable_event.at,
+                    observed_at,
+                    followup_after_s,
+                    reconcile_interval_s,
+                ):
                     continue
                 devices = residents.devices_for(resident, "guardian")
                 if devices and _send_followup(record, devices, dispatcher, public_base_url):

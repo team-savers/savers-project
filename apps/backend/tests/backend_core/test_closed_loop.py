@@ -50,6 +50,7 @@ def _tick(
         residents,
         dispatcher,
         followup_after_s=AFTER_S,
+        reconcile_interval_s=5,
         public_base_url=BASE_URL,
         now=now,
     )
@@ -170,6 +171,16 @@ class RaisingDispatcher(RejectingDispatcher):
         raise RuntimeError("transport unavailable")
 
 
+class OutcomeDispatcher(RejectingDispatcher):
+    def __init__(self, outcomes: list[bool]) -> None:
+        super().__init__()
+        self._outcomes = iter(outcomes)
+
+    def send(self, payload: PushPayload) -> bool:
+        self.sent.append(payload)
+        return next(self._outcomes)
+
+
 @pytest.mark.parametrize("dispatcher_type", [RejectingDispatcher, RaisingDispatcher])
 def test_normal_dispatch_failure_is_not_retried(
     sessions: SessionStore,
@@ -185,6 +196,7 @@ def test_normal_dispatch_failure_is_not_retried(
         registry,
         rejecting,
         followup_after_s=AFTER_S,
+        reconcile_interval_s=5,
         public_base_url=BASE_URL,
         now=START + timedelta(seconds=AFTER_S),
     )
@@ -193,12 +205,113 @@ def test_normal_dispatch_failure_is_not_retried(
         registry,
         rejecting,
         followup_after_s=AFTER_S,
+        reconcile_interval_s=5,
         public_base_url=BASE_URL,
         now=START + timedelta(seconds=AFTER_S + 5),
     )
 
     assert _types(sessions, record) == ["alert_dispatched", "followup_due"]
     assert len(rejecting.sent) == 1
+
+
+def test_late_subscription_failure_retries_only_at_next_log_derived_anchor(
+    sessions: SessionStore,
+    registry: ResidentRegistry,
+    event: DisasterEvent,
+) -> None:
+    record = _record(sessions, event)
+    resident = registry.get(record.user_id)
+    assert resident is not None
+    resident.devices["guardian"].clear()
+    unreachable_at = START + timedelta(seconds=AFTER_S)
+    _tick(sessions, registry, RecordingDispatcher(), now=unreachable_at)
+    registry.register_guardian_device_by_user(record.user_id, "late-device")
+    dispatcher = OutcomeDispatcher([False, True])
+
+    reconcile_once(
+        sessions,
+        registry,
+        dispatcher,
+        followup_after_s=AFTER_S,
+        reconcile_interval_s=5,
+        public_base_url=BASE_URL,
+        now=unreachable_at + timedelta(seconds=AFTER_S),
+    )
+    reconcile_once(
+        sessions,
+        registry,
+        dispatcher,
+        followup_after_s=AFTER_S,
+        reconcile_interval_s=5,
+        public_base_url=BASE_URL,
+        now=unreachable_at + timedelta(seconds=AFTER_S + 5),
+    )
+    reconcile_once(
+        sessions,
+        registry,
+        dispatcher,
+        followup_after_s=AFTER_S,
+        reconcile_interval_s=5,
+        public_base_url=BASE_URL,
+        now=unreachable_at + timedelta(seconds=2 * AFTER_S),
+    )
+
+    reconcile_once(
+        sessions,
+        registry,
+        dispatcher,
+        followup_after_s=AFTER_S,
+        reconcile_interval_s=5,
+        public_base_url=BASE_URL,
+        now=unreachable_at + timedelta(seconds=2 * AFTER_S + 5),
+    )
+
+    assert _types(sessions, record) == [
+        "alert_dispatched",
+        "followup_unreachable",
+        "guardian_notified",
+    ]
+    assert len(dispatcher.sent) == 2
+
+
+def test_late_subscription_retry_schedule_survives_restart(
+    tmp_path,
+    registry: ResidentRegistry,
+    event: DisasterEvent,
+) -> None:
+    path = tmp_path / "late-subscription.sqlite3"
+    first = SessionStore(ttl_s=6 * 60 * 60, db_path=path)
+    record = _record(first, event)
+    resident = registry.get(record.user_id)
+    assert resident is not None
+    resident.devices["guardian"].clear()
+    unreachable_at = START + timedelta(seconds=AFTER_S)
+    _tick(first, registry, RecordingDispatcher(), now=unreachable_at)
+    token = record.token
+    del first
+
+    restored = SessionStore(ttl_s=6 * 60 * 60, db_path=path)
+    restored_record = restored.get(token, now=unreachable_at)
+    registry.register_guardian_device_by_user(record.user_id, "late-after-restart")
+    dispatcher = OutcomeDispatcher([False, True])
+
+    for offset_s in (AFTER_S + 2, AFTER_S + 5, 2 * AFTER_S + 2):
+        reconcile_once(
+            restored,
+            registry,
+            dispatcher,
+            followup_after_s=AFTER_S,
+            reconcile_interval_s=5,
+            public_base_url=BASE_URL,
+            now=unreachable_at + timedelta(seconds=offset_s),
+        )
+
+    assert _types(restored, restored_record) == [
+        "alert_dispatched",
+        "followup_unreachable",
+        "guardian_notified",
+    ]
+    assert len(dispatcher.sent) == 2
 
 
 def test_arrival_and_expiry_each_terminate_without_send(

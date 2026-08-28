@@ -48,6 +48,7 @@ def reconcile_sessions(
         residents,
         push,
         followup_after_s=config.followup_after_s,
+        reconcile_interval_s=config.reconcile_interval_s,
         public_base_url=config.public_base_url,
     )
 
