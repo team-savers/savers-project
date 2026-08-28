@@ -478,7 +478,11 @@ export const mockAdapter: ApiClient = {
 
   async registerDevice(req: DeviceRegisterRequest): Promise<Ack> {
     await randomDelay()
-    void req
+    if (req.role === 'guardian') {
+      const devices = guardianDeviceRegistrations.get(req.registrationToken) ?? new Set<string>()
+      devices.add(req.fcmToken)
+      guardianDeviceRegistrations.set(req.registrationToken, devices)
+    }
     return { ok: true }
   },
 
@@ -515,8 +519,8 @@ export const mockAdapter: ApiClient = {
       safetyStatus: 'unknown',
       // v0.7: required. Mock server-side state — true when this guardian
       // token has at least one registered fcmToken in
-      // `guardianDeviceRegistrations`, set/cleared by
-      // registerGuardianDevice/unregisterGuardianDevice below. This is
+      // `guardianDeviceRegistrations`, set by initial registerDevice or
+      // registerGuardianDevice and cleared by unregisterGuardianDevice. This is
       // deliberately NOT derived from Profile.guardian (that field is contact
       // info, not device-registration state) and NOT read from this
       // browser's Notification.permission or localStorage.

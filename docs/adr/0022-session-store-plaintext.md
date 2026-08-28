@@ -1,6 +1,8 @@
 # ADR-0022: 세션 저장소는 평문으로 시작하고 암호화는 본선 후로 미룬다
 
-- **상태**: 제안 (Proposed) - 2026-08-28 작성.
+- **상태**: 승인 (Accepted) - 2026-08-28 안은남 (PM, QA/보안) 확인 완료
+  ([PR 184](https://github.com/team-savers/savers-project/pull/184) 리뷰에 확인이 남아 있다).
+  2026-08-28 작성.
   [PR 179](https://github.com/team-savers/savers-project/pull/179)
   [리뷰](https://github.com/team-savers/savers-project/pull/179#pullrequestreview-5047355211)
   2번 지적("ADR-0007이 이 이음매의 교체 조건으로 민감 필드 암호화를 걸어 두었는데
@@ -11,9 +13,9 @@
   Backend 는 그 기준을 받아 PR 179 에 파일 권한 0600 과 문서 정정 6곳만 반영하기로 했다.
   **채팅 합의는 이 저장소에서 확정이 아니므로 그 결정을 여기에 옮긴다**
 - **날짜**: 2026-08-28
-- **결정자**: 신호정 (Tech Lead) 작성 / 안은남 (PM, QA/보안) 확인 대기.
-  저장 대상이 개인정보인지, 어느 수준의 보호가 필요한지를 판정하는 오너가 PM 이므로
-  PM 확인 전까지 이 문서는 제안이다
+- **결정자**: 신호정 (Tech Lead) 작성 / 안은남 (PM, QA/보안) 확인.
+  저장 대상이 개인정보인지, 어느 수준의 보호가 필요한지를 판정하는 오너가 PM 이라
+  PM 확인 전까지 이 문서는 제안이었다
 - **관련 문서**: [ADR-0007](0007-walking-skeleton.md) 결정 9
   (P1 상태는 인메모리이고, 실저장소 교체 조건에 "민감 필드 암호화 포함"이 붙어 있다),
   [ADR-0011](0011-m3-no-storage-not-no-receipt.md) (M3 문구의 정본),
@@ -186,6 +188,12 @@ ADR-0007 에는 이 문서가 승인된 뒤에 같은 형태의 대체 표시를
 
 - 세션 DB 파일 권한 0600 으로 좁히기 (Backend, PR 179 안에서) -
   PR 179 head 에 반영됐다. 디렉터리는 0755 그대로다
+- [AGENTS.md](../../AGENTS.md) `Non-negotiable design constraints` 의
+  "Minimal collection, encrypted" 항목에 이 문서를 근거로 한 예외와 그 유효 조건 명시 (Tech Lead) -
+  완료, [PR 184](https://github.com/team-savers/savers-project/pull/184).
+  그 조항이 암호화를 하드 요구로 걸고 있어 결정 1번과 정면으로 어긋난다는
+  PM 지적을 받아 넣었다. 예외 범위는 세션 저장소 하나이고,
+  실주민 데이터가 들어오면 예외가 소멸한다는 것을 같은 자리에 적었다
 - 이 문서 승인 후 [ADR-0007](0007-walking-skeleton.md) 상태 줄에 대체 표시 추가 -
   결정 9 의 "민감 필드 암호화 포함" 부분이 이 문서로 대체됨.
   본문과 "부정 / 완화" 표는 고치지 않는다 (Tech Lead)

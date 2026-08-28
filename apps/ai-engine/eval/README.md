@@ -48,9 +48,11 @@ SAVERS의 차별화 전략은 **"품질을 재현 가능한 자동 스크립트�
 | `dataset.py` | 골든셋 로더 + 스키마 검사 |
 | `golden_dataset/flood_v0.jsonl` | 호우 시나리오 6건 (**전부 `[더미]`** — 실제 코퍼스 확보 전 자리표시자) |
 | `false_refusal_set.py` · `false_refusal/chat_answerable_v0.jsonl` | 과잉거절 프로브 셋 — 답할 수 있어야 하는 질문 28건(각각 코퍼스 원문 앵커 선언) + 거절이 정답인 대조군 6건 |
-| `test_metrics.py` · `test_golden_dataset.py` · `test_false_refusal_set.py` | CI가 돌리는 회귀 검사 |
+| `test_metrics.py` · `test_golden_dataset.py` · `test_threshold_sweep.py` · `test_false_refusal_set.py` | CI가 돌리는 회귀 검사 |
 | `run_grounding_eval.py` | 근거 일치율·환각 억제율 채점 → JSON 보고서 |
 | `run_latency_eval.py` | 알림 도달 속도 실측(HTTP) → JSON 보고서 |
+| `run_threshold_sweep.py` | 가드레일 `SUPPORT_THRESHOLD` 민감도 측정(이슈 #23) → JSON 보고서 |
+| `SUPPORT_THRESHOLD.md` | 그 측정의 결론 — 채택 권고값·재측정 조건·한계 |
 | `run_false_refusal_probe.py` | 부당 거절률 실측 + 거절 단계 분류(검색/프롬프트/임계값) → JSON 보고서 |
 | `FALSE_REFUSAL.md` | 위 프로브의 8/28 실행 결과와 원인 1차 분류 (이슈 #24) |
 
@@ -88,6 +90,11 @@ python apps/ai-engine/eval/run_false_refusal_probe.py       # 서버 불필요
   자리표시자와의 일치율입니다.
 - **도달 속도는 하한선입니다.** 기상청 폴링·FCM 왕복·HyperCLOVA X 호출이 전부 빠진 값이라,
   이음매를 하나씩 실물로 바꾸며 다시 재야 합니다. 그 추이 자체가 보여줄 만한 자료입니다.
+
+- **가드레일 임계값도 이 수치로는 못 고릅니다.** 임계값을 0.3에서 0.9까지 움직여도
+  위 네 수치가 전혀 변하지 않습니다 — 같은 이유(스텁이 근거를 그대로 인용)입니다.
+  그래서 임계값 판정은 KPI가 아닌 축(실제 원문 판별력)에서 따로 잽니다:
+  [`SUPPORT_THRESHOLD.md`](SUPPORT_THRESHOLD.md).
 
 지금 이 하네스의 값어치는 수치가 아니라 **수치를 만들 자리와 규칙이 고정됐다는 것**입니다.
 
