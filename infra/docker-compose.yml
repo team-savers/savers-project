@@ -64,11 +64,21 @@ services:
       # 쉼표로 구분하고, 비워 두면 동일 출처만 허용합니다 — 로컬 개발은 vite 프록시를
       # 쓰므로 비어 있는 것이 정상이고, 배포에서만 채웁니다.
       SAVERS_CORS_ALLOW_ORIGINS: ${SAVERS_CORS_ALLOW_ORIGINS:-}
+      # SessionStore의 SQLite 파일 경로(PR #179). 기본값은 Settings.session_db_path와
+      # 같은 컨테이너 내부 경로(appuser 홈)이고, 아래 volumes가 그 경로를 named volume에
+      # 얹습니다 — 둘이 어긋나면 볼륨을 마운트해도 컨테이너 쓰기 레이어에 파일이 남습니다.
+      SAVERS_SESSION_DB_PATH: ${SAVERS_SESSION_DB_PATH:-/home/appuser/.savers/savers_sessions.sqlite3}
     ports:
       # ⚠️ 127.0.0.1 바인딩입니다. caddy가 compose 네트워크로 `backend:8000`에 직접
       #    닿으므로 외부 공개가 필요 없고, 0.0.0.0으로 열면 HTTPS 앞단을 세워 둔 채
       #    평문 :8000이 같이 열려 혼합 콘텐츠 대책이 그대로 우회됩니다.
       - "127.0.0.1:8000:8000"
+    volumes:
+      # 이미지 재빌드·재생성(force-recreate)에도 세션 SQLite가 살아남게 하는 named volume
+      # (#181). 없으면 SessionStore가 컨테이너 쓰기 레이어에만 존재해, 재배포 순간
+      # 그동안 발급된 알림 링크가 전부 죽습니다 — PR #179가 고치려던 문제가 배포
+      # 환경에서 재현되는 형태입니다.
+      - savers_sessions:/home/appuser/.savers
     depends_on:
       # ⚠️ 일부러 `condition: service_healthy`를 쓰지 않습니다.
       #    backend는 ai-engine이 죽어 있어도 떠서 official_fallback으로 응답해야 합니다
@@ -118,6 +128,7 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+  savers_sessions:
 
 # ── 아직 없는 서비스 ────────────────────────────────────────────────────────────
 # chroma   — 지금 검색은 번들 픽스처 기반이라 붙일 대상이 없습니다. 아무도 말을 걸지 않는
