@@ -15,9 +15,11 @@ What exists in code today is a **walking skeleton, not a working service**. One 
 ⚠️ **Don't read the stubs as measurements.**
 The bundled corpus is dummy text marked `[더미]`;
 scoring 근거 일치율 against it measures agreement with a placeholder.
-`apps/frontend/` is a real PWA now, but every backend call still resolves to an in-memory mock
-(`VITE_USE_MOCK=true` is the default) — no HTTP wiring to `apps/backend` exists yet,
-and `src/api/http.ts` holds contract path constants with unimplemented bodies.
+`apps/frontend/` is a real PWA now, and `src/api/http.ts` implements the contract HTTP adapter,
+but `src/api/client.ts` chooses one adapter for every screen through `VITE_USE_MOCK`,
+which still defaults to `true` — so every screen resolves to the in-memory mock until the flag is flipped,
+and no screen has been run against a live `apps/backend` yet;
+Guardian FCM/Q&A and Evacuation screen wiring remain follow-up work.
 `infra/docker-compose.yml` brings up backend + ai-engine only; the frontend is not a compose service.
 Don't improvise a different structure — extend the one described under "Repo structure convention",
 and replace a stub at its seam rather than around it.
@@ -32,18 +34,19 @@ First-target disaster type for the MVP: 호우·도시침수 (heavy rain / urban
 
 ## Planned architecture — three layers, three core technologies
 
-> ⚠️ **Row 1 is 확정 — [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) was accepted 2026-08-24. Rows 2 ~ 4 are 검토 중, not 확정: rows 2 ~ 3 have no ADR at all, and row 4's [ADR-0002](docs/adr/0002-frontloaded-tech-lead.md) amendment for the 2026-08-11 reshuffle is still pending.**
-> They are written as the working plan because the finals build follows them, and their source is the team's own
-> 기획서/검증설계 in `docs/공유_문서/` — which, per the "확정 source is an ADR number" rule under "Collaboration / Git",
-> does not qualify as a confirmation source. ADR promotion has been requested from the Tech Lead;
-> until **those** ADRs land (and are accepted), treat rows 2 ~ 4 as 검토 중 and cite them that way in any outside-facing document.
+> ⚠️ **Row 1 is 확정 — [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) was accepted 2026-08-24.** Rows 2 ~ 4 now each have an ADR (0018, 0017, 0019, all written 2026-08-26), but those three are **Proposed, not yet accepted** — so the rows stay 검토 중 until their decision owners confirm.
+> Cite them that way in any outside-facing document, and switch the row to 확정 only when the ADR's own status line says 승인.
+> Row 4 was promoted as a **superseding ADR rather than an in-place amendment to [ADR-0002](docs/adr/0002-frontloaded-tech-lead.md)**:
+> ADR-0002 is accepted, and changing an accepted ADR's decision content is not one of the four
+> post-acceptance edit exceptions in [ADR-0005](docs/adr/0005-webpush-primary-channel.md) — ADR-0002 carries only a 대체 표시,
+> the same shape as ADR-0004 → ADR-0005 and ADR-0003 → ADR-0008.
 >
 > | # | Decision | Changes | Status |
 > |---|---|---|---|
 > | 1 | **M3 metric = 「위치정보 무저장·무로깅」** — the server *does* receive a coordinate on `/v1/shelters/search` and stores/logs it nowhere. Reworded twice: 「즉시 파기 준수율 100%」 → 「미수신」 (8/21) → 「무저장·무로깅」 (8/22); the client-side alternative (no coordinate endpoint) was considered and **rejected for the finals window** | Submitted metric + the location constraint below | [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) **Accepted** — 2026-08-24 Tech Lead 승인 |
-> | 2 | Four modules → three layers + three core technologies | Architecture framing | 검토 중 — ADR 대기 |
-> | 3 | Route engine **OSMnx + networkx** instead of OSRM (2026-08-21) | Tech stack | 검토 중 — ADR 대기 |
-> | 4 | Tech Lead writes no code + infrastructure moves to PM (2026-08-11 reshuffle) | Role scope set by [ADR-0002](docs/adr/0002-frontloaded-tech-lead.md) | 검토 중 — ADR-0002 amendment 대기 |
+> | 2 | Four modules → three layers + three core technologies | Architecture framing | 검토 중 — [ADR-0018](docs/adr/0018-three-layers-three-core-technologies.md) **Proposed** (2026-08-26) |
+> | 3 | Route engine **OSMnx + networkx** instead of OSRM (2026-08-21) | Tech stack | 검토 중 — [ADR-0017](docs/adr/0017-route-engine-osmnx-networkx.md) **Proposed** (2026-08-26) |
+> | 4 | Tech Lead writes no code + infrastructure moves to PM (2026-08-11 reshuffle) | Supersedes part of [ADR-0002](docs/adr/0002-frontloaded-tech-lead.md) | 검토 중 — [ADR-0019](docs/adr/0019-role-scope-after-2026-08-11-reshuffle.md) **Proposed** (2026-08-26) |
 
 Per 기획서 v3 the service is split into three layers: **① 판정 (assessment) belongs to the government** (기상청·홍수통제소·기후부 도시침수예보), **② 계산 (computation) is SAVERS**, **③ 전달 (delivery) is a zero-install mobile web channel**. **SAVERS does not implement its own hazard determination** — it converts an already-issued official warning into "where do I go, in how many minutes."
 
@@ -88,7 +91,24 @@ These came out of explicit risk mitigation decisions in the planning doc — don
 
 The team's differentiation strategy is that quality is proven by **reproducible automated scripts**, submitted alongside the code, not by human surveys. 기획서 v3 names **four metrics**, and the scoring script, eval set, and training code ship with them:
 
-- **알림 도달 속도** — end-to-end latency from disaster API ingestion to personalized dispatch. Target ≤30s, measured as p95 over OTel end-to-end spans. **Requires real FCM sending**; with the recording dispatcher this metric cannot be measured at all.
+- **알림 도달 속도** — end-to-end latency from the moment `run_alert` starts handling that alert
+  to the **first** `push_accepted` — the moment FCM accepts a send for the first of that recipient's ward devices
+  **to be accepted**, which is not necessarily the first one tried: an earlier device can fail and a later one land.
+  Target ≤30s, measured as p95 over `Delivery.latency_ms` (`AlertRun.p95_latency_ms`) — OpenTelemetry is not wired yet,
+  so do not describe this as an OTel span.
+  ⚠️ `Delivery.latency_ms` currently stops **after** that recipient's whole device loop, not at the first acceptance,
+  so with two or more ward devices it reads higher than the definition — the code moves, not the definition
+  ([ADR-0013](docs/adr/0013-m1-measures-push-acceptance.md) 후속 조치, Backend).
+  The end is a contract event; the start is a run-level clock with no contract event of its own.
+  The start is **not** `alert_dispatched`: that event is stamped inside the per-recipient loop,
+  after shelter search and generation, so anchoring there would push the generation span outside the 30s.
+  Acceptance is **not** device arrival —
+  `push_delivered` is deliberately not used, since it reads acceptance as delivery.
+  The start is **not** 특보 발령 (`DisasterEvent.issued_at`),
+  so the intake delay before the pipeline sees the alert sits outside the 30 seconds:
+  public-API polling is deferred past the finals, so that delay cannot be measured yet
+  ([ADR-0013](docs/adr/0013-m1-measures-push-acceptance.md) **Accepted** — 2026-08-26 Tech Lead 승인).
+  **Requires real FCM sending**; with the recording dispatcher this metric cannot be measured at all.
 - **보호자 응답 정확도** — **zero statements not grounded in the log.** Scored against a 40-case guardian golden set (30 recommended questions + 10 free-form "기타"). When in doubt the system must refuse: under-refusal (answering something absent from the log) breaks the metric directly, over-refusal only costs coverage.
 - **위치정보 무저장·무로깅 (coordinates are stored or logged nowhere)** — target is **zero points where a coordinate is written to a session, event log, DB, or file**. The proof is `scripts/check_privacy.py` scanning the tree for storage/logging sites — **the script is merged and wired into CI**, running as part of the [`e2e.yml`](.github/workflows/e2e.yml) end-to-end job and publishing a `privacy-check-report` artifact (details in [docs/공통_가이드/개인정보_체크리스트.md](docs/공통_가이드/개인정보_체크리스트.md) §4). Reworded twice: from 「위치정보 즉시 파기 준수율 100%」 to 「미수신」 on **2026-08-21** (`SessionStore` has no delete/purge method, so "purged" cannot be proven), then to 「무저장·무로깅」 on **2026-08-22** because `/v1/shelters/search` does receive `lat`/`lng`, so 「미수신」 was refutable from `openapi.yaml` alone. Decision record: [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) (**Accepted**, 2026-08-24); working rationale in [docs/공유_문서/정량목표_검증설계.md](docs/공유_문서/정량목표_검증설계.md) §3.
 - **폐루프 2차 발송 성공률** — 100%. 30 minutes of no response must produce a guardian escalation that actually lands.
