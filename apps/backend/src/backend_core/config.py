@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     # re-entry; short enough that a leaked link stops working the same day.
     session_ttl_s: int = 6 * 60 * 60
 
+    # Durable backing for session links, interaction state, event facts and idempotency.
+    # Tests keep SessionStore's :memory: default; runtime explicitly injects this path.
+    session_db_path: str = "savers_sessions.sqlite3"
+
     # 대피소 도달 시간 기준(초). 도보 환산 도달 시간이 이 값을 넘는 대피소에는
     # `cautions: over_time`을 붙여 뒤로 보낸다(제외가 아님, ADR-0016). 정책 파라미터라
     # 계약이 수치를 고정하지 않으므로 환경변수로 외부화한다 — 근거 문서는 후속 과제.

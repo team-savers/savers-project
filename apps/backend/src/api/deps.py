@@ -37,8 +37,11 @@ def registry() -> ResidentRegistry:
 
 @lru_cache(maxsize=1)
 def sessions() -> SessionStore:
-    """⚠️ Process-local: a restart invalidates every live alert link."""
-    return SessionStore(ttl_s=settings().session_ttl_s)
+    """Return the process-local store backed by the configured SQLite database."""
+    return SessionStore(
+        ttl_s=settings().session_ttl_s,
+        db_path=settings().session_db_path,
+    )
 
 
 @lru_cache(maxsize=1)
