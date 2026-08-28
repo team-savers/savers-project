@@ -3,7 +3,7 @@
 - **상태**: 승인 (Accepted) - 2026-08-28 안은남 (PM), 김도혁 (Backend) 확인 완료
   ([PR 184](https://github.com/team-savers/savers-project/pull/184) 리뷰에 두 확인이 다 남아 있다).
   재편이 2026-08-11에 있었으나 ADR 번호가 없어
-  승격 요청을 받았고([AGENTS.md](../../AGENTS.md) 검토 중 표 4행),
+  승격 요청을 받았고([AGENTS.md](../../AGENTS.md) 아키텍처 표 4행),
   2026-08-26에 이 문서로 옮겼다
 - **개정**: 2026-08-28, 제안 상태에서 확인자에 김도혁 (Backend) 을 넣었다.
   승인 전이므로 사후편집 금지에 해당하지 않는다.
@@ -47,10 +47,10 @@ Frontend/UX는 AI/RAG로, QA/Security는 **인프라와 함께** PM으로 갔다
 [역할_일정/02-테크리드.md](../역할_일정/02-테크리드.md)는 제목과 담당 줄 다음 첫 문단이
 "코드를 쓰지 않는 포지션입니다"다.
 
-없는 것은 ADR 번호다.
-그래서 지금 이 두 경계는 **검토 중**이고,
+없던 것은 ADR 번호다.
+그래서 이 문서가 나오기 전까지 두 경계는 **검토 중**이었고,
 "왜 Tech Lead가 코드를 안 쓰는가"와 "인프라는 누구 것인가"에
-ADR로 답할 수단이 없다([AGENTS.md](../../AGENTS.md) `Collaboration / Git`).
+ADR로 답할 수단이 없었다([AGENTS.md](../../AGENTS.md) `Collaboration / Git`).
 두 경계 다 AGENTS.md가 스스로 "load-bearing and easy to get wrong"이라 부르는 자리다.
 
 ## 결정 (Decision)
@@ -122,6 +122,6 @@ Tech Lead가 구현에 손을 대야 하는 상황이 오면 이 문서를 개�
 | 항목 | 소관 | 상태 |
 |---|---|---|
 | [ADR-0002](0002-frontloaded-tech-lead.md) 상태 줄에 대체 표시 추가 (사후편집 예외 (1)) | Tech Lead | 완료, 이 PR |
-| [AGENTS.md](../../AGENTS.md) 검토 중 표 4행의 근거를 이 ADR 번호로 교체 | Tech Lead | 완료, 이 PR |
+| [AGENTS.md](../../AGENTS.md) 아키텍처 표 4행의 근거를 이 ADR 번호로 교체 | Tech Lead | 완료, 이 PR |
 | 8/26 단독 배포 인수 완료 여부를 확인하고 리스크 표 상태 갱신 | PM | 대기 |
 | 결정자 확인 후 상태를 승인으로 변경 | Tech Lead | 대기 |
