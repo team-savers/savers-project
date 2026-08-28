@@ -7,12 +7,16 @@ Contract: packages/contracts/openapi.yaml — both the frontend-facing paths ser
 and the `generation` 태그 paths this app calls on apps/ai-engine (ADR-0006).
 """
 
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from api.deps import settings
+from api.deps import dispatcher, settings
 from api.errors import api_error_handler
 from api.routes import (
     chat,
@@ -26,7 +30,19 @@ from api.routes import (
 )
 from backend_core.models import ErrorBody
 
-app = FastAPI(title="savers-project")
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+    """Resolve the push channel before serving requests; validation lives in backend_core."""
+    push = dispatcher()
+    application.state.push_channel = push.channel
+    logger.info("push channel selected: %s", push.channel)
+    yield
+
+
+app = FastAPI(title="savers-project", lifespan=lifespan)
 
 # Methods the browser is told it may use. Listed explicitly rather than "*" so widening the
 # surface stays a deliberate edit, and kept in sync with the routers by
