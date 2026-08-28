@@ -63,9 +63,12 @@ def _unreachable_due(
     followup_after_s: int,
     reconcile_interval_s: int,
     previous_observed_at: datetime | None = None,
+    bootstrap_late_cycle: bool = False,
 ) -> bool:
     """ADR-0012 7-a: re-observe on multiples of the unreachable event's interval."""
     elapsed_s = (now - at).total_seconds()
+    if bootstrap_late_cycle:
+        return elapsed_s >= followup_after_s
     if previous_observed_at is not None:
         previous_elapsed_s = max(0.0, (previous_observed_at - at).total_seconds())
         return elapsed_s >= followup_after_s and int(elapsed_s // followup_after_s) > int(
@@ -111,6 +114,7 @@ def reconcile_once(
     public_base_url: str,
     now: datetime | None = None,
     previous_observed_at: datetime | None = None,
+    bootstrap_late_cycle: bool = False,
     clock: Callable[[], datetime] | None = None,
 ) -> ReconcileSummary:
     """Observe every session once and converge its closed-loop facts.
@@ -150,6 +154,7 @@ def reconcile_once(
                     followup_after_s,
                     reconcile_interval_s,
                     previous_observed_at,
+                    bootstrap_late_cycle,
                 ):
                     continue
                 devices = residents.devices_for(resident, "guardian")
@@ -204,7 +209,7 @@ class ReconcileWorker:
 
     def __init__(
         self,
-        tick: Callable[[datetime, datetime], object],
+        tick: Callable[[datetime, datetime, bool], object],
         interval_s: int,
         *,
         monotonic: Callable[[], float] | None = None,
@@ -238,9 +243,11 @@ class ReconcileWorker:
         """Run on a monotonic cadence and expose every elapsed observation window."""
         previous_observed_at = self._clock()
         deadline = self._monotonic() + self._interval_s
+        bootstrap = True
         while not self._stop.wait(max(0.0, deadline - self._monotonic())):
             observed_at = self._clock()
-            self._tick(previous_observed_at, observed_at)
+            self._tick(previous_observed_at, observed_at, bootstrap)
+            bootstrap = False
             previous_observed_at = observed_at
             deadline = _next_deadline(deadline, self._monotonic(), self._interval_s)
 

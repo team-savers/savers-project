@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 
 from api import deps
 from api.main import app
+from api.routes import internal
+from backend_core.closed_loop import ReconcileSummary
 from backend_core.config import Settings
 from backend_core.models import AlertMessage, DisasterEvent
 from backend_core.sessions import SessionStore
@@ -39,3 +41,21 @@ def test_manual_reconcile_returns_tick_summary(
 
     assert response.status_code == 200
     assert response.json() == {"processed": 1, "due": 1, "unreachable": 0, "notified": 1}
+
+
+def test_manual_reconcile_never_enables_worker_bootstrap(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_reconcile(*args, **kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return ReconcileSummary()
+
+    monkeypatch.setattr(internal, "reconcile_once", fake_reconcile)
+
+    response = client.post("/internal/reconcile")
+
+    assert response.status_code == 200
+    assert captured.get("bootstrap_late_cycle", False) is False

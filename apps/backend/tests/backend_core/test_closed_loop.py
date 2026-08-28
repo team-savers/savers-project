@@ -577,6 +577,123 @@ def test_delayed_worker_observation_does_not_repeat_or_lose_retry_round(
     ]
 
 
+def test_worker_bootstrap_recovers_missed_late_cycle_without_same_cycle_repeat(
+    sessions: SessionStore,
+    registry: ResidentRegistry,
+    event: DisasterEvent,
+) -> None:
+    record = _record(sessions, event)
+    resident = registry.get(record.user_id)
+    assert resident is not None
+    resident.devices["guardian"].clear()
+    unreachable_at = START + timedelta(seconds=AFTER_S)
+    _tick(sessions, registry, RecordingDispatcher(), now=unreachable_at)
+    registry.register_guardian_device_by_user(record.user_id, "late-device")
+    dispatcher = OutcomeDispatcher([False, True])
+
+    bootstrap = reconcile_once(
+        sessions,
+        registry,
+        dispatcher,
+        ai=GuardianAi(),
+        followup_after_s=AFTER_S,
+        reconcile_interval_s=5,
+        public_base_url=BASE_URL,
+        now=unreachable_at + timedelta(seconds=AFTER_S + 13),
+        previous_observed_at=unreachable_at + timedelta(seconds=AFTER_S + 8),
+        bootstrap_late_cycle=True,
+    )
+    same_cycle = reconcile_once(
+        sessions,
+        registry,
+        dispatcher,
+        ai=GuardianAi(),
+        followup_after_s=AFTER_S,
+        reconcile_interval_s=5,
+        public_base_url=BASE_URL,
+        now=unreachable_at + timedelta(seconds=AFTER_S + 18),
+        previous_observed_at=unreachable_at + timedelta(seconds=AFTER_S + 13),
+    )
+    next_cycle = reconcile_once(
+        sessions,
+        registry,
+        dispatcher,
+        ai=GuardianAi(),
+        followup_after_s=AFTER_S,
+        reconcile_interval_s=5,
+        public_base_url=BASE_URL,
+        now=unreachable_at + timedelta(seconds=2 * AFTER_S + 8),
+        previous_observed_at=unreachable_at + timedelta(seconds=2 * AFTER_S - 5),
+    )
+
+    assert bootstrap.notified == 0
+    assert same_cycle.notified == 0
+    assert next_cycle.notified == 1
+    assert len(dispatcher.sent) == 2
+
+
+def test_worker_bootstrap_before_first_late_boundary_sends_nothing(
+    sessions: SessionStore,
+    registry: ResidentRegistry,
+    dispatcher: RecordingDispatcher,
+    event: DisasterEvent,
+) -> None:
+    record = _record(sessions, event)
+    resident = registry.get(record.user_id)
+    assert resident is not None
+    resident.devices["guardian"].clear()
+    unreachable_at = START + timedelta(seconds=AFTER_S)
+    _tick(sessions, registry, dispatcher, now=unreachable_at)
+    registry.register_guardian_device_by_user(record.user_id, "late-device")
+
+    summary = reconcile_once(
+        sessions,
+        registry,
+        dispatcher,
+        ai=GuardianAi(),
+        followup_after_s=AFTER_S,
+        reconcile_interval_s=5,
+        public_base_url=BASE_URL,
+        now=unreachable_at + timedelta(seconds=100),
+        bootstrap_late_cycle=True,
+    )
+
+    assert summary.notified == 0
+    assert dispatcher.sent == []
+
+
+def test_second_process_bootstrap_may_retry_same_late_cycle_after_failure(
+    sessions: SessionStore,
+    registry: ResidentRegistry,
+    event: DisasterEvent,
+) -> None:
+    record = _record(sessions, event)
+    resident = registry.get(record.user_id)
+    assert resident is not None
+    resident.devices["guardian"].clear()
+    unreachable_at = START + timedelta(seconds=AFTER_S)
+    _tick(sessions, registry, RecordingDispatcher(), now=unreachable_at)
+    registry.register_guardian_device_by_user(record.user_id, "late-device")
+    dispatcher = RejectingDispatcher()
+
+    for offset_s in (AFTER_S + 13, AFTER_S + 23):
+        reconcile_once(
+            sessions,
+            registry,
+            dispatcher,
+            ai=GuardianAi(),
+            followup_after_s=AFTER_S,
+            reconcile_interval_s=5,
+            public_base_url=BASE_URL,
+            now=unreachable_at + timedelta(seconds=offset_s),
+            bootstrap_late_cycle=True,
+        )
+
+    # ADR-0012 deliberately makes the late path at-least-once. A failed attempt leaves no
+    # marker, so a second process bootstrap in the same cycle may repeat it.
+    assert len(dispatcher.sent) == 2
+
+
 def test_late_subscription_retry_schedule_survives_restart(
     tmp_path,
     registry: ResidentRegistry,
@@ -700,7 +817,7 @@ def test_records_returns_a_list_snapshot(
 
 
 def test_worker_rejects_duplicate_start_and_stops() -> None:
-    worker = ReconcileWorker(lambda _previous, _current: None, interval_s=60)
+    worker = ReconcileWorker(lambda _previous, _current, _bootstrap: None, interval_s=60)
     try:
         assert worker.start() is True
         assert worker.start() is False

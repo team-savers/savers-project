@@ -43,7 +43,7 @@ def _resolved(application: FastAPI, provider: Callable[[], Any]) -> Any:
 async def lifespan(application: FastAPI):
     config = _resolved(application, deps.settings)
     worker = ReconcileWorker(
-        lambda previous_observed_at, observed_at: reconcile_once(
+        lambda previous_observed_at, observed_at, bootstrap_late_cycle: reconcile_once(
             _resolved(application, deps.sessions),
             _resolved(application, deps.registry),
             _resolved(application, deps.dispatcher),
@@ -53,6 +53,7 @@ async def lifespan(application: FastAPI):
             public_base_url=config.public_base_url,
             now=observed_at,
             previous_observed_at=previous_observed_at,
+            bootstrap_late_cycle=bootstrap_late_cycle,
             clock=lambda: datetime.now(UTC),
         ),
         interval_s=config.reconcile_interval_s,
