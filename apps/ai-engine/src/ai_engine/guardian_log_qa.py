@@ -443,6 +443,16 @@ def _canonical_claim(source: GuardianEvidence) -> str | None:
     return f"{display_time}에 {_PROGRESS_TEMPLATES[source.type]}"
 
 
+def _source_fact_key(
+    source: GuardianEvidence,
+) -> tuple[GuardianEvidenceType, bool, datetime | None]:
+    """ADR-0012 fact identity, with equivalent RFC3339 offsets collapsed."""
+    if source.at is None:
+        return source.type, source.present, None
+    _, at_utc = _parse_rfc3339(source.at)
+    return source.type, source.present, at_utc
+
+
 def _claim_violations(
     question_id: GuardianQuestionId,
     answer: str,
@@ -452,7 +462,7 @@ def _claim_violations(
     if sentences is None:
         return ["unsupported_claim"]
 
-    source_facts = [(source.type, source.present, source.at) for source in sources]
+    source_facts = [_source_fact_key(source) for source in sources]
     if len(source_facts) != len(set(source_facts)):
         return ["unsupported_claim"]
 
@@ -480,9 +490,10 @@ def _claim_violations(
         if (display_time := _display_time_from_source(source)) is not None
     )
     violations: list[VerificationCode] = []
-    if displayed_times != expected_times or sum(expected_times.values()) != sum(
-        source.present for source in sources
-    ):
+    # Only a displayed minute without a corresponding present source is a time claim
+    # mismatch. Extra sources are handled as unsupported coverage below; treating their
+    # undisplayed minutes as wrong answer times conflates the two independent checks.
+    if any(count > expected_times[display_time] for display_time, count in displayed_times.items()):
         violations.append("time_mismatch")
 
     canonical = [_canonical_claim(source) for source in sources]
