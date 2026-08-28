@@ -47,9 +47,12 @@ SAVERS의 차별화 전략은 **"품질을 재현 가능한 자동 스크립트�
 | `metrics.py` | 순수 지표 함수. 입력이 같으면 결과가 같고, I/O·시계·네트워크가 없습니다. 예선 4지표 + 본선 M2·M4 |
 | `dataset.py` | 골든셋 로더 + 스키마 검사 |
 | `golden_dataset/flood_v0.jsonl` | 호우 시나리오 6건 (**전부 `[더미]`** — 실제 코퍼스 확보 전 자리표시자) |
-| `test_metrics.py` · `test_golden_dataset.py` | CI가 돌리는 회귀 검사 |
+| `false_refusal_set.py` · `false_refusal/chat_answerable_v0.jsonl` | 과잉거절 프로브 셋 — 답할 수 있어야 하는 질문 28건(각각 코퍼스 원문 앵커 선언) + 거절이 정답인 대조군 6건 |
+| `test_metrics.py` · `test_golden_dataset.py` · `test_false_refusal_set.py` | CI가 돌리는 회귀 검사 |
 | `run_grounding_eval.py` | 근거 일치율·환각 억제율 채점 → JSON 보고서 |
 | `run_latency_eval.py` | 알림 도달 속도 실측(HTTP) → JSON 보고서 |
+| `run_false_refusal_probe.py` | 부당 거절률 실측 + 거절 단계 분류(검색/프롬프트/임계값) → JSON 보고서 |
+| `FALSE_REFUSAL.md` | 위 프로브의 8/28 실행 결과와 원인 1차 분류 (이슈 #24) |
 
 ```bash
 # 저장소 루트에서
@@ -57,7 +60,16 @@ pip install -e "./apps/ai-engine[dev]"
 
 python apps/ai-engine/eval/run_grounding_eval.py            # 서버 불필요
 python apps/ai-engine/eval/run_latency_eval.py --runs 100   # 스택 기동 필요
+python apps/ai-engine/eval/run_false_refusal_probe.py       # 서버 불필요
 ```
+
+### 거절은 두 방향으로 틀립니다 — 한쪽만 재면 안 됩니다
+
+과잉거절(답할 수 있는데 거절)과 과소거절(근거가 없는데 답변)은 반대로 움직입니다.
+문턱을 낮춰 과잉거절을 없애면 과소거절이 올라가고, 그쪽이 제출 지표를 **직접** 깹니다.
+그래서 `run_false_refusal_probe.py`는 두 수치를 **같은 표**에 냅니다 —
+거절만 세는 프로브는 「전부 답하게 만들기」에 만점을 주기 때문입니다.
+프로브 셋에 대조군이 들어 있는 이유이고, 없으면 테스트가 실패합니다.
 
 보고서는 `eval/reports/`에 쌓이고 **커밋하지 않습니다**(루트 `.gitignore`).
 수치는 스크립트를 다시 돌려 재현하는 것이 원칙이고,
