@@ -22,7 +22,7 @@
 
 import type { ApiClient, Ack, Profile } from './types'
 import { mockAdapter } from './mock'
-import { httpAdapter, PATH_SHELTERS_SEARCH } from './http'
+import { httpAdapter, ApiRequestError, PATH_SHELTERS_SEARCH } from './http'
 import {
   isStoreEnabled,
   putRegistration as fsPut,
@@ -38,6 +38,10 @@ import { substituteAdminTerms } from '../lib/readability'
 export { isStoreEnabled }
 export { subscribeRegistrations, getRegistration } from './firestore'
 export { getRegistrationTarget } from './firestore'
+// Only thrown by the httpAdapter guardian-device calls today (mockAdapter
+// never throws it) — re-exported so pages/Guardian.tsx and lib/push.ts can
+// `instanceof`-check it without importing './http' directly.
+export { ApiRequestError as BackendApiError }
 
 const useMock =
   (import.meta.env.VITE_USE_MOCK ?? 'true').toLowerCase() !== 'false'
