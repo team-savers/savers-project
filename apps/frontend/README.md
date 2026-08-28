@@ -14,7 +14,9 @@ SAVERS 사용자 터미널 화면을 담당한다. React + Vite + TypeScript + P
 | `/join?u=<userId>` | 피보호자 폰 온보딩 (QR 스캔 → FCM 토큰 연결) | `src/pages/Join.tsx` |
 | `/preview?t=<token>` | ⚠️ 검토용 실험 화면(단계적 대피 플로우). `/a`에 반영된 것이 아니고, 생성 문안 본문·근거와 다국어 경로가 아직 없어 공개 링크를 걸지 않는다 — 진입은 `/demo`에서만 | `src/pages/Preview.tsx` |
 | `/mockup` | 발표용 정적 목업 5종. API 연동 없음 | `src/pages/Mockup.tsx` |
-| `/guardian` | ⚠️ 임시 mock 보호자 UI 미리보기. `mocks/guardianStatus.ts` 고정 데이터만 읽고, 실제 계약 경로 `/g/{token}` 은 아직 구현되지 않았다 | `src/pages/Guardian.tsx` |
+| `/guardian` | 고정 mock 데이터로 보는 보호자 UI 미리보기 | `src/pages/Guardian.tsx` |
+| `/r/{registrationToken}` | 보호자 최초 FCM 기기 등록 | `src/pages/GuardianRegister.tsx` |
+| `/g/{guardianToken}` | 재난별 보호자 상태 화면과 FCM 기기 갱신·해제 | `src/pages/Guardian.tsx` |
 
 라우팅은 `window.location.pathname` 기반이다. 라우터 라이브러리를 쓰지 않는다.
 라우트를 추가하면 이 표도 같은 PR에서 갱신한다.
@@ -27,7 +29,7 @@ src/
     types.ts        — 팀 계약(openapi.yaml) 스키마 변환 (프론트 전용 필드는 별도 표시)
     client.ts       — 컴포넌트가 import 하는 유일한 API 진입점 (mock/http 전환)
     mock.ts         — mock 어댑터 (200–600ms 지연, fixture 데이터)
-    http.ts         — OpenAPI 계약의 실제 HTTP 어댑터. VITE_USE_MOCK=false일 때 활성화되지만, Guardian FCM/Q&A와 Evacuation 화면 연결은 후속 범위다.
+    http.ts         — OpenAPI 계약의 실제 HTTP 어댑터. VITE_USE_MOCK=false일 때 활성화되며, Guardian Q&A와 Evacuation 실제 API 연결은 후속 범위다.
     firestore.ts    — /ops↔/join 크로스디바이스 브리지 (임시, env 4종 모두 있어야 활성)
   lib/
     i18n.ts         — 다국어 UI 사전 (ko/vi), 방향·거리·제외 사유 등 표시 헬퍼

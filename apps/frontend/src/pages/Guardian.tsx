@@ -35,6 +35,12 @@ import rain from '../assets/rain.webp'
 import type { GuardianStatus, SafetyStatus } from '../api/types'
 import { api } from '../api/client'
 import { requestPushPermissionForGuardian } from '../lib/push'
+import {
+  readGuardianFcmToken,
+  removeGuardianFcmToken,
+  migrateLegacyGuardianFcmToken,
+  writeGuardianFcmToken,
+} from '../lib/guardianPushStorage'
 import { C, ICON, MOBILE_WIDTH, SHADOW_CARD, gutter, radius, touchTarget } from '../lib/tokens'
 import { GUARDIAN_MOCK, PERSONA_IMAGE, type GuardianQuestionId, type QaTurn } from '../mocks/guardianStatus'
 
@@ -213,6 +219,12 @@ export function Guardian({ token }: GuardianProps) {
   )
   const [loadError, setLoadError] = useState(false)
 
+  async function reloadStatus(): Promise<void> {
+    if (token === undefined) return
+    const next = await api.getGuardianStatus(token)
+    setStatus(next)
+  }
+
   useEffect(() => {
     if (token === undefined) {
       setStatus(GUARDIAN_MOCK.status)
@@ -245,9 +257,9 @@ export function Guardian({ token }: GuardianProps) {
     <div style={SHELL}>
       {screen === 'alert' && (
         <AlertScreen
-          district={alert.district}
+          district={token === undefined ? alert.district : (status.dongName ?? '')}
           disaster={alert.disaster}
-          personName={protectedPerson.name}
+          personName={token === undefined ? protectedPerson.name : status.wardName}
           sentAt={alert.sentAt}
           onConfirm={() => setScreen('status')}
         />
@@ -256,11 +268,18 @@ export function Guardian({ token }: GuardianProps) {
         <StatusScreen
           status={status}
           guardianToken={token}
+          preview={token === undefined}
+          onStatusReload={reloadStatus}
           onBack={() => setScreen('alert')}
           onOpenAi={() => setScreen('ai')}
         />
       )}
-      {screen === 'ai' && <AiScreen onBack={() => setScreen('status')} />}
+      {screen === 'ai' && (
+        <AiScreen
+          personName={token === undefined ? protectedPerson.name : status.wardName}
+          onBack={() => setScreen('status')}
+        />
+      )}
     </div>
   )
 }
@@ -477,15 +496,18 @@ const sectionTitle: CSSProperties = {
 function StatusScreen({
   status,
   guardianToken,
+  preview,
+  onStatusReload,
   onBack,
   onOpenAi,
 }: {
   status: GuardianStatus
   guardianToken?: string
+  preview: boolean
+  onStatusReload: () => Promise<void>
   onBack: () => void
   onOpenAi: () => void
 }) {
-  const { protectedPerson } = GUARDIAN_MOCK
   const facts = guardianStatusFacts(status)
 
   return (
@@ -499,13 +521,26 @@ function StatusScreen({
       <main style={{ flex: 1, padding: `18px ${gutter}px ${gutter}px`, display: 'flex', flexDirection: 'column', gap: '22px' }}>
         <section>
           <h1 style={{ ...sectionTitle, fontSize: '16px' }}>등록된 가족</h1>
-          <FamilyCard
-            name={protectedPerson.name}
-            relation={protectedPerson.relation}
-            age={protectedPerson.age}
-            persona={protectedPerson.persona}
-            safetyStatus={status.safetyStatus}
-          />
+          {preview ? (
+            <FamilyCard
+              name={GUARDIAN_MOCK.protectedPerson.name}
+              relation={GUARDIAN_MOCK.protectedPerson.relation}
+              age={GUARDIAN_MOCK.protectedPerson.age}
+              persona={GUARDIAN_MOCK.protectedPerson.persona}
+              safetyStatus={status.safetyStatus}
+            />
+          ) : (
+            <div style={card}>
+              <p style={{ margin: 0, fontSize: '19px', fontWeight: 800, color: GC.text }}>
+                {status.wardName}
+              </p>
+              {status.dongName !== undefined && (
+                <p style={{ margin: '6px 0 0', fontSize: '14.5px', color: GC.textMuted }}>
+                  {status.dongName}
+                </p>
+              )}
+            </div>
+          )}
         </section>
 
         <section>
@@ -576,30 +611,33 @@ function StatusScreen({
             안전 확인 AI
           </button>
         </section>
-        {guardianToken !== undefined && <GuardianPushControl token={guardianToken} />}
+        {guardianToken !== undefined && (
+          <GuardianPushControl
+            token={guardianToken}
+            serverPushEnabled={status.pushEnabled}
+            onStatusReload={onStatusReload}
+          />
+        )}
       </main>
     </>
   )
 }
 
-function guardianPushStorageKey(token: string): string {
-  return `savers.guardianPush.subscribed.${token}`
-}
-
-function guardianFcmTokenStorageKey(token: string): string {
-  return `savers.guardianPush.fcmToken.${token}`
-}
-
 function isThisBrowserSubscribed(token: string): boolean {
+  const storedToken = migrateLegacyGuardianFcmToken(token)
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false
-  try {
-    return window.localStorage.getItem(guardianPushStorageKey(token)) === '1'
-  } catch {
-    return false
-  }
+  return storedToken !== null
 }
 
-function GuardianPushControl({ token }: { token: string }) {
+function GuardianPushControl({
+  token,
+  serverPushEnabled,
+  onStatusReload,
+}: {
+  token: string
+  serverPushEnabled: boolean
+  onStatusReload: () => Promise<void>
+}) {
   const [subscribed, setSubscribed] = useState(() => isThisBrowserSubscribed(token))
   const [pending, setPending] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -613,23 +651,17 @@ function GuardianPushControl({ token }: { token: string }) {
       setNotice('알림 등록에 실패했습니다. 브라우저 권한과 연결 상태를 확인해 주세요.')
       return
     }
+    writeGuardianFcmToken(result.token)
     try {
-      window.localStorage.setItem(guardianPushStorageKey(token), '1')
-      window.localStorage.setItem(guardianFcmTokenStorageKey(token), result.token)
+      await onStatusReload()
     } catch {
-      // Backend registration already succeeded; storage is best-effort only.
+      setNotice('알림 등록은 완료됐지만 현재 상태를 다시 확인하지 못했습니다.')
     }
     setSubscribed(true)
   }
 
   async function unsubscribe(): Promise<void> {
-    let fcmToken: string | null = null
-    try {
-      fcmToken = window.localStorage.getItem(guardianFcmTokenStorageKey(token))
-    } catch {
-      // Without this browser's exact token, deleting would risk targeting
-      // another guardian device. Keep the local state unchanged.
-    }
+    const fcmToken = readGuardianFcmToken()
     if (fcmToken === null) {
       setNotice('이 브라우저의 알림 토큰을 확인할 수 없어 해제하지 못했습니다.')
       return
@@ -641,8 +673,12 @@ function GuardianPushControl({ token }: { token: string }) {
         fcmToken,
         userAgent: typeof navigator === 'undefined' ? null : navigator.userAgent,
       })
-      window.localStorage.removeItem(guardianPushStorageKey(token))
-      window.localStorage.removeItem(guardianFcmTokenStorageKey(token))
+      removeGuardianFcmToken()
+      try {
+        await onStatusReload()
+      } catch {
+        setNotice('알림 해제는 완료됐지만 현재 상태를 다시 확인하지 못했습니다.')
+      }
       setSubscribed(false)
     } catch {
       setNotice('알림 해제에 실패했습니다. 잠시 뒤 다시 시도해 주세요.')
@@ -651,11 +687,11 @@ function GuardianPushControl({ token }: { token: string }) {
     }
   }
 
-  if (subscribed) {
+  if (subscribed && serverPushEnabled) {
     return (
       <section style={{ ...card, marginTop: '14px' }}>
         <p role="status" style={{ margin: '0 0 12px', fontSize: '14.5px', color: GC.text, lineHeight: 1.5 }}>
-          이 브라우저에서 보호자 알림을 받고 있습니다.
+          이 휴대폰에서 보호자 알림을 받도록 설정한 기록이 있어요.
         </p>
         <button
           type="button"
@@ -679,15 +715,30 @@ function GuardianPushControl({ token }: { token: string }) {
   // 기존 guardian device에 추가되는 것이 아니라 현재 휴대폰의 토큰 하나로
   // 교체되는 계약이므로("이 기기도 알림 받기" 아님), 버튼 문구도 "변경"의
   // 의미를 그대로 담는다.
+  const localStateMismatch = subscribed && !serverPushEnabled
+  const title = localStateMismatch
+    ? '알림 설정을 다시 확인해 주세요'
+    : serverPushEnabled
+      ? '알림 받을 휴대폰 변경'
+      : '알림 받을 휴대폰 설정'
+  const description = localStateMismatch
+    ? '이 휴대폰의 등록 기록과 서버 상태가 달라요. 이 휴대폰으로 다시 등록해 주세요.'
+    : serverPushEnabled
+      ? '보호자 알림을 받을 휴대폰이 이미 등록되어 있어요. 원하면 이 휴대폰으로 변경할 수 있어요.'
+      : '이 휴대폰으로 보호자 알림을 받을 수 있어요.'
+  const buttonLabel = localStateMismatch
+    ? '이 휴대폰으로 다시 등록'
+    : serverPushEnabled
+      ? '이 휴대폰으로 변경'
+      : '이 휴대폰으로 알림 받기'
+
   return (
     <section style={{ ...card, marginTop: '14px' }}>
       <p style={{ margin: '0 0 4px', fontSize: '14.5px', fontWeight: 800, color: GC.text }}>
-        알림 받을 휴대폰 변경
+        {title}
       </p>
       <p style={{ margin: '0 0 12px', fontSize: '13.5px', color: GC.textMuted, lineHeight: 1.5 }}>
-        다른 휴대폰에서 이 페이지를 열었다면
-        <br />
-        보호자 알림을 받을 기기를 변경할 수 있어요.
+        {description}
       </p>
       <button
         type="button"
@@ -695,7 +746,7 @@ function GuardianPushControl({ token }: { token: string }) {
         disabled={pending}
         onClick={() => void subscribe()}
       >
-        {pending ? '등록 중...' : '이 휴대폰으로 알림 받기'}
+        {pending ? '등록 중...' : buttonLabel}
       </button>
       {notice !== null && (
         <p role="status" style={{ margin: '10px 0 0', fontSize: '13.5px', color: GC.textMuted }}>
@@ -773,8 +824,8 @@ function FamilyCard({
 // Screen 3 — 안전 확인 AI (mock Q&A)
 // ---------------------------------------------------------------------------
 
-function AiScreen({ onBack }: { onBack: () => void }) {
-  const { protectedPerson, recommendedQuestions } = GUARDIAN_MOCK
+function AiScreen({ personName, onBack }: { personName: string; onBack: () => void }) {
+  const { recommendedQuestions } = GUARDIAN_MOCK
   const [turns, setTurns] = useState<QaTurn[]>([])
   // Which recommended-question button is currently pressed, for the
   // momentary orange-border press feedback below — NOT a persisted
@@ -827,7 +878,7 @@ function AiScreen({ onBack }: { onBack: () => void }) {
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <div style={{ padding: `14px ${gutter}px 0` }}>
           <p style={{ margin: '0 0 14px', fontSize: '14.5px', color: GC.textMuted, lineHeight: 1.5 }}>
-            {protectedPerson.name}님의 행동 기록을 기반으로 답변드려요.
+            {personName}님의 행동 기록을 기반으로 답변드려요.
           </p>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

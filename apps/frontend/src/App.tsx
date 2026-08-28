@@ -415,16 +415,35 @@ function JoinView() {
   return <Join userId={u} />
 }
 
+function decodePathToken(value: string): string | null {
+  if (value === '') return null
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return null
+  }
+}
+
+function InvalidGuardianLink({ kind }: { kind: 'guardian' | 'registration' }) {
+  const label = kind === 'guardian' ? '보호자' : '등록'
+  return (
+    <main style={{ padding: '2rem 1rem', maxWidth: '640px', margin: '0 auto' }}>
+      <h1>{label} 링크를 확인할 수 없어요.</h1>
+      <p>링크가 만료되었거나 잘못되었을 수 있어요. 전달받은 링크를 다시 확인해 주세요.</p>
+    </main>
+  )
+}
+
 function GuardianRouteView({ pathname }: { pathname: string }) {
-  const token = decodeURIComponent(pathname.slice('/g/'.length).split('/')[0] ?? '')
-  return <Guardian token={token} />
+  const token = decodePathToken(pathname.slice('/g/'.length).split('/')[0] ?? '')
+  return token === null ? <InvalidGuardianLink kind="guardian" /> : <Guardian token={token} />
 }
 
 function GuardianRegisterRouteView({ pathname }: { pathname: string }) {
-  const registrationToken = decodeURIComponent(
-    pathname.slice('/r/'.length).split('/')[0] ?? '',
-  )
-  return <GuardianRegister registrationToken={registrationToken} />
+  const registrationToken = decodePathToken(pathname.slice('/r/'.length).split('/')[0] ?? '')
+  return registrationToken === null
+    ? <InvalidGuardianLink kind="registration" />
+    : <GuardianRegister registrationToken={registrationToken} />
 }
 
 function HomeView() {
@@ -604,7 +623,8 @@ function App() {
   // disaster alert on /a (or /a/...). On those routes we show the
   // "새로 불러오기" banner instead of reloading; everywhere else we apply the
   // update quietly (once). The rule is: apply at a safe time, never mid-alert.
-  const onAlertRoute = pathname === '/a' || pathname.startsWith('/a/')
+  const onAlertRoute =
+    pathname === '/a' || pathname.startsWith('/a/') || pathname.startsWith('/g/')
   const { prompt: updatePrompt } = useSwUpdate(onAlertRoute)
 
   return (

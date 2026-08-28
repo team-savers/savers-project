@@ -39,6 +39,7 @@ import fcmIllustration from '../assets/fcm.webp'
 import { api, BackendApiError } from '../api/client'
 import type { RegistrationTarget } from '../api/types'
 import { requestPushPermissionForGuardianRegistration } from '../lib/push'
+import { writeGuardianFcmToken } from '../lib/guardianPushStorage'
 import { MOBILE_WIDTH, gutter, radius, touchTarget } from '../lib/tokens'
 
 // Guardian 화면(pages/Guardian.tsx)과 같은 SAVERS 팔레트를 쓴다 — 같은
@@ -188,6 +189,7 @@ export function GuardianRegister({ registrationToken }: Props) {
 
     if (result.status === 'granted') {
       writeLocallyRegistered(registrationToken, true)
+      writeGuardianFcmToken(result.token)
       setState('subscribed')
       return
     }
