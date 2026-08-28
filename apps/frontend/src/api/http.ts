@@ -2,7 +2,7 @@
 // swapping mock -> http is a one-line change in client.ts.
 //
 // Every method below is a real fetch() call against the contract paths in
-// packages/contracts/openapi.yaml (v0.9). The base URL comes from env only —
+// packages/contracts/openapi.yaml (v0.10). The base URL comes from env only —
 // never hardcoded (public repo). No retry, no client-side timeout, no auth
 // header, and no `credentials` option are added — none of those are in the
 // contract, and inventing them here would be exactly the kind of assumption
@@ -25,10 +25,9 @@ import type {
   ShelterList,
   ShelterSearchRequest,
   UserActionEventCreate,
-  Error as ApiErrorBody, // aliased — `Error` would otherwise shadow the global constructor
 } from './types'
 
-// Contract paths (see packages/contracts/openapi.yaml v0.9).
+// Contract paths (see packages/contracts/openapi.yaml v0.10).
 //   GET    /v1/session/{token}
 //   POST   /v1/session/{token}/response
 //   POST   /v1/session/{token}/events
@@ -83,19 +82,26 @@ export class ApiRequestError extends Error {
   }
 }
 
-const ERROR_CODES: readonly ErrorCode[] = [
-  'SESSION_NOT_FOUND',
-  'SESSION_EXPIRED',
-  'INVALID_REQUEST',
-  'IDEMPOTENCY_KEY_CONFLICT',
-  'RATE_LIMITED',
-  'INTERNAL',
-  'UPSTREAM_UNAVAILABLE',
-]
+const ERROR_CODES: Record<ErrorCode, true> = {
+  SESSION_NOT_FOUND: true,
+  SESSION_EXPIRED: true,
+  INVALID_REQUEST: true,
+  IDEMPOTENCY_KEY_CONFLICT: true,
+  RATE_LIMITED: true,
+  INTERNAL: true,
+  UPSTREAM_UNAVAILABLE: true,
+}
 
 function isErrorCode(value: string): value is ErrorCode {
-  return ERROR_CODES.includes(value as ErrorCode)
+  return Object.hasOwn(ERROR_CODES, value)
 }
+
+interface ParsedErrorBody {
+  message: string
+  code?: ErrorCode
+}
+
+const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9._~-]{16,128}$/
 
 interface RequestOptions {
   method: 'GET' | 'POST' | 'DELETE'
@@ -111,7 +117,7 @@ interface RequestOptions {
 // null on any failure (non-JSON body, empty body, shape mismatch) so the
 // caller can fall back to a generic message instead of throwing a second,
 // unrelated error out of the error path itself.
-async function tryReadErrorBody(res: Response): Promise<ApiErrorBody | null> {
+async function tryReadErrorBody(res: Response): Promise<ParsedErrorBody | null> {
   try {
     const text = await res.text()
     if (text.length === 0) return null
@@ -119,13 +125,16 @@ async function tryReadErrorBody(res: Response): Promise<ApiErrorBody | null> {
     if (
       typeof parsed === 'object' &&
       parsed !== null &&
-      'code' in parsed &&
-      typeof parsed.code === 'string' &&
-      isErrorCode(parsed.code) &&
       'message' in parsed &&
       typeof parsed.message === 'string'
     ) {
-      return parsed as ApiErrorBody
+      const code =
+        'code' in parsed &&
+        typeof parsed.code === 'string' &&
+        isErrorCode(parsed.code)
+          ? parsed.code
+          : undefined
+      return { message: parsed.message, code }
     }
     return null
   } catch {
@@ -198,10 +207,11 @@ export const httpAdapter: ApiClient = {
     // the caller knows whether this is a fresh user action or a retry.
     if (
       typeof idempotencyKey !== 'string' ||
-      idempotencyKey.length < 16 ||
-      idempotencyKey.length > 128
+      !IDEMPOTENCY_KEY_PATTERN.test(idempotencyKey)
     ) {
-      throw new Error('Idempotency-Key must be a string of 16 to 128 characters')
+      throw new Error(
+        'Idempotency-Key must be 16 to 128 characters using only A-Z, a-z, 0-9, ., _, ~, or -',
+      )
     }
     return request<RecordedUserActionEvent>({
       method: 'POST',

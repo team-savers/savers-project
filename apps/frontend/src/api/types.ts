@@ -266,7 +266,7 @@ export interface SessionResponseRequest {
   response: 'home' | 'outside'
 }
 
-// ---- v0.5/v0.9 session-log (user action events) ------------------------
+// ---- v0.5/v0.10 session-log (user action events) -----------------------
 //
 // POST /v1/session/{token}/events (operationId postSessionEvent). Only the
 // user-action side of SessionEvent is modeled here — the system-event 5
@@ -401,7 +401,7 @@ export interface GuardianStatus {
   acknowledgedByGuardian?: boolean
 }
 
-// ---- v0.6/v0.9 guardian Q&A (session-log grounded, not corpus RAG) -----
+// ---- v0.6/v0.10 guardian Q&A (session-log grounded, not corpus RAG) ----
 //
 // POST /v1/guardian/{token}/ask (operationId postGuardianAsk). Answers are
 // generated from that session's SessionEvent log only — no vector search,
@@ -525,7 +525,7 @@ export interface Error {
 
 // ---- API entrypoint signatures ----------------------------------------
 //
-// v0.9 endpoint set (see packages/contracts/openapi.yaml paths). Method
+// v0.10 endpoint set (see packages/contracts/openapi.yaml paths). Method
 // names mirror the spec's `operationId`. The contract file is the single
 // source of truth — keep these signatures and the spec in lockstep.
 //   GET    /v1/session/{token}                       → getSession

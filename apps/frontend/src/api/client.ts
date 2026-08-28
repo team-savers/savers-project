@@ -9,7 +9,7 @@
 // the old GET /v1/shelters) is visible at the API boundary without
 // consumers reaching past this module.
 //
-// The browser-facing v0.9 ApiClient methods (mirroring operationIds in
+// The browser-facing v0.10 ApiClient methods (mirroring operationIds in
 // packages/contracts/openapi.yaml 1:1):
 //   getSession · postSessionResponse · postSessionEvent ·
 //   getRegistrationTarget · searchShelters · postChat · registerDevice ·

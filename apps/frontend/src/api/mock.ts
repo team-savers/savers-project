@@ -87,10 +87,11 @@ const USER_ACTION_EVENT_TYPES = [
 ] as const satisfies readonly [UserActionEventType, ...UserActionEventType[]]
 
 // Minimal mock server-side state for POST/DELETE /v1/guardian/{token}/device.
-// Maps a guardian token to the set of GuardianDeviceRegisterRequest.fcmToken
-// values registered under it — a guardian can have more than one device, so
-// pushEnabled must survive removing ONE of several registered fcmTokens, not
-// just a single yes/no per guardian token. NOT derived from Profile.guardian
+// Maps a guardian token to the current GuardianDeviceRegisterRequest.fcmToken.
+// POST replaces the device set with its one supplied token; DELETE removes
+// only the supplied token. This renewal state is separate from the
+// POST /v1/devices pre-registration path, which still permits multiple
+// guardian devices. NOT derived from Profile.guardian
 // (contact info) and NOT read from this browser's Notification.permission or
 // localStorage. Module-memory only; resets on reload, same as the rest of
 // this mock adapter's state.
@@ -552,15 +553,11 @@ export const mockAdapter: ApiClient = {
     req: GuardianDeviceRegisterRequest,
   ): Promise<Ack> {
     await randomDelay()
-    // Registration/renewal only — no real FCM send is simulated here. Adds
-    // this fcmToken to the guardian's device set (creating the set on first
-    // registration) so getGuardianStatus's pushEnabled reflects it.
-    let devices = guardianDeviceRegistrations.get(token)
-    if (devices === undefined) {
-      devices = new Set<string>()
-      guardianDeviceRegistrations.set(token, devices)
-    }
-    devices.add(req.fcmToken)
+    // Renewal only — no real FCM send is simulated here. The contract makes
+    // this a replacement, so stale/rotated tokens do not remain registered.
+    // This does not change POST /v1/devices pre-registration, where multiple
+    // guardian devices remain valid.
+    guardianDeviceRegistrations.set(token, new Set([req.fcmToken]))
     return { ok: true }
   },
 

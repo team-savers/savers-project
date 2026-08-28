@@ -15,9 +15,9 @@ What exists in code today is a **walking skeleton, not a working service**. One 
 ⚠️ **Don't read the stubs as measurements.**
 The bundled corpus is dummy text marked `[더미]`;
 scoring 근거 일치율 against it measures agreement with a placeholder.
-`apps/frontend/` is a real PWA now, but every backend call still resolves to an in-memory mock
-(`VITE_USE_MOCK=true` is the default) — no HTTP wiring to `apps/backend` exists yet,
-and `src/api/http.ts` holds contract path constants with unimplemented bodies.
+`apps/frontend/` is a real PWA now, and `src/api/http.ts` implements the contract HTTP adapter,
+but `VITE_USE_MOCK=true` remains the default and most screens still use the mock path;
+Guardian FCM/Q&A and Evacuation screen wiring remain follow-up work.
 `infra/docker-compose.yml` brings up backend + ai-engine only; the frontend is not a compose service.
 Don't improvise a different structure — extend the one described under "Repo structure convention",
 and replace a stub at its seam rather than around it.
