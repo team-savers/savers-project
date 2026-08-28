@@ -5,6 +5,8 @@ docker-compose topology so a fresh clone runs without configuration — a walkin
 that needs a filled-in .env before it moves is not walking.
 """
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,7 +28,7 @@ class Settings(BaseSettings):
 
     # Durable backing for session links, interaction state, event facts and idempotency.
     # Tests keep SessionStore's :memory: default; runtime explicitly injects this path.
-    session_db_path: str = "savers_sessions.sqlite3"
+    session_db_path: str = str(Path.home() / ".savers" / "savers_sessions.sqlite3")
 
     # 대피소 도달 시간 기준(초). 도보 환산 도달 시간이 이 값을 넘는 대피소에는
     # `cautions: over_time`을 붙여 뒤로 보낸다(제외가 아님, ADR-0016). 정책 파라미터라

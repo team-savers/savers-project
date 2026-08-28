@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from backend_core.config import Settings
 from backend_core.events import (
     ONCE_PER_SESSION,
     ExclusiveSystemEventError,
@@ -298,6 +299,28 @@ def test_file_connection_enables_wal_and_busy_timeout(tmp_path: Path) -> None:
 
     assert journal_mode.lower() == "wal"
     assert busy_timeout > 0
+
+
+def test_file_connection_creates_missing_nested_parent(tmp_path: Path) -> None:
+    path = tmp_path / "missing" / "nested" / "sessions.sqlite3"
+    assert not path.parent.exists()
+
+    store = _store(path)
+    record = _create(store)
+
+    assert path.is_file()
+    assert store.get(record.token) is record
+
+
+def test_runtime_default_database_path_is_absolute_and_home_based(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("SAVERS_SESSION_DB_PATH", raising=False)
+
+    default_path = Path(Settings().session_db_path)
+
+    assert default_path.is_absolute()
+    assert default_path.parent == Path.home() / ".savers"
 
 
 def test_sqlite_schema_and_serialized_state_have_no_coordinate_fields(tmp_path: Path) -> None:

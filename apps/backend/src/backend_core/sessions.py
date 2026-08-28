@@ -110,8 +110,13 @@ class SessionStore:
         # operations are short, so contention is negligible. SQLite constraints remain the
         # final defence for uniqueness and mutually exclusive event facts.
         self._lock = threading.Lock()
+        connection_path = str(db_path)
+        if connection_path != ":memory:":
+            file_path = Path(db_path).expanduser()
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            connection_path = str(file_path)
         self._connection = sqlite3.connect(
-            str(db_path),
+            connection_path,
             check_same_thread=False,
         )
         self._connection.row_factory = sqlite3.Row
