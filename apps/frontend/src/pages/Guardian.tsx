@@ -30,6 +30,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
+import './GuardianPushControl.css'
 import rain from '../assets/rain.webp'
 import type { GuardianStatus, SafetyStatus } from '../api/types'
 import { api } from '../api/client'
@@ -575,9 +576,7 @@ function StatusScreen({
             안전 확인 AI
           </button>
         </section>
-        {guardianToken !== undefined && (
-          <GuardianPushControl token={guardianToken} serverEnabled={status.pushEnabled} />
-        )}
+        {guardianToken !== undefined && <GuardianPushControl token={guardianToken} />}
       </main>
     </>
   )
@@ -600,7 +599,7 @@ function isThisBrowserSubscribed(token: string): boolean {
   }
 }
 
-function GuardianPushControl({ token, serverEnabled }: { token: string; serverEnabled: boolean }) {
+function GuardianPushControl({ token }: { token: string }) {
   const [subscribed, setSubscribed] = useState(() => isThisBrowserSubscribed(token))
   const [pending, setPending] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -655,21 +654,54 @@ function GuardianPushControl({ token, serverEnabled }: { token: string; serverEn
   if (subscribed) {
     return (
       <section style={{ ...card, marginTop: '14px' }}>
-        <p role="status">이 브라우저에서 보호자 알림을 받고 있습니다.</p>
-        <button type="button" disabled={pending} onClick={() => void unsubscribe()}>
+        <p role="status" style={{ margin: '0 0 12px', fontSize: '14.5px', color: GC.text, lineHeight: 1.5 }}>
+          이 브라우저에서 보호자 알림을 받고 있습니다.
+        </p>
+        <button
+          type="button"
+          className="guardian-push-btn guardian-push-btn--outline"
+          disabled={pending}
+          onClick={() => void unsubscribe()}
+        >
           {pending ? '해제 중...' : '알림 해제'}
         </button>
-        {notice !== null && <p role="status">{notice}</p>}
+        {notice !== null && (
+          <p role="status" style={{ margin: '10px 0 0', fontSize: '13.5px', color: GC.textMuted }}>
+            {notice}
+          </p>
+        )}
       </section>
     )
   }
+  // 미등록 상태 — 정상 재난 흐름의 메인 CTA(안전 확인 AI)가 아니라, 다른
+  // 휴대폰에서 /g/{token} 링크를 열었을 때 쓰는 보조/복구 설정이다. 그래서
+  // 제목은 작게, 설명은 secondary 톤으로 낮춰 노출 위계를 지킨다. 이 등록은
+  // 기존 guardian device에 추가되는 것이 아니라 현재 휴대폰의 토큰 하나로
+  // 교체되는 계약이므로("이 기기도 알림 받기" 아님), 버튼 문구도 "변경"의
+  // 의미를 그대로 담는다.
   return (
     <section style={{ ...card, marginTop: '14px' }}>
-      {serverEnabled && <p>다른 보호자 기기에 알림이 등록되어 있습니다.</p>}
-      <button type="button" disabled={pending} onClick={() => void subscribe()}>
-        {pending ? '등록 중...' : '이 휴대폰에서 알림 받기'}
+      <p style={{ margin: '0 0 4px', fontSize: '14.5px', fontWeight: 800, color: GC.text }}>
+        알림 받을 휴대폰 변경
+      </p>
+      <p style={{ margin: '0 0 12px', fontSize: '13.5px', color: GC.textMuted, lineHeight: 1.5 }}>
+        다른 휴대폰에서 이 페이지를 열었다면
+        <br />
+        보호자 알림을 받을 기기를 변경할 수 있어요.
+      </p>
+      <button
+        type="button"
+        className="guardian-push-btn guardian-push-btn--secondary"
+        disabled={pending}
+        onClick={() => void subscribe()}
+      >
+        {pending ? '등록 중...' : '이 휴대폰으로 알림 받기'}
       </button>
-      {notice !== null && <p role="status">{notice}</p>}
+      {notice !== null && (
+        <p role="status" style={{ margin: '10px 0 0', fontSize: '13.5px', color: GC.textMuted }}>
+          {notice}
+        </p>
+      )}
     </section>
   )
 }
