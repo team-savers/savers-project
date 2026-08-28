@@ -32,18 +32,19 @@ First-target disaster type for the MVP: 호우·도시침수 (heavy rain / urban
 
 ## Planned architecture — three layers, three core technologies
 
-> ⚠️ **Row 1 is 확정 — [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) was accepted 2026-08-24. Rows 2 ~ 4 are 검토 중, not 확정: rows 2 ~ 3 have no ADR at all, and row 4's [ADR-0002](docs/adr/0002-frontloaded-tech-lead.md) amendment for the 2026-08-11 reshuffle is still pending.**
-> They are written as the working plan because the finals build follows them, and their source is the team's own
-> 기획서/검증설계 in `docs/공유_문서/` — which, per the "확정 source is an ADR number" rule under "Collaboration / Git",
-> does not qualify as a confirmation source. ADR promotion has been requested from the Tech Lead;
-> until **those** ADRs land (and are accepted), treat rows 2 ~ 4 as 검토 중 and cite them that way in any outside-facing document.
+> ⚠️ **Row 1 is 확정 — [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) was accepted 2026-08-24.** Rows 2 ~ 4 now each have an ADR (0018, 0017, 0019, all written 2026-08-26), but those three are **Proposed, not yet accepted** — so the rows stay 검토 중 until their decision owners confirm.
+> Cite them that way in any outside-facing document, and switch the row to 확정 only when the ADR's own status line says 승인.
+> Row 4 was promoted as a **superseding ADR rather than an in-place amendment to [ADR-0002](docs/adr/0002-frontloaded-tech-lead.md)**:
+> ADR-0002 is accepted, and changing an accepted ADR's decision content is not one of the four
+> post-acceptance edit exceptions in [ADR-0005](docs/adr/0005-webpush-primary-channel.md) — ADR-0002 carries only a 대체 표시,
+> the same shape as ADR-0004 → ADR-0005 and ADR-0003 → ADR-0008.
 >
 > | # | Decision | Changes | Status |
 > |---|---|---|---|
 > | 1 | **M3 metric = 「위치정보 무저장·무로깅」** — the server *does* receive a coordinate on `/v1/shelters/search` and stores/logs it nowhere. Reworded twice: 「즉시 파기 준수율 100%」 → 「미수신」 (8/21) → 「무저장·무로깅」 (8/22); the client-side alternative (no coordinate endpoint) was considered and **rejected for the finals window** | Submitted metric + the location constraint below | [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) **Accepted** — 2026-08-24 Tech Lead 승인 |
-> | 2 | Four modules → three layers + three core technologies | Architecture framing | 검토 중 — ADR 대기 |
-> | 3 | Route engine **OSMnx + networkx** instead of OSRM (2026-08-21) | Tech stack | 검토 중 — ADR 대기 |
-> | 4 | Tech Lead writes no code + infrastructure moves to PM (2026-08-11 reshuffle) | Role scope set by [ADR-0002](docs/adr/0002-frontloaded-tech-lead.md) | 검토 중 — ADR-0002 amendment 대기 |
+> | 2 | Four modules → three layers + three core technologies | Architecture framing | 검토 중 — [ADR-0018](docs/adr/0018-three-layers-three-core-technologies.md) **Proposed** (2026-08-26) |
+> | 3 | Route engine **OSMnx + networkx** instead of OSRM (2026-08-21) | Tech stack | 검토 중 — [ADR-0017](docs/adr/0017-route-engine-osmnx-networkx.md) **Proposed** (2026-08-26) |
+> | 4 | Tech Lead writes no code + infrastructure moves to PM (2026-08-11 reshuffle) | Supersedes part of [ADR-0002](docs/adr/0002-frontloaded-tech-lead.md) | 검토 중 — [ADR-0019](docs/adr/0019-role-scope-after-2026-08-11-reshuffle.md) **Proposed** (2026-08-26) |
 
 Per 기획서 v3 the service is split into three layers: **① 판정 (assessment) belongs to the government** (기상청·홍수통제소·기후부 도시침수예보), **② 계산 (computation) is SAVERS**, **③ 전달 (delivery) is a zero-install mobile web channel**. **SAVERS does not implement its own hazard determination** — it converts an already-issued official warning into "where do I go, in how many minutes."
 
