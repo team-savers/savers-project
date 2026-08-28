@@ -18,6 +18,7 @@ import metrics
 import pytest
 
 from ai_engine.guardian_log_qa import (
+    _ABSENCE_TEMPLATES,
     GuardianEvidence,
     GuardianLogAnswer,
     GuardianQuestionId,
@@ -557,7 +558,7 @@ class TestGuardianViolations:
             answer="도움 요청과 도착 확인이 있었습니다.",
             evidence=cited,
             events=LOG_OPENED_NO_RESPONSE,
-        ) == ["present_claim_mismatch"]
+        ) == ["present_claim_mismatch", "unsupported_claim"]
 
     def test_forbidden_phrase_is_reported_even_with_no_citations(self) -> None:
         # ADR-0012 3절: 금지 표현은 대조 결과와 무관하게 차단한다. Returning only the
@@ -572,7 +573,7 @@ class TestGuardianViolations:
             answer="열어 보셨으니 안전합니다.",
             evidence=CITED_OPENED_NO_RESPONSE,
             events=LOG_OPENED_NO_RESPONSE,
-        ) == ["forbidden_phrase"]
+        ) == ["forbidden_phrase", "unsupported_claim"]
 
 
 def _parity_verdict(
@@ -594,6 +595,263 @@ def _parity_verdict(
 
 
 class TestGuardianRuntimeMetricParity:
+    def test_distinct_absent_source_overage_is_blocked_by_both(self) -> None:
+        response = GuardianLogAnswer(
+            question_id=GuardianQuestionId.HELP_REQUEST,
+            answer=_ABSENCE_TEMPLATES["help_request_selected"],
+            sources=(
+                GuardianEvidence(type="help_request_selected", present=False),
+                GuardianEvidence(type="emergency_call_119_selected", present=False),
+            ),
+            refusal_reason=None,
+        )
+
+        runtime = verify_guardian_answer_detailed(
+            GuardianQuestionId.HELP_REQUEST, response, []
+        ).violations
+        scorer = metrics.guardian_violations(
+            answer=response.answer,
+            evidence=[source.model_dump(mode="python") for source in response.sources],
+            events=[],
+        )
+        assert runtime == ("unsupported_claim",)
+        assert scorer == list(runtime)
+
+    def test_two_distinct_absent_sources_with_two_claims_are_allowed_by_both(self) -> None:
+        response = GuardianLogAnswer(
+            question_id=GuardianQuestionId.HELP_REQUEST,
+            answer=" ".join(
+                (
+                    _ABSENCE_TEMPLATES["help_request_selected"],
+                    _ABSENCE_TEMPLATES["emergency_call_119_selected"],
+                )
+            ),
+            sources=(
+                GuardianEvidence(type="help_request_selected", present=False),
+                GuardianEvidence(type="emergency_call_119_selected", present=False),
+            ),
+            refusal_reason=None,
+        )
+
+        assert _parity_verdict(GuardianQuestionId.HELP_REQUEST, response, []) == (
+            False,
+            False,
+        )
+
+    def test_unrelated_absent_source_beside_present_claim_is_blocked_by_both(self) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "help_request_selected", "at": "2026-08-27T01:30:01Z", "payload": {}}
+        ]
+        generated = answer_guardian_question(GuardianQuestionId.HELP_REQUEST, events)
+        response = generated.model_copy(
+            update={
+                "sources": (
+                    *generated.sources,
+                    GuardianEvidence(type="emergency_call_119_selected", present=False),
+                )
+            }
+        )
+
+        runtime = verify_guardian_answer_detailed(
+            GuardianQuestionId.HELP_REQUEST, response, events
+        ).violations
+        scorer = metrics.guardian_violations(
+            answer=response.answer,
+            evidence=[source.model_dump(mode="python") for source in response.sources],
+            events=events,
+        )
+        assert runtime == ("unsupported_claim",)
+        assert scorer == list(runtime)
+
+    @pytest.mark.parametrize(
+        ("stamps", "claim_count", "expected"),
+        [
+            (("2026-08-27T01:30:01Z", "2026-08-27T01:30:01Z"), 1, ("unsupported_claim",)),
+            (("2026-08-27T01:30:01Z", "2026-08-27T01:30:01Z"), 2, ("unsupported_claim",)),
+            (
+                ("2026-08-27T01:30:01Z", "2026-08-27T01:30:50Z"),
+                1,
+                ("unsupported_claim",),
+            ),
+            (
+                ("2026-08-27T10:30:00+09:00", "2026-08-27T01:30:00Z"),
+                1,
+                ("unsupported_claim",),
+            ),
+            (
+                ("2026-08-27T10:30:00+09:00", "2026-08-27T01:30:00Z"),
+                2,
+                ("unsupported_claim",),
+            ),
+        ],
+    )
+    def test_same_minute_and_duplicate_fact_matrix(
+        self, stamps: tuple[str, str], claim_count: int, expected: tuple[str, ...]
+    ) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "arrival_confirmed_by_user", "at": "2026-08-27T01:30:01Z", "payload": {}}
+        ]
+        generated = answer_guardian_question(GuardianQuestionId.ARRIVAL_STATUS, events)
+        assert generated.answer is not None
+        response = generated.model_copy(
+            update={
+                "answer": " ".join([generated.answer] * claim_count),
+                "sources": tuple(
+                    GuardianEvidence(type="arrival_confirmed_by_user", present=True, at=stamp)
+                    for stamp in stamps
+                ),
+            }
+        )
+
+        runtime = verify_guardian_answer_detailed(
+            GuardianQuestionId.ARRIVAL_STATUS, response, events
+        ).violations
+        scorer = metrics.guardian_violations(
+            answer=response.answer,
+            evidence=[source.model_dump(mode="python") for source in response.sources],
+            events=events,
+        )
+        assert runtime == expected
+        assert scorer == list(expected)
+
+    def test_two_same_minute_event_rows_support_two_distinct_facts(self) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "help_request_selected", "at": "2026-08-27T01:30:01Z", "payload": {}},
+            {"type": "help_request_selected", "at": "2026-08-27T01:30:50Z", "payload": {}},
+        ]
+        response = answer_guardian_question(GuardianQuestionId.HELP_REQUEST, events)
+
+        assert (
+            verify_guardian_answer_detailed(
+                GuardianQuestionId.HELP_REQUEST, response, events
+            ).violations
+            == ()
+        )
+        assert (
+            metrics.guardian_violations(
+                answer=response.answer,
+                evidence=[source.model_dump(mode="python") for source in response.sources],
+                events=events,
+            )
+            == []
+        )
+
+    def test_two_distinct_second_sources_cannot_reuse_one_event_row(self) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "arrival_confirmed_by_user", "at": "2026-08-27T01:30:01Z", "payload": {}}
+        ]
+        evidence = [
+            {"type": "arrival_confirmed_by_user", "present": True, "at": stamp}
+            for stamp in ("2026-08-27T01:30:01Z", "2026-08-27T01:30:50Z")
+        ]
+        answer = "10시 30분에 [도착 완료] 버튼을 누르셨습니다. 대피소 이름은 서울초등학교입니다."
+
+        response = GuardianLogAnswer(
+            question_id=GuardianQuestionId.ARRIVAL_STATUS,
+            answer=answer,
+            sources=tuple(GuardianEvidence.model_validate(item) for item in evidence),
+            refusal_reason=None,
+        )
+        runtime = verify_guardian_answer_detailed(
+            GuardianQuestionId.ARRIVAL_STATUS, response, events
+        ).violations
+        scorer = metrics.guardian_violations(answer=answer, evidence=evidence, events=events)
+
+        assert metrics._facts_cited(evidence) == 2
+        assert runtime == ("unsupported_claim",)
+        assert scorer == list(runtime)
+
+    def test_mixed_mismatches_do_not_hide_time_reason(self) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "help_request_selected", "at": "2026-08-27T01:30:01Z", "payload": {}}
+        ]
+        response = GuardianLogAnswer(
+            question_id=GuardianQuestionId.HELP_REQUEST,
+            answer="10시 31분에 [도움이 필요해요]를 선택하셨습니다.",
+            sources=(
+                GuardianEvidence(
+                    type="emergency_call_119_selected",
+                    present=True,
+                    at="2026-08-27T01:32:01Z",
+                ),
+                GuardianEvidence(
+                    type="help_request_selected",
+                    present=True,
+                    at="2026-08-27T01:31:01Z",
+                ),
+            ),
+            refusal_reason=None,
+        )
+
+        runtime = verify_guardian_answer_detailed(
+            GuardianQuestionId.HELP_REQUEST, response, events
+        ).violations
+        scorer = metrics.guardian_violations(
+            answer=response.answer,
+            evidence=[source.model_dump(mode="python") for source in response.sources],
+            events=events,
+        )
+
+        assert runtime == (
+            "present_claim_mismatch",
+            "time_mismatch",
+            "unsupported_claim",
+        )
+        assert scorer == list(runtime)
+
+    def test_duplicate_absent_evidence_is_blocked_by_both(self) -> None:
+        response = answer_guardian_question(GuardianQuestionId.ARRIVAL_STATUS, [])
+        duplicated = response.model_copy(update={"sources": response.sources * 2})
+
+        assert _parity_verdict(GuardianQuestionId.ARRIVAL_STATUS, duplicated, []) == (True, True)
+        assert metrics.guardian_violations(
+            answer=duplicated.answer,
+            evidence=[source.model_dump(mode="python") for source in duplicated.sources],
+            events=[],
+        ) == ["unsupported_claim"]
+
+    def test_duplicate_log_rows_do_not_duplicate_the_fact_for_either(self) -> None:
+        event_row: dict[str, object] = {
+            "type": "arrival_confirmed_by_user",
+            "at": "2026-08-24T01:42:00Z",
+            "payload": {},
+        }
+        events = [event_row, dict(event_row)]
+        response = answer_guardian_question(GuardianQuestionId.ARRIVAL_STATUS, [event_row])
+
+        assert _parity_verdict(GuardianQuestionId.ARRIVAL_STATUS, response, events) == (
+            False,
+            False,
+        )
+
+    def test_same_timestamp_for_different_type_does_not_match(self) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "help_request_selected", "at": "2026-08-24T01:42:00Z", "payload": {}}
+        ]
+        response = GuardianLogAnswer(
+            question_id=GuardianQuestionId.ARRIVAL_STATUS,
+            answer="10시 42분에 [대피소 도착 완료] 버튼을 누르셨습니다.",
+            sources=(
+                GuardianEvidence(
+                    type="arrival_confirmed_by_user",
+                    present=True,
+                    at="2026-08-24T01:42:00Z",
+                ),
+            ),
+            refusal_reason=None,
+        )
+
+        runtime = verify_guardian_answer_detailed(
+            GuardianQuestionId.ARRIVAL_STATUS, response, events
+        ).violations
+        scorer = metrics.guardian_violations(
+            answer=response.answer,
+            evidence=[source.model_dump(mode="python") for source in response.sources],
+            events=events,
+        )
+        assert "present_claim_mismatch" in runtime
+        assert scorer == ["present_claim_mismatch"]
+
     def test_claim_source_type_swap_is_blocked_by_both(self) -> None:
         events: list[dict[str, object]] = [
             {"type": "arrival_confirmed_by_user", "at": "2026-08-24T01:42:00Z", "payload": {}}
@@ -630,6 +888,107 @@ class TestGuardianRuntimeMetricParity:
         )
         tampered = response.model_copy(update={"sources": (wrong_source,)})
         assert _parity_verdict(GuardianQuestionId.ARRIVAL_STATUS, tampered, events) == (True, True)
+
+    def test_same_type_different_minutes_match_only_an_existing_minute(self) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "arrival_confirmed_by_user", "at": "2026-08-27T01:30:01Z", "payload": {}},
+            {"type": "arrival_confirmed_by_user", "at": "2026-08-27T01:32:01Z", "payload": {}},
+        ]
+        existing = answer_guardian_question(GuardianQuestionId.ARRIVAL_STATUS, [events[0]])
+        missing = answer_guardian_question(
+            GuardianQuestionId.ARRIVAL_STATUS,
+            [
+                {
+                    "type": "arrival_confirmed_by_user",
+                    "at": "2026-08-27T01:31:01Z",
+                    "payload": {},
+                }
+            ],
+        )
+
+        assert _parity_verdict(GuardianQuestionId.ARRIVAL_STATUS, existing, events) == (
+            False,
+            False,
+        )
+        runtime = verify_guardian_answer_detailed(
+            GuardianQuestionId.ARRIVAL_STATUS, missing, events
+        ).violations
+        scorer = metrics.guardian_violations(
+            answer=missing.answer,
+            evidence=[source.model_dump(mode="python") for source in missing.sources],
+            events=events,
+        )
+        assert runtime == ("time_mismatch",)
+        assert scorer == ["time_mismatch"]
+
+    def test_evidence_mismatch_and_source_overage_reasons_match(self) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "arrival_confirmed_by_user", "at": "2026-08-27T01:30:01Z", "payload": {}}
+        ]
+        generated = answer_guardian_question(GuardianQuestionId.ARRIVAL_STATUS, events)
+        response = generated.model_copy(
+            update={
+                "sources": (
+                    GuardianEvidence(
+                        type="arrival_confirmed_by_user",
+                        present=True,
+                        at="2026-08-27T01:30:01Z",
+                    ),
+                    GuardianEvidence(
+                        type="arrival_confirmed_by_user",
+                        present=True,
+                        at="2026-08-27T01:31:01Z",
+                    ),
+                )
+            }
+        )
+
+        runtime = verify_guardian_answer_detailed(
+            GuardianQuestionId.ARRIVAL_STATUS, response, events
+        ).violations
+        scorer = metrics.guardian_violations(
+            answer=response.answer,
+            evidence=[source.model_dump(mode="python") for source in response.sources],
+            events=events,
+        )
+        assert runtime == ("time_mismatch", "unsupported_claim")
+        assert scorer == list(runtime)
+
+    def test_forbidden_phrase_and_source_overage_reasons_match(self) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "arrival_confirmed_by_user", "at": "2026-08-27T01:30:01Z", "payload": {}},
+            {"type": "arrival_confirmed_by_user", "at": "2026-08-27T01:30:50Z", "payload": {}},
+        ]
+        generated = answer_guardian_question(GuardianQuestionId.ARRIVAL_STATUS, [events[0]])
+        assert generated.answer is not None
+        response = generated.model_copy(
+            update={
+                "answer": generated.answer.removesuffix(".") + f" {metrics.SAFETY_ASSERTIONS[0]}.",
+                "sources": (
+                    GuardianEvidence(
+                        type="arrival_confirmed_by_user",
+                        present=True,
+                        at="2026-08-27T01:30:01Z",
+                    ),
+                    GuardianEvidence(
+                        type="arrival_confirmed_by_user",
+                        present=True,
+                        at="2026-08-27T01:30:50Z",
+                    ),
+                ),
+            }
+        )
+
+        runtime = verify_guardian_answer_detailed(
+            GuardianQuestionId.ARRIVAL_STATUS, response, events
+        ).violations
+        scorer = metrics.guardian_violations(
+            answer=response.answer,
+            evidence=[source.model_dump(mode="python") for source in response.sources],
+            events=events,
+        )
+        assert runtime == ("forbidden_phrase", "unsupported_claim")
+        assert scorer == list(runtime)
 
     def test_same_instant_with_different_offset_is_allowed_by_both(self) -> None:
         events: list[dict[str, object]] = [
@@ -1231,3 +1590,24 @@ class TestFormatFollowupSummary:
         assert metrics.format_followup_summary(summary) == (
             "M4 측정 불가 (n=1, unreachable=0, unscoreable=1)"
         )
+
+
+class TestFollowupScoreabilityRule:
+    def test_no_due_and_unscoreable_runs_share_the_unmeasurable_verdict(self) -> None:
+        summaries = [
+            metrics.FollowupSummary(due=0, sent=0, unscoreable=0, unreachable=1, rate=None),
+            metrics.FollowupSummary(due=1, sent=1, unscoreable=1, unreachable=1, rate=1.0),
+        ]
+
+        for summary in summaries:
+            assert metrics._is_followup_scoreable(summary) is False
+            assert metrics.format_followup_summary(summary).startswith("M4 측정 불가")
+
+    def test_rate_wrapper_uses_the_shared_scoreability_rule(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        summary = metrics.FollowupSummary(due=1, sent=1, unscoreable=0, unreachable=0, rate=1.0)
+        monkeypatch.setattr(metrics, "followup_summary", lambda _logs: summary)
+        monkeypatch.setattr(metrics, "_is_followup_scoreable", lambda _summary: False)
+
+        assert metrics.followup_delivery_rate([]) is None
