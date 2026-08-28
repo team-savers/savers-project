@@ -86,6 +86,10 @@ These came out of explicit risk mitigation decisions in the planning doc — don
 - **Zero install burden on the vulnerable user.** Registration/setup is designed to be done by a guardian/복지관/지자체 on the person's behalf, not by the end user. Any feature that requires the vulnerable person to install an app or self-configure conflicts with this.
 - **Offline/degraded fallback required.** If the public disaster APIs are down or slow, the system must fall back to a pre-cached shelter/action-manual mode rather than failing silently.
 - **Minimal collection, encrypted.** Sensitive fields (location, disability status) are minimally collected and encrypted; treat this as a hard requirement when adding new user fields.
+  **There is exactly one scoped exception, and it is not a general licence**: the session store writes its rows in plaintext — session token and generated message body, the latter carrying mobility constraints tied to a `user_id` ([ADR-0022](docs/adr/0022-session-store-plaintext.md), Accepted 2026-08-28).
+  Application-level encryption is deferred past the finals there because the key would live on the same VM as the ciphertext, so it does not stop the threat it appears to; file permissions (0600) and the absence of a backup pipeline are what actually close the two reachable cases.
+  **That exception holds only while the registry carries fabricated demo personas and no record identifying a real vulnerable person.** ADR-0022 names that as its own 유효 조건 — the moment such a record enters, the exception lapses and this constraint applies unamended.
+  It covers the session store and nothing else: every other sensitive field stays under the rule above.
 
 ## Quality bar / evaluation methodology (build these as code, not manual review)
 

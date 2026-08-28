@@ -105,4 +105,4 @@
 | [AGENTS.md](../../AGENTS.md) 아키텍처 표 2행의 근거를 이 ADR 번호로 교체 | Tech Lead | 완료, 이 PR |
 | 발표 대본에서 3층과 3기술을 인용할 때 이 번호를 근거로 단다 | PM | 대기 |
 | 계산 층 기술 (1)의 3차 실측값으로 기획서 [표3] 교체 | AI/RAG | 대기 (8/29 인계) |
-| 확인자 3인 (PM, Backend, AI/RAG) 확인 후 상태를 승인으로 변경 | Tech Lead | 대기 |
+| 확인자 3인 (PM, Backend, AI/RAG) 확인 후 상태를 승인으로 변경 | Tech Lead | 완료, 이 PR. 세 확인이 다 [PR 184](https://github.com/team-savers/savers-project/pull/184) 리뷰에 있다 |

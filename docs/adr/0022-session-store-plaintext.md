@@ -188,6 +188,12 @@ ADR-0007 에는 이 문서가 승인된 뒤에 같은 형태의 대체 표시를
 
 - 세션 DB 파일 권한 0600 으로 좁히기 (Backend, PR 179 안에서) -
   PR 179 head 에 반영됐다. 디렉터리는 0755 그대로다
+- [AGENTS.md](../../AGENTS.md) `Non-negotiable design constraints` 의
+  "Minimal collection, encrypted" 항목에 이 문서를 근거로 한 예외와 그 유효 조건 명시 (Tech Lead) -
+  완료, [PR 184](https://github.com/team-savers/savers-project/pull/184).
+  그 조항이 암호화를 하드 요구로 걸고 있어 결정 1번과 정면으로 어긋난다는
+  PM 지적을 받아 넣었다. 예외 범위는 세션 저장소 하나이고,
+  실주민 데이터가 들어오면 예외가 소멸한다는 것을 같은 자리에 적었다
 - 이 문서 승인 후 [ADR-0007](0007-walking-skeleton.md) 상태 줄에 대체 표시 추가 -
   결정 9 의 "민감 필드 암호화 포함" 부분이 이 문서로 대체됨.
   본문과 "부정 / 완화" 표는 고치지 않는다 (Tech Lead)

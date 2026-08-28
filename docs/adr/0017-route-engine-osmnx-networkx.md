@@ -99,4 +99,4 @@ ADR 번호로 추적되지 않는 항목은 검토 중이다([AGENTS.md](../../A
 | [AGENTS.md](../../AGENTS.md) 아키텍처 표 3행의 근거를 이 ADR 번호로 교체 | Tech Lead | 완료, 이 PR |
 | 경로 A안 구현에서 실제 응답 시간 측정, 목표 미달이면 실패 사례로 기재 | Backend | 대기 (8/25 착수 ~ 8/26 완료 칸, 기록 시점 기준 결과 미확인) |
 | 로드맵 문서에 "OSRM 전환"을 첫 항목으로 등재 - 조건은 확산 2단계 이전 | PM | 대기 |
-| 결정자 확인 후 상태를 승인으로 변경 | Tech Lead | 대기 |
+| 결정자 확인 후 상태를 승인으로 변경 | Tech Lead | 완료, 이 PR. 김도혁 확인은 [PR 184](https://github.com/team-savers/savers-project/pull/184) 리뷰에 있다 |
