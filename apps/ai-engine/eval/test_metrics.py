@@ -508,11 +508,49 @@ class TestGuardianViolations:
             {"type": "choice_screen_viewed", "present": True, "at": "2026-08-24T03:13:41Z"},
             {"type": "choice_screen_viewed", "present": True, "at": "2026-08-24T03:51:02Z"},
         ]
-        answer = "12시 13분에 선택 화면을 보셨습니다. 12시 51분에 다시 보셨습니다."
+        answer = "12시 13분에 선택 화면을 보셨습니다. 12시 51분에 선택 화면을 보셨습니다."
         assert (
             metrics.guardian_violations(answer=answer, evidence=cited, events=LOG_OPENED_TWICE)
             == []
         )
+
+    def test_single_digit_minute_matches_the_same_event_time(self) -> None:
+        cited = [
+            {
+                "type": "emergency_call_119_selected",
+                "present": True,
+                "at": "2026-08-24T11:05:00Z",
+            }
+        ]
+        events = [
+            {
+                "type": "emergency_call_119_selected",
+                "at": "2026-08-24T11:05:00Z",
+                "payload": {},
+            }
+        ]
+        answer = "20시 5분에 119 전화 버튼을 누르셨습니다."
+        assert metrics.guardian_violations(answer=answer, evidence=cited, events=events) == []
+
+    def test_revisited_unrelated_object_is_fail_closed(self) -> None:
+        cited = [
+            {
+                "type": "choice_screen_viewed",
+                "present": True,
+                "at": "2026-08-24T01:15:00Z",
+            }
+        ]
+        events = [
+            {
+                "type": "choice_screen_viewed",
+                "at": "2026-08-24T01:15:00Z",
+                "payload": {},
+            }
+        ]
+        answer = "10시 15분에 안내 문구를 다시 보셨습니다."
+        assert metrics.guardian_violations(answer=answer, evidence=cited, events=events) == [
+            "unsupported_claim"
+        ]
 
     def test_an_auxiliary_verb_is_one_claim_not_two(self) -> None:
         # 「-고 있/계시/싶」 is one fact in two words. Splitting there would invent a claim

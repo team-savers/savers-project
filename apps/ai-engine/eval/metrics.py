@@ -337,7 +337,7 @@ _GUARDIAN_EXTRA_FORBIDDEN = re.compile(
 _UNSUPPORTED_STATE = re.compile(r"이동\s*중입니다|대피\s*중입니다|도착했습니다")
 _BRACKETED_LABEL = re.compile(r"\[[^]]+\]")
 _NON_HAPSYO_ENDING = re.compile(r"(?:해요|했어요|맞아요|이네요|그렇죠|예요|아요|어요)(?=[.!?]|$)")
-_DISPLAY_TIME = re.compile(r"(?<!\d)(\d{2})시 (\d{2})분(?!\d)")
+_DISPLAY_TIME = re.compile(r"(?<!\d)(\d{1,2})시 (\d{1,2})분(?!\d)")
 _SEOUL = timezone(timedelta(hours=9))
 
 _KNOWN_GUARDIAN_CLAIMS: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -345,7 +345,7 @@ _KNOWN_GUARDIAN_CLAIMS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"정보 확인 화면을 (?:여|연)"), "profile_review_started"),
     (re.compile(r"정보 확인을 완료"), "profile_review_completed"),
     (re.compile(r"정보 확인 단계를 건너"), "profile_review_skipped"),
-    (re.compile(r"(?:(?:상황 )?선택 화면을 (?:보|본)|다시 보)"), "choice_screen_viewed"),
+    (re.compile(r"(?:상황 )?선택 화면을 (?:보|본)"), "choice_screen_viewed"),
     (re.compile(r"도움이 필요해요.*선택"), "help_request_selected"),
     (re.compile(r"일단 대피할게요.*선택"), "direct_evacuation_selected"),
     (re.compile(r"대피 행동 권고와 대피소 안내를 (?:보|본)"), "evacuation_guidance_viewed"),
