@@ -473,3 +473,29 @@
 .evac-flow.is-large-text .evac-user-confirmed span {
   font-size: 18px;
 }
+
+/* Header speech toggle — every step after 'alert' (blocking #3), replacing
+   the header's third-column filler span. Icon-only so it stays inside the
+   existing 52px header and doesn't crowd .evac-brand out of center; sized
+   to match .evac-back's tap target rather than the full AccessibilityRow
+   switch, which is too wide for a header cell. */
+.evac-header-speech-toggle {
+  justify-self: end;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.evac-header-speech-toggle:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 2px;
+}

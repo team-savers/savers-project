@@ -23,14 +23,31 @@ export function EvacuationFlow() {
   const [selectedAction, setSelectedAction] = useState<Action>(null)
   const [largeText, setLargeText] = useState(false)
   const [speechEnabled, setSpeechEnabled] = useState(false)
+  // Lifted out of ProfileInputStep so profile → choice → back → profile
+  // keeps what the user typed. ProfileInputStep is conditionally rendered
+  // (only mounted while currentStep === 'profile'), so local state there
+  // is lost on every remount; this is the flow-level single source of
+  // truth instead.
+  const [age, setAge] = useState('')
+  const [gender, setGender] = useState('')
 
   useEffect(() => {
     if (!speechEnabled || typeof window === 'undefined' || !('speechSynthesis' in window)) return
     window.speechSynthesis.cancel()
-    const utterance = new SpeechSynthesisUtterance(speechScripts[currentStep])
-    utterance.lang = 'ko-KR'
-    window.speechSynthesis.speak(utterance)
-    return () => window.speechSynthesis.cancel()
+    // Android Chrome can silently drop a speak() issued in the same tick
+    // as the preceding cancel() — deferring one task lets cancel() finish
+    // first. The cleanup below clears this timer, so a step/speechEnabled
+    // change before it fires (or an unmount) never lets the stale
+    // utterance play late.
+    const timerId = window.setTimeout(() => {
+      const utterance = new SpeechSynthesisUtterance(speechScripts[currentStep])
+      utterance.lang = 'ko-KR'
+      window.speechSynthesis.speak(utterance)
+    }, 0)
+    return () => {
+      window.clearTimeout(timerId)
+      window.speechSynthesis.cancel()
+    }
   }, [currentStep, speechEnabled])
 
   useEffect(() => () => {
@@ -42,6 +59,12 @@ export function EvacuationFlow() {
   const goHome = () => {
     setCurrentStep('alert')
     setSelectedAction(null)
+    // Restarting the flow from scratch is the one action meant to clear
+    // profile input — back navigation alone must not (blocking #4). This
+    // also preserves the pre-lift behavior, where remounting
+    // ProfileInputStep on every 'alert' visit reset age/gender anyway.
+    setAge('')
+    setGender('')
   }
 
   const choose = (action: Exclude<Action, null>) => {
@@ -61,6 +84,13 @@ export function EvacuationFlow() {
       canGoBack={currentStep !== 'alert'}
       largeText={largeText}
       onBack={() => setCurrentStep(previousStep(currentStep, preregistered))}
+      speechEnabled={speechEnabled}
+      onToggleSpeech={toggleSpeech}
+      // The alert step already exposes the speech toggle via
+      // AccessibilityRow in its footer — showing this one too would be a
+      // duplicate control on the same screen. Every step after it has no
+      // other way to turn speech off, which is exactly blocking #3.
+      showSpeechToggle={currentStep !== 'alert'}
     >
       {currentStep === 'alert' && (
         <DisasterAlertStep
@@ -71,7 +101,15 @@ export function EvacuationFlow() {
           onToggleSpeech={toggleSpeech}
         />
       )}
-      {currentStep === 'profile' && <ProfileInputStep onNext={() => setCurrentStep('choice')} />}
+      {currentStep === 'profile' && (
+        <ProfileInputStep
+          age={age}
+          gender={gender}
+          onAgeChange={setAge}
+          onGenderChange={setGender}
+          onNext={() => setCurrentStep('choice')}
+        />
+      )}
       {currentStep === 'choice' && <ActionChoiceStep selected={selectedAction} onChoose={choose} />}
       {currentStep === 'help' && <HelpRequestStep guardian={mockGuardian} onHome={goHome} />}
       {currentStep === 'shelter' && <ShelterRecommendationStep onNext={() => setCurrentStep('route')} />}
@@ -94,18 +132,37 @@ function MobileFlowLayout({
   canGoBack,
   largeText,
   onBack,
+  speechEnabled,
+  onToggleSpeech,
+  showSpeechToggle,
 }: {
   children: ReactNode
   canGoBack: boolean
   largeText: boolean
   onBack: () => void
+  speechEnabled: boolean
+  onToggleSpeech: () => void
+  showSpeechToggle: boolean
 }) {
   return (
     <main className={`evac-flow${largeText ? ' is-large-text' : ''}`}>
       <header className="evac-header">
         <button className={`evac-back${canGoBack ? '' : ' is-hidden'}`} type="button" onClick={onBack} aria-label="이전 화면">← 뒤로</button>
         <strong className="evac-brand"><img src="/logo.png" alt="" />SAVERS</strong>
-        <span aria-hidden="true" />
+        {showSpeechToggle ? (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={speechEnabled}
+            className="evac-header-speech-toggle"
+            onClick={onToggleSpeech}
+            aria-label={speechEnabled ? '음성 안내 끄기' : '음성 안내 켜기'}
+          >
+            <span aria-hidden="true">{speechEnabled ? '🔊' : '🔈'}</span>
+          </button>
+        ) : (
+          <span aria-hidden="true" />
+        )}
       </header>
       <div className="evac-content">{children}</div>
     </main>
@@ -200,9 +257,19 @@ function DisasterAlertStep({
   </section>
 }
 
-function ProfileInputStep({ onNext }: { onNext: () => void }) {
-  const [age, setAge] = useState('')
-  const [gender, setGender] = useState('')
+function ProfileInputStep({
+  age,
+  gender,
+  onAgeChange,
+  onGenderChange,
+  onNext,
+}: {
+  age: string
+  gender: string
+  onAgeChange: (value: string) => void
+  onGenderChange: (value: string) => void
+  onNext: () => void
+}) {
   const hasAnyInput = age.trim() !== '' || gender !== ''
 
   return (
@@ -230,12 +297,12 @@ function ProfileInputStep({ onNext }: { onNext: () => void }) {
               placeholder="예: 72"
               type="number"
               value={age}
-              onChange={(event) => setAge(event.target.value)}
+              onChange={(event) => onAgeChange(event.target.value)}
             />
           </label>
           <label>
             성별
-            <select aria-label="성별" value={gender} onChange={(event) => setGender(event.target.value)}>
+            <select aria-label="성별" value={gender} onChange={(event) => onGenderChange(event.target.value)}>
               <option value="">선택하지 않음</option>
               <option value="female">여성</option>
               <option value="male">남성</option>

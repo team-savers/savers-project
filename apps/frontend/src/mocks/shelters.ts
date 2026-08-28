@@ -6,16 +6,25 @@
 //   - two with hasStairs: true (must sink below for stairsOk:false).
 //   - a mix of bearing: Bearing and bearing: null (the latter happens when
 //     only the dongCode basis is known — no coordinate).
-//   - v0.9 (ADR-0016): `cautions` per shelter id, stable across every list
-//     below so the same shelter always carries the same caution regardless
-//     of which fixture it appears in:
+//   - v0.9 (ADR-0016): `cautions` per shelter id. `stairs` depends only on
+//     the facility (hasStairs) and the requester's stairsOk, not on
+//     `basis`, so it stays the same for a given shelter id across every
+//     fixture. `over_time` is different — ADR-0016 결정 5 permits it only
+//     when `basis: 'coordinate'`; a `dongCode`-basis origin is a
+//     placeholder (the ward's shelter centroid), so declaring a time
+//     overrun from it would assert a fact the fixture doesn't have. That
+//     makes the *coordinate*-basis pairing below the full one; the
+//     `dongCode`-basis fixtures drop `over_time` from the same shelter ids:
 //       sh01 (서원복지회관)     → []                    (no caution)
 //       sh02 (신림체육관)       → ['stairs']            (hasStairs:true)
-//       sh04 (난향초교)         → ['stairs','over_time'] (복합 케이스)
-//       sh05 (관악민원센터)     → ['over_time']         (가장 먼 거리)
+//       sh04 (난향초교)         → ['stairs','over_time'] on coordinate basis,
+//                                  ['stairs'] only on dongCode basis
+//       sh05 (관악민원센터)     → ['over_time'] on coordinate basis,
+//                                  [] on dongCode basis (가장 먼 거리)
 //       sh06 (관악노인복지센터) → []                    (no caution)
-//     Covers all 4 label-rendering cases the FE needs to render:
-//     none / stairs-only / over_time-only / both together.
+//     SHELTERS_COORDINATE_INSIDE is where the FE's over_time-label
+//     rendering (and the stairs+over_time combined case) actually gets
+//     exercised; the dongCode fixtures below only exercise none/stairs.
 //
 // ShelterList fixtures cover these branches:
 //   - hazardMatch:    inside / outside / unknown — one fixture each.
@@ -97,7 +106,10 @@ export const SHELTERS_DONG_INSIDE: ShelterList = {
       bearing: null,
       isUnderground: false,
       hasStairs: true,
-      cautions: ['stairs', 'over_time'],
+      // basis: 'dongCode' — ADR-0016 결정 5 forbids `over_time` here (the
+      // origin is a placeholder ward centroid, not a real coordinate).
+      // `stairs` is unaffected: it comes from hasStairs/stairsOk, not basis.
+      cautions: ['stairs'],
     },
     {
       id: 'sh05',
@@ -109,7 +121,10 @@ export const SHELTERS_DONG_INSIDE: ShelterList = {
       bearing: null,
       isUnderground: false,
       hasStairs: false,
-      cautions: ['over_time'],
+      // basis: 'dongCode' — same ADR-0016 rule; no over_time on an
+      // estimated origin. See SHELTERS_COORDINATE_INSIDE for this
+      // shelter's over_time-only case.
+      cautions: [],
     },
   ],
 }
