@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -33,9 +34,10 @@ def _send_followup(
     dispatcher: Dispatcher,
     public_base_url: str,
     body: str,
-) -> bool:
-    """Try the current guardian bucket; one accepted device makes the follow-up successful."""
-    accepted = False
+    clock: Callable[[], datetime],
+) -> datetime | None:
+    """Return the instant the first device accepts, or None when none does."""
+    accepted_at: datetime | None = None
     link = f"{public_base_url.rstrip('/')}/g/{record.guardian_token}"
     for device in devices:
         try:
@@ -50,8 +52,9 @@ def _send_followup(
         except Exception:
             logger.exception("guardian follow-up dispatch failed for session %s", record.token)
             continue
-        accepted = device_accepted or accepted
-    return accepted
+        if device_accepted and accepted_at is None:
+            accepted_at = clock()
+    return accepted_at
 
 
 def _unreachable_due(
@@ -59,10 +62,25 @@ def _unreachable_due(
     now: datetime,
     followup_after_s: int,
     reconcile_interval_s: int,
+    previous_observed_at: datetime | None = None,
 ) -> bool:
     """ADR-0012 7-a: re-observe on multiples of the unreachable event's interval."""
     elapsed_s = (now - at).total_seconds()
+    if previous_observed_at is not None:
+        previous_elapsed_s = max(0.0, (previous_observed_at - at).total_seconds())
+        return elapsed_s >= followup_after_s and int(elapsed_s // followup_after_s) > int(
+            previous_elapsed_s // followup_after_s
+        )
     return elapsed_s >= followup_after_s and elapsed_s % followup_after_s < reconcile_interval_s
+
+
+def _next_deadline(deadline: float, finished_at: float, interval_s: int) -> float:
+    """Advance on the original cadence grid, skipping deadlines already missed."""
+    next_deadline = deadline + interval_s
+    if next_deadline <= finished_at:
+        missed = int((finished_at - next_deadline) // interval_s) + 1
+        next_deadline += missed * interval_s
+    return next_deadline
 
 
 _RECONCILE_LOCK = threading.Lock()
@@ -92,6 +110,8 @@ def reconcile_once(
     reconcile_interval_s: int,
     public_base_url: str,
     now: datetime | None = None,
+    previous_observed_at: datetime | None = None,
+    clock: Callable[[], datetime] | None = None,
 ) -> ReconcileSummary:
     """Observe every session once and converge its closed-loop facts.
 
@@ -99,6 +119,7 @@ def reconcile_once(
     event log on every call, including after restart.
     """
     observed_at = now or datetime.now(UTC)
+    success_clock = clock or (lambda: observed_at if now is not None else datetime.now(UTC))
     processed = due = unreachable = notified = 0
     with _RECONCILE_LOCK:
         for record in sessions.records():
@@ -128,17 +149,20 @@ def reconcile_once(
                     observed_at,
                     followup_after_s,
                     reconcile_interval_s,
+                    previous_observed_at,
                 ):
                     continue
                 devices = residents.devices_for(resident, "guardian")
-                if devices and _send_followup(
+                accepted_at = devices and _send_followup(
                     record,
                     devices,
                     dispatcher,
                     public_base_url,
                     _followup_body(ai, events),
-                ):
-                    sessions.append_system_event(record, "guardian_notified", now=observed_at)
+                    success_clock,
+                )
+                if accepted_at:
+                    sessions.append_system_event(record, "guardian_notified", now=accepted_at)
                     notified += 1
                 continue
 
@@ -155,14 +179,16 @@ def reconcile_once(
             sessions.append_system_event(record, "followup_due", now=observed_at)
             due += 1
             followup_events = sessions.events_of(record)
-            if _send_followup(
+            accepted_at = _send_followup(
                 record,
                 devices,
                 dispatcher,
                 public_base_url,
                 _followup_body(ai, followup_events),
-            ):
-                sessions.append_system_event(record, "guardian_notified", now=observed_at)
+                success_clock,
+            )
+            if accepted_at:
+                sessions.append_system_event(record, "guardian_notified", now=accepted_at)
                 notified += 1
 
     return ReconcileSummary(
@@ -176,11 +202,20 @@ def reconcile_once(
 class ReconcileWorker:
     """One stoppable daemon around a shared one-tick callable."""
 
-    def __init__(self, tick: Callable[[], object], interval_s: int) -> None:
+    def __init__(
+        self,
+        tick: Callable[[datetime, datetime], object],
+        interval_s: int,
+        *,
+        monotonic: Callable[[], float] | None = None,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
         if interval_s <= 0:
             raise ValueError("reconcile interval must be positive")
         self._tick = tick
         self._interval_s = interval_s
+        self._monotonic = monotonic or time.monotonic
+        self._clock = clock or (lambda: datetime.now(UTC))
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
@@ -200,9 +235,14 @@ class ReconcileWorker:
             return True
 
     def run(self) -> None:
-        """Unit-testable loop: stop-aware wait avoids a shutdown-length sleep."""
-        while not self._stop.wait(self._interval_s):
-            self._tick()
+        """Run on a monotonic cadence and expose every elapsed observation window."""
+        previous_observed_at = self._clock()
+        deadline = self._monotonic() + self._interval_s
+        while not self._stop.wait(max(0.0, deadline - self._monotonic())):
+            observed_at = self._clock()
+            self._tick(previous_observed_at, observed_at)
+            previous_observed_at = observed_at
+            deadline = _next_deadline(deadline, self._monotonic(), self._interval_s)
 
     def stop(self) -> None:
         self._stop.set()

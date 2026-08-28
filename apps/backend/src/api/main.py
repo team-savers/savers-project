@@ -9,6 +9,7 @@ and the `generation` 태그 paths this app calls on apps/ai-engine (ADR-0006).
 
 from collections.abc import Callable
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -42,7 +43,7 @@ def _resolved(application: FastAPI, provider: Callable[[], Any]) -> Any:
 async def lifespan(application: FastAPI):
     config = _resolved(application, deps.settings)
     worker = ReconcileWorker(
-        lambda: reconcile_once(
+        lambda previous_observed_at, observed_at: reconcile_once(
             _resolved(application, deps.sessions),
             _resolved(application, deps.registry),
             _resolved(application, deps.dispatcher),
@@ -50,6 +51,9 @@ async def lifespan(application: FastAPI):
             followup_after_s=config.followup_after_s,
             reconcile_interval_s=config.reconcile_interval_s,
             public_base_url=config.public_base_url,
+            now=observed_at,
+            previous_observed_at=previous_observed_at,
+            clock=lambda: datetime.now(UTC),
         ),
         interval_s=config.reconcile_interval_s,
     )

@@ -9,7 +9,12 @@ import pytest
 from pydantic import ValidationError
 
 from backend_core.ai_client import AiEngineClient, AiEngineUnavailableError
-from backend_core.closed_loop import FOLLOWUP_BODY, ReconcileWorker, reconcile_once
+from backend_core.closed_loop import (
+    FOLLOWUP_BODY,
+    ReconcileWorker,
+    _next_deadline,
+    reconcile_once,
+)
 from backend_core.config import Settings
 from backend_core.dispatch import PushPayload, RecordingDispatcher
 from backend_core.events import SessionEvent, UserActionEventCreate
@@ -99,6 +104,10 @@ def _types(sessions: SessionStore, record: SessionRecord) -> list[str]:
     return [event.type for event in sessions.events_of(record)]
 
 
+def _event_at(sessions: SessionStore, record: SessionRecord, event_type: str) -> datetime:
+    return next(event.at for event in sessions.events_of(record) if event.type == event_type)
+
+
 def test_before_due_emits_and_sends_nothing(
     sessions: SessionStore,
     registry: ResidentRegistry,
@@ -135,6 +144,32 @@ def test_due_guardian_device_sends_and_converges_once(
     ]
     assert len(dispatcher.sent) == 1
     assert dispatcher.sent[0].link == f"{BASE_URL}/g/{record.guardian_token}"
+
+
+def test_normal_notification_records_actual_acceptance_time(
+    sessions: SessionStore,
+    registry: ResidentRegistry,
+    dispatcher: RecordingDispatcher,
+    event: DisasterEvent,
+) -> None:
+    record = _record(sessions, event)
+    observed_at = START + timedelta(seconds=AFTER_S)
+    accepted_at = observed_at + timedelta(seconds=5)
+
+    reconcile_once(
+        sessions,
+        registry,
+        dispatcher,
+        ai=GuardianAi(),
+        followup_after_s=AFTER_S,
+        reconcile_interval_s=5,
+        public_base_url=BASE_URL,
+        now=observed_at,
+        clock=lambda: accepted_at,
+    )
+
+    assert _event_at(sessions, record, "followup_due") == observed_at
+    assert _event_at(sessions, record, "guardian_notified") == accepted_at
 
 
 def test_verified_guardian_answer_is_the_followup_body(
@@ -345,6 +380,39 @@ def test_late_subscription_sends_without_followup_due(
     assert len(ai.calls) == 1
 
 
+def test_late_notification_records_actual_acceptance_time_after_delayed_observation(
+    sessions: SessionStore,
+    registry: ResidentRegistry,
+    dispatcher: RecordingDispatcher,
+    event: DisasterEvent,
+) -> None:
+    record = _record(sessions, event)
+    resident = registry.get(record.user_id)
+    assert resident is not None
+    resident.devices["guardian"].clear()
+    unreachable_at = START + timedelta(seconds=AFTER_S)
+    _tick(sessions, registry, dispatcher, now=unreachable_at)
+    registry.register_guardian_device_by_user(record.user_id, "late-device")
+    observed_at = unreachable_at + timedelta(seconds=AFTER_S + 8)
+    accepted_at = observed_at + timedelta(seconds=5)
+
+    summary = reconcile_once(
+        sessions,
+        registry,
+        dispatcher,
+        ai=GuardianAi(),
+        followup_after_s=AFTER_S,
+        reconcile_interval_s=5,
+        public_base_url=BASE_URL,
+        now=observed_at,
+        previous_observed_at=unreachable_at + timedelta(seconds=AFTER_S - 5),
+        clock=lambda: accepted_at,
+    )
+
+    assert summary.notified == 1
+    assert _event_at(sessions, record, "guardian_notified") == accepted_at
+
+
 class RejectingDispatcher:
     def __init__(self) -> None:
         self.sent: list[PushPayload] = []
@@ -469,6 +537,46 @@ def test_late_subscription_failure_retries_only_at_next_log_derived_anchor(
     assert len(dispatcher.sent) == 2
 
 
+def test_delayed_worker_observation_does_not_repeat_or_lose_retry_round(
+    sessions: SessionStore,
+    registry: ResidentRegistry,
+    event: DisasterEvent,
+) -> None:
+    record = _record(sessions, event)
+    resident = registry.get(record.user_id)
+    assert resident is not None
+    resident.devices["guardian"].clear()
+    unreachable_at = START + timedelta(seconds=AFTER_S)
+    _tick(sessions, registry, RecordingDispatcher(), now=unreachable_at)
+    registry.register_guardian_device_by_user(record.user_id, "late-device")
+    dispatcher = OutcomeDispatcher([False, True])
+
+    observations = (
+        (AFTER_S - 5, AFTER_S + 8),
+        (AFTER_S + 8, AFTER_S + 13),
+        (2 * AFTER_S - 5, 2 * AFTER_S + 8),
+    )
+    for previous_s, current_s in observations:
+        reconcile_once(
+            sessions,
+            registry,
+            dispatcher,
+            ai=GuardianAi(),
+            followup_after_s=AFTER_S,
+            reconcile_interval_s=5,
+            public_base_url=BASE_URL,
+            now=unreachable_at + timedelta(seconds=current_s),
+            previous_observed_at=unreachable_at + timedelta(seconds=previous_s),
+        )
+
+    assert len(dispatcher.sent) == 2
+    assert _types(sessions, record) == [
+        "alert_dispatched",
+        "followup_unreachable",
+        "guardian_notified",
+    ]
+
+
 def test_late_subscription_retry_schedule_survives_restart(
     tmp_path,
     registry: ResidentRegistry,
@@ -490,7 +598,11 @@ def test_late_subscription_retry_schedule_survives_restart(
     registry.register_guardian_device_by_user(record.user_id, "late-after-restart")
     dispatcher = OutcomeDispatcher([False, True])
 
-    for offset_s in (AFTER_S + 2, AFTER_S + 5, 2 * AFTER_S + 2):
+    for previous_s, offset_s in (
+        (AFTER_S - 5, AFTER_S + 8),
+        (AFTER_S + 8, AFTER_S + 13),
+        (2 * AFTER_S - 5, 2 * AFTER_S + 8),
+    ):
         reconcile_once(
             restored,
             registry,
@@ -500,6 +612,7 @@ def test_late_subscription_retry_schedule_survives_restart(
             reconcile_interval_s=5,
             public_base_url=BASE_URL,
             now=unreachable_at + timedelta(seconds=offset_s),
+            previous_observed_at=unreachable_at + timedelta(seconds=previous_s),
         )
 
     assert _types(restored, restored_record) == [
@@ -587,7 +700,7 @@ def test_records_returns_a_list_snapshot(
 
 
 def test_worker_rejects_duplicate_start_and_stops() -> None:
-    worker = ReconcileWorker(lambda: None, interval_s=60)
+    worker = ReconcileWorker(lambda _previous, _current: None, interval_s=60)
     try:
         assert worker.start() is True
         assert worker.start() is False
@@ -595,6 +708,14 @@ def test_worker_rejects_duplicate_start_and_stops() -> None:
     finally:
         worker.stop()
     assert worker.is_running is False
+
+
+@pytest.mark.parametrize(
+    ("finished_at", "expected"),
+    [(8.0, 10.0), (13.0, 15.0), (17.0, 20.0)],
+)
+def test_worker_deadline_stays_on_five_second_grid(finished_at: float, expected: float) -> None:
+    assert _next_deadline(5.0, finished_at, 5) == expected
 
 
 def test_non_positive_reconcile_settings_are_rejected() -> None:
