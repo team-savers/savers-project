@@ -46,6 +46,7 @@ async def lifespan(application: FastAPI):
             _resolved(application, deps.sessions),
             _resolved(application, deps.registry),
             _resolved(application, deps.dispatcher),
+            ai=_resolved(application, deps.ai_client),
             followup_after_s=config.followup_after_s,
             reconcile_interval_s=config.reconcile_interval_s,
             public_base_url=config.public_base_url,

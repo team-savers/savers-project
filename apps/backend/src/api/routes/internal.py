@@ -40,6 +40,7 @@ def reconcile_sessions(
     residents: Annotated[ResidentRegistry, Depends(registry)],
     store: Annotated[SessionStore, Depends(sessions)],
     push: Annotated[Dispatcher, Depends(dispatcher)],
+    ai: Annotated[AiEngineClient, Depends(ai_client)],
     config: Annotated[Settings, Depends(settings)],
 ) -> ReconcileSummary:
     """Run the same single observation used by the background worker."""
@@ -47,6 +48,7 @@ def reconcile_sessions(
         store,
         residents,
         push,
+        ai=ai,
         followup_after_s=config.followup_after_s,
         reconcile_interval_s=config.reconcile_interval_s,
         public_base_url=config.public_base_url,

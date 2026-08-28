@@ -2,22 +2,59 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from pydantic import ValidationError
 
-from backend_core.closed_loop import ReconcileWorker, reconcile_once
+from backend_core.ai_client import AiEngineClient, AiEngineUnavailableError
+from backend_core.closed_loop import FOLLOWUP_BODY, ReconcileWorker, reconcile_once
 from backend_core.config import Settings
 from backend_core.dispatch import PushPayload, RecordingDispatcher
-from backend_core.events import UserActionEventCreate
-from backend_core.models import AlertMessage, DisasterEvent
+from backend_core.events import SessionEvent, UserActionEventCreate
+from backend_core.models import (
+    AlertMessage,
+    DisasterEvent,
+    GuardianAnswer,
+    GuardianEvidence,
+    GuardianQuestionId,
+)
 from backend_core.registry import ResidentRegistry
 from backend_core.sessions import SessionRecord, SessionStore
 
 START = datetime(2026, 8, 28, 0, 0, tzinfo=UTC)
 AFTER_S = 1800
 BASE_URL = "https://savers.example"
+
+
+class GuardianAi(AiEngineClient):
+    def __init__(self, result: GuardianAnswer | Exception | None = None) -> None:
+        self.result = result or GuardianAnswer.no_evidence("evacuation_progress")
+        self.calls: list[tuple[str, list[SessionEvent]]] = []
+
+    def answer_guardian(
+        self, question_id: GuardianQuestionId, events: Sequence[SessionEvent]
+    ) -> GuardianAnswer:
+        self.calls.append((question_id, list(events)))
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
+
+
+def _generated_answer(body: str) -> GuardianAnswer:
+    return GuardianAnswer(
+        question_id="evacuation_progress",
+        answer=body,
+        sources=[
+            GuardianEvidence(
+                type="route_guidance_started",
+                present=True,
+                at="2026-08-28T00:01:00Z",
+            )
+        ],
+        refusal_reason=None,
+    )
 
 
 def _record(
@@ -44,11 +81,13 @@ def _tick(
     dispatcher: RecordingDispatcher,
     *,
     now: datetime,
+    ai: AiEngineClient | None = None,
 ):
     return reconcile_once(
         sessions,
         residents,
         dispatcher,
+        ai=ai or GuardianAi(),
         followup_after_s=AFTER_S,
         reconcile_interval_s=5,
         public_base_url=BASE_URL,
@@ -96,6 +135,81 @@ def test_due_guardian_device_sends_and_converges_once(
     ]
     assert len(dispatcher.sent) == 1
     assert dispatcher.sent[0].link == f"{BASE_URL}/g/{record.guardian_token}"
+
+
+def test_verified_guardian_answer_is_the_followup_body(
+    sessions: SessionStore,
+    registry: ResidentRegistry,
+    dispatcher: RecordingDispatcher,
+    event: DisasterEvent,
+) -> None:
+    body = "14시 05분에 경로 안내를 시작하셨습니다."
+    ai = GuardianAi(_generated_answer(body))
+    _record(sessions, event)
+
+    summary = _tick(
+        sessions,
+        registry,
+        dispatcher,
+        now=START + timedelta(seconds=AFTER_S),
+        ai=ai,
+    )
+
+    assert summary.due == summary.notified == 1
+    assert dispatcher.sent[0].body == body
+    assert len(ai.calls) == 1
+    assert ai.calls[0][0] == "evacuation_progress"
+    assert [logged.type for logged in ai.calls[0][1]] == [
+        "alert_dispatched",
+        "followup_due",
+    ]
+
+
+def test_no_evidence_uses_fixed_followup_fallback(
+    sessions: SessionStore,
+    registry: ResidentRegistry,
+    dispatcher: RecordingDispatcher,
+    event: DisasterEvent,
+) -> None:
+    ai = GuardianAi(GuardianAnswer.no_evidence("evacuation_progress"))
+    _record(sessions, event)
+
+    summary = _tick(
+        sessions,
+        registry,
+        dispatcher,
+        now=START + timedelta(seconds=AFTER_S),
+        ai=ai,
+    )
+
+    assert summary.due == summary.notified == 1
+    assert dispatcher.sent[0].body == FOLLOWUP_BODY
+
+
+def test_ai_unavailable_uses_fallback_and_does_not_stop_followup(
+    sessions: SessionStore,
+    registry: ResidentRegistry,
+    dispatcher: RecordingDispatcher,
+    event: DisasterEvent,
+) -> None:
+    ai = GuardianAi(AiEngineUnavailableError("offline"))
+    record = _record(sessions, event)
+
+    summary = _tick(
+        sessions,
+        registry,
+        dispatcher,
+        now=START + timedelta(seconds=AFTER_S),
+        ai=ai,
+    )
+
+    assert summary.due == summary.notified == 1
+    assert dispatcher.sent[0].body == FOLLOWUP_BODY
+    assert _types(sessions, record) == [
+        "alert_dispatched",
+        "followup_due",
+        "guardian_notified",
+    ]
 
 
 def test_push_acceptance_does_not_delay_initial_followup(
@@ -172,17 +286,19 @@ def test_missing_device_is_unreachable_once_then_waits_for_next_anchor(
     event: DisasterEvent,
 ) -> None:
     record = _record(sessions, event)
+    ai = GuardianAi(_generated_answer("호출되면 안 됩니다."))
     resident = registry.get(record.user_id)
     assert resident is not None
     resident.devices["guardian"].clear()
     due_at = START + timedelta(seconds=AFTER_S)
 
-    first = _tick(sessions, registry, dispatcher, now=due_at)
+    first = _tick(sessions, registry, dispatcher, now=due_at, ai=ai)
     second = _tick(sessions, registry, dispatcher, now=due_at + timedelta(seconds=AFTER_S - 1))
 
     assert first.unreachable == 1
     assert second.unreachable == 0
     assert _types(sessions, record) == ["alert_dispatched", "followup_unreachable"]
+    assert ai.calls == []
     assert dispatcher.sent == []
 
 
@@ -193,11 +309,13 @@ def test_late_subscription_sends_without_followup_due(
     event: DisasterEvent,
 ) -> None:
     record = _record(sessions, event)
+    body = "14시 05분에 경로 안내를 시작하셨습니다."
+    ai = GuardianAi(_generated_answer(body))
     resident = registry.get(record.user_id)
     assert resident is not None
     resident.devices["guardian"].clear()
     unreachable_at = START + timedelta(seconds=AFTER_S)
-    _tick(sessions, registry, dispatcher, now=unreachable_at)
+    _tick(sessions, registry, dispatcher, now=unreachable_at, ai=ai)
     registry.register_guardian_device_by_user(record.user_id, "late-device")
 
     early = _tick(
@@ -205,12 +323,14 @@ def test_late_subscription_sends_without_followup_due(
         registry,
         dispatcher,
         now=unreachable_at + timedelta(seconds=AFTER_S - 1),
+        ai=ai,
     )
     sent = _tick(
         sessions,
         registry,
         dispatcher,
         now=unreachable_at + timedelta(seconds=AFTER_S),
+        ai=ai,
     )
 
     assert early.notified == 0
@@ -221,6 +341,8 @@ def test_late_subscription_sends_without_followup_due(
         "guardian_notified",
     ]
     assert [payload.device_token for payload in dispatcher.sent] == ["late-device"]
+    assert dispatcher.sent[0].body == body
+    assert len(ai.calls) == 1
 
 
 class RejectingDispatcher:
@@ -262,6 +384,7 @@ def test_normal_dispatch_failure_is_not_retried(
         sessions,
         registry,
         rejecting,
+        ai=GuardianAi(),
         followup_after_s=AFTER_S,
         reconcile_interval_s=5,
         public_base_url=BASE_URL,
@@ -271,6 +394,7 @@ def test_normal_dispatch_failure_is_not_retried(
         sessions,
         registry,
         rejecting,
+        ai=GuardianAi(),
         followup_after_s=AFTER_S,
         reconcile_interval_s=5,
         public_base_url=BASE_URL,
@@ -299,6 +423,7 @@ def test_late_subscription_failure_retries_only_at_next_log_derived_anchor(
         sessions,
         registry,
         dispatcher,
+        ai=GuardianAi(),
         followup_after_s=AFTER_S,
         reconcile_interval_s=5,
         public_base_url=BASE_URL,
@@ -308,6 +433,7 @@ def test_late_subscription_failure_retries_only_at_next_log_derived_anchor(
         sessions,
         registry,
         dispatcher,
+        ai=GuardianAi(),
         followup_after_s=AFTER_S,
         reconcile_interval_s=5,
         public_base_url=BASE_URL,
@@ -317,6 +443,7 @@ def test_late_subscription_failure_retries_only_at_next_log_derived_anchor(
         sessions,
         registry,
         dispatcher,
+        ai=GuardianAi(),
         followup_after_s=AFTER_S,
         reconcile_interval_s=5,
         public_base_url=BASE_URL,
@@ -327,6 +454,7 @@ def test_late_subscription_failure_retries_only_at_next_log_derived_anchor(
         sessions,
         registry,
         dispatcher,
+        ai=GuardianAi(),
         followup_after_s=AFTER_S,
         reconcile_interval_s=5,
         public_base_url=BASE_URL,
@@ -367,6 +495,7 @@ def test_late_subscription_retry_schedule_survives_restart(
             restored,
             registry,
             dispatcher,
+            ai=GuardianAi(),
             followup_after_s=AFTER_S,
             reconcile_interval_s=5,
             public_base_url=BASE_URL,

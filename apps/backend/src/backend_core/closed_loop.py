@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
+from backend_core.ai_client import AiEngineClient, AiEngineUnavailableError
 from backend_core.dispatch import Dispatcher, PushPayload
 from backend_core.events import SessionEvent
 from backend_core.registry import ResidentRegistry
@@ -31,6 +32,7 @@ def _send_followup(
     devices: list[str],
     dispatcher: Dispatcher,
     public_base_url: str,
+    body: str,
 ) -> bool:
     """Try the current guardian bucket; one accepted device makes the follow-up successful."""
     accepted = False
@@ -41,7 +43,7 @@ def _send_followup(
                 PushPayload(
                     device_token=device,
                     title=FOLLOWUP_TITLE,
-                    body=FOLLOWUP_BODY,
+                    body=body,
                     link=link,
                 )
             )
@@ -71,11 +73,21 @@ def _latest_timer_activity(events: list[SessionEvent]) -> SessionEvent | None:
     return next((event for event in reversed(events) if event.type != "push_accepted"), None)
 
 
+def _followup_body(ai: AiEngineClient, events: list[SessionEvent]) -> str:
+    """Use the AI engine's verified answer, falling back without retry on refusal or outage."""
+    try:
+        answer = ai.answer_guardian("evacuation_progress", events)
+    except AiEngineUnavailableError:
+        return FOLLOWUP_BODY
+    return answer.answer or FOLLOWUP_BODY
+
+
 def reconcile_once(
     sessions: SessionStore,
     residents: ResidentRegistry,
     dispatcher: Dispatcher,
     *,
+    ai: AiEngineClient,
     followup_after_s: int,
     reconcile_interval_s: int,
     public_base_url: str,
@@ -119,7 +131,13 @@ def reconcile_once(
                 ):
                     continue
                 devices = residents.devices_for(resident, "guardian")
-                if devices and _send_followup(record, devices, dispatcher, public_base_url):
+                if devices and _send_followup(
+                    record,
+                    devices,
+                    dispatcher,
+                    public_base_url,
+                    _followup_body(ai, events),
+                ):
                     sessions.append_system_event(record, "guardian_notified", now=observed_at)
                     notified += 1
                 continue
@@ -136,7 +154,14 @@ def reconcile_once(
 
             sessions.append_system_event(record, "followup_due", now=observed_at)
             due += 1
-            if _send_followup(record, devices, dispatcher, public_base_url):
+            followup_events = sessions.events_of(record)
+            if _send_followup(
+                record,
+                devices,
+                dispatcher,
+                public_base_url,
+                _followup_body(ai, followup_events),
+            ):
                 sessions.append_system_event(record, "guardian_notified", now=observed_at)
                 notified += 1
 
