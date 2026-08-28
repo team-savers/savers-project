@@ -123,9 +123,17 @@ class ResidentRegistry:
         The guardian device route authenticates with a guardian *session* token, which resolves
         to a `user_id` — the registrar-held registration token never reaches it. Registration
         still lands on the persistent Resident, so it outlives the session token that carried it
-        and feeds the next alert's 2차 발송(계약 `/v1/guardian/{token}/device`). Idempotent on
-        the guardian bucket; raises `GuardianNotRegisteredError` when the ward has no guardian at
-        all, since a guardian device would then reach nobody(ADR-0015 결정 3).
+        and feeds the next alert's 2차 발송(계약 `/v1/guardian/{token}/device`). Raises
+        `GuardianNotRegisteredError` when the ward has no guardian at all, since a guardian device
+        would then reach nobody(ADR-0015 결정 3).
+
+        Replace, not append: the guardian bucket is overwritten with just this token (이슈 #151,
+        PR #154 결정 D). A guardian is singular per ward (`Profile.guardian`), so re-registering
+        rotates the one device instead of stacking a second entry. This drops any stale token —
+        the seed's fictional `fcm_demo_guardian_p001`, or a token orphaned by a phone swap or
+        cleared browser — on the first update, which is exactly the case the DELETE cleanup path
+        could not reach (the value to delete lived only in the vanished browser). No stacking
+        means no cleanup step, so M4(폐루프 2차 발송) never fires at a dead token.
         """
         resident = self.get(user_id)
         if resident is None:
@@ -133,10 +141,10 @@ class ResidentRegistry:
         if resident.profile.guardian is None:
             raise GuardianNotRegisteredError(user_id)
         # 직접 인덱싱한다 — `devices_for`는 `.get(role, [])`로 새 리스트를 돌려줄 수 있어
-        # 거기에 append하면 등록이 사라진다. `_empty_devices`가 guardian 버킷을 항상 만든다.
-        bucket = resident.devices["guardian"]
-        if fcm_token not in bucket:
-            bucket.append(fcm_token)
+        # 거기에 쓰면 등록이 사라진다. `_empty_devices`가 guardian 버킷을 항상 만든다.
+        # 리스트 객체는 유지하고 내용만 교체한다([:] 슬라이스) — 이 버킷을 참조 중인 발송
+        # 경로가 새 리스트로 갈아끼우는 것을 못 볼 수 있어서다.
+        resident.devices["guardian"][:] = [fcm_token]
         return resident
 
     def unregister_guardian_device_by_user(self, user_id: str, fcm_token: str) -> Resident:

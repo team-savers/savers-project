@@ -388,6 +388,28 @@ def test_over_time_speed_boundary_between_ok_and_assisted() -> None:
     assert fast.items[0].cautions == []
 
 
+def test_over_time_skipped_for_unknown_mobility() -> None:
+    """속도표에 없는 이동능력은 좌표 경로에서 500이 아니라 over_time 미부착으로 통과한다.
+
+    `wheelchair`는 `WALK_SPEED_MPS`에 없다. 예전 `self._walk_speed_mps[mobility]`였다면
+    KeyError→500이지만, `.get()`이 None을 줘 over_time을 붙이지 않는다. 한계를 1초로 낮춰
+    유효 속도였다면 반드시 초과했을 자리를 만들어, 미부착이 판정 생략임을 확인한다
+    (ADR-0016 결정 5: 근거 없이 사실을 지어내지 않는다).
+    """
+    record = _record(id="edge", lat=POINT_500M[0], lng=POINT_500M[1])
+    result = _repo([record], evac_time_limit_s=1).search(  # 어떤 거리든 초과할 낮은 한계
+        dong_code=DONG,
+        disaster_type="flood",
+        hazard="inside",
+        stairs_ok=True,
+        mobility="wheelchair",  # type: ignore[arg-type]  # 계약 밖 값으로 런타임 방어 검증
+        lat=ORIGIN[0],
+        lng=ORIGIN[1],
+    )
+    assert result.basis == "coordinate"  # 좌표 경로에 실제로 들어갔음을 확인
+    assert result.items[0].cautions == []
+
+
 def test_stairs_and_over_time_compose() -> None:
     """계단 불가 + 좌표 기준 시간 초과 → 두 주의가 함께 붙는다."""
     repository = _repo([_record(id="both", has_stairs=True, lat=POINT_500M[0], lng=POINT_500M[1])])
