@@ -5,9 +5,8 @@ can substitute them via `app.dependency_overrides` — including the AI engine, 
 never be called for real from a test (external calls cost money and make CI
 non-deterministic).
 
-P1 state is process-local and in-memory: residents come from the demo seed, sessions live
-in a dict, and pushes are recorded rather than sent. Each of those is a documented seam,
-not an accident — see the module each provider returns.
+Residents come from the demo seed, sessions use SQLite-backed storage, and pushes are
+recorded rather than sent. See the module each provider returns for that seam.
 """
 
 from functools import lru_cache
@@ -37,8 +36,11 @@ def registry() -> ResidentRegistry:
 
 @lru_cache(maxsize=1)
 def sessions() -> SessionStore:
-    """⚠️ Process-local: a restart invalidates every live alert link."""
-    return SessionStore(ttl_s=settings().session_ttl_s)
+    """Return the process-local store backed by the configured SQLite database."""
+    return SessionStore(
+        ttl_s=settings().session_ttl_s,
+        db_path=settings().session_db_path,
+    )
 
 
 @lru_cache(maxsize=1)

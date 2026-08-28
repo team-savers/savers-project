@@ -1,8 +1,12 @@
 # ADR-0014: 폐루프 2차 발송도 웹푸시(FCM)로 하고 SMS는 채택하지 않는다
 
 - **상태**: 승인 (Accepted) - 2026-08-25 안은남 (PM), 김도혁 (Backend) 확인 완료. [PR #119](https://github.com/team-savers/savers-project/pull/119) 리뷰에 두 확인이 다 남아 있다
+- **정정**: 2026-08-27, 승인 뒤의 수정이므로
+  [ADR-0005](0005-webpush-primary-channel.md) 사후편집 예외 (2)를 따랐다.
+  결정 1번의 1차 수신자 서술만 무효로 하고 원문은 지우지 않았다 - 아래 결정 절 정정 블록.
+  채널 결정과 SMS 미채택, 2차 수신자는 바뀌지 않는다
 - **번호**: 초안은 ADR-0012로 썼으나 [ADR-0012](0012-verifier-rules-and-closed-loop.md)(검증기 대조 규칙, 폐루프 상태, PR #106)가 먼저 머지됐고 0013은 [PR #110](https://github.com/team-savers/savers-project/pull/110)이 쓰고 있어 0014로 잡는다. [ADR-0011](0011-m3-no-storage-not-no-receipt.md)에서 같은 충돌이 한 번 났다
-- **날짜**: 2026-08-24 (작성) / 2026-08-25 (승인)
+- **날짜**: 2026-08-24 (작성) / 2026-08-25 (승인) / 2026-08-27 (정정 - 위 정정 항목)
 - **결정자**: 신호정 (Tech Lead) 작성 / 안은남 (PM), 김도혁 (Backend) 확인
 - **관련 문서**: [ADR-0005](0005-webpush-primary-channel.md) (1차 채널), [ADR-0012](0012-verifier-rules-and-closed-loop.md) 5절, 7절 (폐루프 상태와 M4 분모, 분자), [ADR-0013](0013-m1-measures-push-acceptance.md) (M1은 발송 접수까지, 승인 - 2026-08-26), [ADR-0015](0015-guardian-device-registration.md) (제안, 보호자 기기 등록과 `role` 구분), `packages/contracts/openapi.yaml` (`FollowupDueEvent`, `GuardianNotifiedEvent`, `DeviceRegisterRequest.role`), [서비스_기획서.md](../공유_문서/서비스_기획서.md) 정정 항목 표 4번, [정량목표_검증설계.md](../공유_문서/정량목표_검증설계.md) M4, [역할_일정/04-백엔드.md](../역할_일정/04-백엔드.md) 8/25
 
@@ -37,6 +41,27 @@ ADR-0005 본문에는 2차 발송도 SMS 미채택도 없다. 인용이 문서�
 ## 결정 (Decision)
 
 1. **폐루프 2차 발송은 1차와 같은 웹푸시(FCM) 경로로 보낸다.** 2차 전용 채널을 두지 않는다. 채널이 하나라는 것은 **받는 사람이 같다는 뜻이 아니다** - 1차는 피보호자 기기로, 2차는 보호자 기기로 간다. 그 구분은 채널이 아니라 계약의 역할 값이 한다 - `DeviceRegisterRequest.role`의 `ward`와 `guardian`이고, 2차 발송은 `role: guardian` 기기로만 나간다([ADR-0015](0015-guardian-device-registration.md)(제안)와 계약이 PR #122로 병합됐다).
+   > **정정 (2026-08-27).** 위 "1차는 피보호자 기기로, 2차는 보호자 기기로 간다" 중
+   > **1차 쪽은 더 이상 유효하지 않다.**
+   > [ADR-0015](0015-guardian-device-registration.md) 결정 2번이 2026-08-27 개정으로
+   > 1차 재난 알림을 `ward`와 `guardian` 양쪽으로 넓혔다.
+   > 피보호자가 30분 안에 정상적으로 대피를 마친 성공 경로에서 보호자에게 아무 알림도 가지 않아,
+   > 보호자 연계가 실패 경로에서만 발화하던 구조를 고친 것이다.
+   >
+   > **이 문서의 결정은 바뀌지 않는다.**
+   > 채널은 여전히 웹푸시(FCM) 하나이고,
+   > SMS 미채택도 그대로이며, 2차 발송이 `role: guardian` 기기로만 나가는 것도 그대로다.
+   > 바뀐 것은 1차의 수신자 범위 하나이고, 그 결정의 소관은 ADR-0015다.
+   > 같은 재난에 두 사람이 받는 문안도 여전히 다르다 - `ward`는 행동 지시를,
+   > `guardian`은 재난 1건당 1회의 정보성 통지를 받는다.
+   >
+   > **M4는 영향받지 않는다.**
+   > 1차 보호자 통지는 계약 v0.10이 신설한 `guardian_informed`로 남고,
+   > M4 분자의 예약어인 `guardian_notified`와 별개다. 아래 결정 3번은 그대로 유효하다.
+   >
+   > 원문은 결정 시점(2026-08-24)의 판단을 남기기 위해 지우지 않는다
+   > ([ADR-0005](0005-webpush-primary-channel.md) 사후편집 예외 (2)).
+
 2. **SMS는 1차, 2차 모두 채택하지 않는다.** 본선 구현 범위에 SMS 발송 코드, 대행사 계약, 발신번호 등록은 없다.
 3. **M4(폐루프 2차 발송 성공률)는 그 경로의 `guardian_notified` 이벤트로만 측정한다.** 분모와 분자의 정의는 [ADR-0012](0012-verifier-rules-and-closed-loop.md) 7절을 따르고 이 문서가 바꾸지 않는다. 채점 함수는 이미 `apps/ai-engine/eval/metrics.py`의 `followup_delivery_rate`로 들어와 있다(PR #106).
 4. **대외 설명은 "웹푸시 알림 링크"로 통일한다.** "문자", "문자 속 링크"라고 말하지 않는다.
@@ -76,3 +101,6 @@ ADR-0005 본문에는 2차 발송도 SMS 미채택도 없다. 인용이 문서�
 | [정량목표_검증설계.md](../공유_문서/정량목표_검증설계.md) M4 행에 발송 채널 명시 | PM | 완료 ([PR 127](https://github.com/team-savers/savers-project/pull/127)) |
 | [ADR-0012](0012-verifier-rules-and-closed-loop.md) 5절 전이표 5단계 "전달" 행에 채널 주석을 달지 판단. ADR-0012 가 2026-08-26 승인됐으므로 수정하려면 개정 절차를 따른다 | Tech Lead | 대기 |
 | 결정자 확인 후 상태를 승인으로 변경 | Tech Lead | 완료, 이 PR |
+| 결정 1번의 1차 수신자 서술 정정 ([ADR-0005](0005-webpush-primary-channel.md) 사후편집 예외 (2)). [ADR-0015](0015-guardian-device-registration.md) 결정 2번 2026-08-27 개정에 따른 것이고 채널 결정은 불변이다 | Tech Lead | 완료 ([PR 177](https://github.com/team-savers/savers-project/pull/177)) |
+| [워킹_스켈레톤_설명.md](../공통_가이드/워킹_스켈레톤_설명.md) 3절 엔드포인트 표의 `POST /v1/devices` 행에 같은 정정 반영. 서버가 아직 `ward` 에게만 보낸다는 사실도 함께 적었다 | Tech Lead | 완료 ([PR 177](https://github.com/team-savers/savers-project/pull/177)) |
+| `packages/contracts/openapi.yaml` 의 `device` 태그 설명과 `POST /v1/devices` 설명 두 곳. v0.10 이 계약을 넓혔는데 산문이 v0.7 서술로 남아 있었다. v0.7 변경 이력 블록은 그 시점 기록이므로 고치지 않는다 | Tech Lead | 완료 ([PR 177](https://github.com/team-savers/savers-project/pull/177)) |

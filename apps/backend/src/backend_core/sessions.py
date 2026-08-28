@@ -9,16 +9,20 @@ delete it before the user could press [집이에요]. Leak containment is the TT
 shelter search uses it in-request, and it is gone. `SessionRecord` has no field for it and
 should not grow one — see test_no_location_is_persisted.
 
-⚠️ P1 storage is in-memory, so sessions die with the process. A restart mid-alert drops
-live links; the replacement (Redis/DB) is Backend's S1-2 work.
+Session records and events are persisted in SQLite and restored across process restarts.
 """
 
 from __future__ import annotations
 
+import json
+import os
+import re
 import secrets
+import sqlite3
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from backend_core.events import (
     EXCLUSIVE_SYSTEM_EVENT,
@@ -88,19 +92,212 @@ class SessionRecord:
 
 
 class SessionStore:
-    """In-memory session store addressed by session token and by guardian token."""
+    """SQLite-backed session store with process-local object indexes.
 
-    def __init__(self, ttl_s: int) -> None:
+    The indexes preserve the existing object-reference API; SQLite is the durable source
+    reloaded when a new store opens the same path. ``:memory:`` remains the constructor
+    default so existing isolated tests and callers keep their old behaviour.
+    """
+
+    def __init__(self, ttl_s: int, db_path: str | Path = ":memory:") -> None:
         self._ttl = timedelta(seconds=ttl_s)
         self._by_token: dict[str, SessionRecord] = {}
         self._by_guardian_token: dict[str, SessionRecord] = {}
+        self._event_ids: dict[int, int] = {}
         # FastAPI runs sync routes on a threadpool, so two near-simultaneous requests can
         # interleave between a "does it exist?" check and its write. Every store mutation
         # below (index insert, first-write-wins dedup, the two-field response update) and the
         # event-log snapshot read run under this one lock;
-        # the in-memory ops are microseconds, so contention is negligible. The SQLite stage
-        # replaces this with DB UNIQUE(token, idem_key) constraints (설계 문서 2단계).
+        # operations are short, so contention is negligible. SQLite constraints remain the
+        # final defence for uniqueness and mutually exclusive event facts.
         self._lock = threading.Lock()
+        connection_path = str(db_path)
+        if connection_path != ":memory:":
+            file_path = Path(db_path).expanduser()
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            connection_path = str(file_path)
+        self._connection = sqlite3.connect(
+            connection_path,
+            check_same_thread=False,
+        )
+        if connection_path != ":memory:" and os.name == "posix":
+            Path(connection_path).chmod(0o600)
+        self._connection.row_factory = sqlite3.Row
+        self._connection.execute("PRAGMA foreign_keys = ON")
+        self._connection.execute("PRAGMA busy_timeout = 5000")
+        self._connection.execute("PRAGMA journal_mode = WAL")
+        self._create_schema()
+        self._load()
+
+    def _create_schema(self) -> None:
+        schema = """
+            CREATE TABLE IF NOT EXISTS sessions (
+                token TEXT PRIMARY KEY,
+                guardian_token TEXT NOT NULL UNIQUE,
+                user_id TEXT NOT NULL,
+                stage INTEGER NOT NULL CHECK (stage IN (1, 2, 3)),
+                message_json TEXT NOT NULL,
+                event_json TEXT NOT NULL,
+                issued_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                opened_at TEXT,
+                responded_at TEXT,
+                last_response TEXT CHECK (last_response IN ('home', 'outside')),
+                acknowledged_by_guardian INTEGER NOT NULL DEFAULT 0
+                    CHECK (acknowledged_by_guardian IN (0, 1))
+            );
+
+            CREATE TABLE IF NOT EXISTS session_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_token TEXT NOT NULL REFERENCES sessions(token) ON DELETE CASCADE,
+                event_type TEXT NOT NULL,
+                at TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                UNIQUE (session_token, id)
+            );
+
+            CREATE TABLE IF NOT EXISTS session_idempotency (
+                session_token TEXT NOT NULL REFERENCES sessions(token) ON DELETE CASCADE,
+                idempotency_key TEXT NOT NULL,
+                event_id INTEGER NOT NULL,
+                PRIMARY KEY (session_token, idempotency_key),
+                FOREIGN KEY (session_token, event_id)
+                    REFERENCES session_events(session_token, id) ON DELETE CASCADE
+            );
+
+            CREATE TRIGGER IF NOT EXISTS prevent_exclusive_followup_insert
+            BEFORE INSERT ON session_events
+            WHEN NEW.event_type IN ('followup_due', 'followup_unreachable')
+              AND EXISTS (
+                SELECT 1 FROM session_events
+                WHERE session_token = NEW.session_token
+                  AND event_type = CASE NEW.event_type
+                    WHEN 'followup_due' THEN 'followup_unreachable'
+                    ELSE 'followup_due'
+                  END
+              )
+            BEGIN
+                SELECT RAISE(ABORT, 'exclusive followup event already exists');
+            END;
+            """
+        self._connection.executescript(schema)
+        self._ensure_once_per_session_index()
+
+    @staticmethod
+    def _once_index_types(sql: str | None) -> set[str] | None:
+        if sql is None:
+            return None
+        match = re.search(
+            r"WHERE\s+event_type\s+IN\s*\((.*?)\)",
+            sql,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if match is None:
+            return None
+        return set(re.findall(r"'([^']+)'", match.group(1)))
+
+    def _ensure_once_per_session_index(self) -> None:
+        row = self._connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?",
+            ("ux_once_per_session",),
+        ).fetchone()
+        current_sql = None if row is None else row[0]
+        if self._once_index_types(current_sql) == set(ONCE_PER_SESSION):
+            return
+
+        once_types = ", ".join(f"'{event_type}'" for event_type in sorted(ONCE_PER_SESSION))
+        index_sql = """
+            CREATE UNIQUE INDEX ux_once_per_session
+                ON session_events(session_token, event_type)
+                WHERE event_type IN (__ONCE_TYPES__)
+            """.replace("__ONCE_TYPES__", once_types)
+        self._connection.execute("BEGIN IMMEDIATE")
+        try:
+            if row is not None:
+                self._connection.execute("DROP INDEX ux_once_per_session")
+            self._connection.execute(index_sql)
+        except BaseException:
+            self._connection.rollback()
+            raise
+        else:
+            self._connection.commit()
+
+    @staticmethod
+    def _dump_datetime(value: datetime | None) -> str | None:
+        if value is None:
+            return None
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+    @staticmethod
+    def _load_datetime(value: str | None) -> datetime | None:
+        if value is None:
+            return None
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+    def _load(self) -> None:
+        events_by_session: dict[str, list[tuple[int, SessionEvent]]] = {}
+        events_by_id: dict[int, SessionEvent] = {}
+        for row in self._connection.execute(
+            "SELECT id, session_token, event_type, at, payload_json FROM session_events ORDER BY id"
+        ):
+            stored = SessionEvent.model_validate(
+                {
+                    "type": row["event_type"],
+                    "at": row["at"],
+                    "payload": json.loads(row["payload_json"]),
+                }
+            )
+            event_id = int(row["id"])
+            events_by_session.setdefault(row["session_token"], []).append((event_id, stored))
+            events_by_id[event_id] = stored
+
+        for row in self._connection.execute("SELECT * FROM sessions ORDER BY rowid"):
+            issued_at = self._load_datetime(row["issued_at"])
+            expires_at = self._load_datetime(row["expires_at"])
+            if issued_at is None or expires_at is None:  # DB NOT NULL; defensive for corruption
+                raise ValueError("stored session timestamps must not be null")
+            record = SessionRecord(
+                token=row["token"],
+                guardian_token=row["guardian_token"],
+                user_id=row["user_id"],
+                stage=row["stage"],
+                message=AlertMessage.model_validate_json(row["message_json"]),
+                event=DisasterEvent.model_validate_json(row["event_json"]),
+                issued_at=issued_at,
+                expires_at=expires_at,
+                opened_at=self._load_datetime(row["opened_at"]),
+                responded_at=self._load_datetime(row["responded_at"]),
+                last_response=row["last_response"],
+                acknowledged_by_guardian=bool(row["acknowledged_by_guardian"]),
+            )
+            for event_id, stored in events_by_session.get(record.token, []):
+                record.events.append(stored)
+                self._event_ids[id(stored)] = event_id
+            self._by_token[record.token] = record
+            self._by_guardian_token[record.guardian_token] = record
+
+        for row in self._connection.execute(
+            "SELECT session_token, idempotency_key, event_id FROM session_idempotency"
+        ):
+            record = self._by_token[row["session_token"]]
+            record.idempotency[row["idempotency_key"]] = events_by_id[int(row["event_id"])]
+
+    def _insert_event(self, record: SessionRecord, event: SessionEvent) -> int:
+        cursor = self._connection.execute(
+            """
+            INSERT INTO session_events(session_token, event_type, at, payload_json)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                record.token,
+                event.type,
+                self._dump_datetime(event.at),
+                json.dumps(event.model_dump(mode="json", by_alias=True)["payload"]),
+            ),
+        )
+        if cursor.lastrowid is None:  # SQLite INSERT always supplies it; defensive for drivers.
+            raise RuntimeError("SQLite did not return an event id")
+        return cursor.lastrowid
 
     def create(
         self,
@@ -130,6 +327,26 @@ class SessionStore:
         # tokens carry 256 bits of entropy (TOKEN_BYTES), so regeneration would be an
         # untestable branch guarding an unreachable state.
         with self._lock:
+            with self._connection:
+                self._connection.execute(
+                    """
+                    INSERT INTO sessions(
+                        token, guardian_token, user_id, stage, message_json, event_json,
+                        issued_at, expires_at, opened_at, responded_at, last_response,
+                        acknowledged_by_guardian
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 0)
+                    """,
+                    (
+                        record.token,
+                        record.guardian_token,
+                        record.user_id,
+                        record.stage,
+                        record.message.model_dump_json(by_alias=True),
+                        record.event.model_dump_json(by_alias=True),
+                        self._dump_datetime(record.issued_at),
+                        self._dump_datetime(record.expires_at),
+                    ),
+                )
             self._by_token[record.token] = record
             self._by_guardian_token[record.guardian_token] = record
         return record
@@ -160,7 +377,13 @@ class SessionStore:
         # Same check-then-act shape as the event dedup above, so it takes the same lock.
         with self._lock:
             if record.opened_at is None:
-                record.opened_at = now or _now()
+                opened_at = now or _now()
+                with self._connection:
+                    self._connection.execute(
+                        "UPDATE sessions SET opened_at = ? WHERE token = ? AND opened_at IS NULL",
+                        (self._dump_datetime(opened_at), record.token),
+                    )
+                record.opened_at = opened_at
 
     def record_response(
         self, record: SessionRecord, choice: ResponseChoice, *, now: datetime | None = None
@@ -177,8 +400,24 @@ class SessionStore:
         # request — without the lock, concurrent answers could pair one request's choice
         # with the other's timestamp, breaking the "move together" contract above.
         with self._lock:
+            responded_at = now or _now()
+            with self._connection:
+                self._connection.execute(
+                    "UPDATE sessions SET last_response = ?, responded_at = ? WHERE token = ?",
+                    (choice, self._dump_datetime(responded_at), record.token),
+                )
             record.last_response = choice
-            record.responded_at = now or _now()
+            record.responded_at = responded_at
+
+    def acknowledge_guardian(self, record: SessionRecord) -> None:
+        """Persist the guardian acknowledgement flag without changing existing APIs."""
+        with self._lock:
+            with self._connection:
+                self._connection.execute(
+                    "UPDATE sessions SET acknowledged_by_guardian = 1 WHERE token = ?",
+                    (record.token,),
+                )
+            record.acknowledged_by_guardian = True
 
     def append_user_event(
         self,
@@ -209,11 +448,30 @@ class SessionStore:
             if create.type in ONCE_PER_SESSION:
                 for event in record.events:
                     if event.type == create.type:
+                        with self._connection:
+                            self._connection.execute(
+                                """
+                                INSERT INTO session_idempotency(
+                                    session_token, idempotency_key, event_id
+                                ) VALUES (?, ?, ?)
+                                """,
+                                (record.token, key, self._event_ids[id(event)]),
+                            )
                         record.idempotency[key] = event
                         return event
 
             event = SessionEvent(type=create.type, at=now or _now(), payload=create.payload)
+            with self._connection:
+                event_id = self._insert_event(record, event)
+                self._connection.execute(
+                    """
+                    INSERT INTO session_idempotency(session_token, idempotency_key, event_id)
+                    VALUES (?, ?, ?)
+                    """,
+                    (record.token, key, event_id),
+                )
             record.events.append(event)
+            self._event_ids[id(event)] = event_id
             record.idempotency[key] = event
             return event
 
@@ -237,7 +495,10 @@ class SessionStore:
                 if event.type == exclusive:
                     raise ExclusiveSystemEventError(type, exclusive)
             event = SessionEvent(type=type, at=now or _now(), payload={})
+            with self._connection:
+                event_id = self._insert_event(record, event)
             record.events.append(event)
+            self._event_ids[id(event)] = event_id
             return event
 
     def events_of(self, record: SessionRecord) -> list[SessionEvent]:
