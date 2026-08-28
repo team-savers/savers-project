@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from backend_core.dispatch import Dispatcher, PushPayload
+from backend_core.events import SessionEvent
 from backend_core.registry import ResidentRegistry
 from backend_core.sessions import SessionRecord, SessionStore
 
@@ -65,6 +66,11 @@ def _unreachable_due(
 _RECONCILE_LOCK = threading.Lock()
 
 
+def _latest_timer_activity(events: list[SessionEvent]) -> SessionEvent | None:
+    """Latest activity that resets the closed-loop timer; push acceptance is M1 only."""
+    return next((event for event in reversed(events) if event.type != "push_accepted"), None)
+
+
 def reconcile_once(
     sessions: SessionStore,
     residents: ResidentRegistry,
@@ -118,7 +124,7 @@ def reconcile_once(
                     notified += 1
                 continue
 
-            anchor = events[-1] if events else None
+            anchor = _latest_timer_activity(events)
             if anchor is None or observed_at < anchor.at + timedelta(seconds=followup_after_s):
                 continue
 

@@ -98,6 +98,73 @@ def test_due_guardian_device_sends_and_converges_once(
     assert dispatcher.sent[0].link == f"{BASE_URL}/g/{record.guardian_token}"
 
 
+def test_push_acceptance_does_not_delay_initial_followup(
+    sessions: SessionStore,
+    registry: ResidentRegistry,
+    dispatcher: RecordingDispatcher,
+    event: DisasterEvent,
+) -> None:
+    record = _record(sessions, event)
+    sessions.append_system_event(record, "push_accepted", now=START + timedelta(seconds=10))
+
+    early = _tick(sessions, registry, dispatcher, now=START + timedelta(seconds=AFTER_S - 1))
+    due = _tick(sessions, registry, dispatcher, now=START + timedelta(seconds=AFTER_S))
+
+    assert early.due == early.notified == 0
+    assert due.due == due.notified == 1
+    assert _types(sessions, record) == [
+        "alert_dispatched",
+        "push_accepted",
+        "followup_due",
+        "guardian_notified",
+    ]
+
+
+def test_user_activity_still_resets_timer_after_push_acceptance(
+    sessions: SessionStore,
+    registry: ResidentRegistry,
+    dispatcher: RecordingDispatcher,
+    event: DisasterEvent,
+) -> None:
+    record = _record(sessions, event)
+    sessions.append_system_event(record, "push_accepted", now=START + timedelta(seconds=1))
+    sessions.append_user_event(
+        record,
+        create=UserActionEventCreate(type="choice_screen_viewed", payload={}),
+        key="choice-screen",
+        now=START + timedelta(seconds=60),
+    )
+
+    initial_due = _tick(sessions, registry, dispatcher, now=START + timedelta(seconds=AFTER_S))
+    activity_due = _tick(
+        sessions,
+        registry,
+        dispatcher,
+        now=START + timedelta(seconds=60 + AFTER_S),
+    )
+
+    assert initial_due.due == initial_due.notified == 0
+    assert activity_due.due == activity_due.notified == 1
+
+
+def test_missing_push_acceptance_uses_alert_dispatch_anchor(
+    sessions: SessionStore,
+    registry: ResidentRegistry,
+    dispatcher: RecordingDispatcher,
+    event: DisasterEvent,
+) -> None:
+    record = _record(sessions, event)
+
+    summary = _tick(sessions, registry, dispatcher, now=START + timedelta(seconds=AFTER_S))
+
+    assert summary.due == summary.notified == 1
+    assert _types(sessions, record) == [
+        "alert_dispatched",
+        "followup_due",
+        "guardian_notified",
+    ]
+
+
 def test_missing_device_is_unreachable_once_then_waits_for_next_anchor(
     sessions: SessionStore,
     registry: ResidentRegistry,
