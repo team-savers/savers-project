@@ -30,8 +30,17 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
+import './GuardianPushControl.css'
 import rain from '../assets/rain.webp'
 import type { GuardianStatus, SafetyStatus } from '../api/types'
+import { api, BackendApiError } from '../api/client'
+import { requestPushPermissionForGuardian } from '../lib/push'
+import {
+  readGuardianFcmToken,
+  removeGuardianFcmToken,
+  migrateLegacyGuardianFcmToken,
+  writeGuardianFcmToken,
+} from '../lib/guardianPushStorage'
 import { C, ICON, MOBILE_WIDTH, SHADOW_CARD, gutter, radius, touchTarget } from '../lib/tokens'
 import { GUARDIAN_MOCK, PERSONA_IMAGE, type GuardianQuestionId, type QaTurn } from '../mocks/guardianStatus'
 
@@ -198,28 +207,94 @@ function LogoMark() {
   )
 }
 
-export function GuardianPreview() {
+interface GuardianProps {
+  token?: string
+}
+
+export function Guardian({ token }: GuardianProps) {
   const [screen, setScreen] = useState<GuardianScreen>('alert')
   const { protectedPerson, alert } = GUARDIAN_MOCK
+  const [status, setStatus] = useState<GuardianStatus | null>(
+    token === undefined ? GUARDIAN_MOCK.status : null,
+  )
+  const [loadError, setLoadError] = useState(false)
+
+  async function reloadStatus(): Promise<void> {
+    if (token === undefined) return
+    const isInitialLoad = status === null
+    setLoadError(false)
+    try {
+      const next = await api.getGuardianStatus(token)
+      setStatus(next)
+    } catch (error) {
+      if (isInitialLoad) setLoadError(true)
+      throw error
+    }
+  }
+
+  useEffect(() => {
+    if (token === undefined) {
+      setStatus(GUARDIAN_MOCK.status)
+      return
+    }
+    let cancelled = false
+    setStatus(null)
+    setLoadError(false)
+    api.getGuardianStatus(token).then(
+      (next) => {
+        if (!cancelled) setStatus(next)
+      },
+      () => {
+        if (!cancelled) setLoadError(true)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [token])
+
+  if (loadError) {
+    return (
+      <main style={{ ...SHELL, padding: gutter }}>
+        <p>보호자 상태를 불러오지 못했습니다.</p>
+        <button type="button" onClick={() => void reloadStatus().catch(() => {})}>
+          다시 시도
+        </button>
+      </main>
+    )
+  }
+  if (status === null) {
+    return <main style={{ ...SHELL, padding: gutter }}>보호자 상태를 확인하는 중입니다.</main>
+  }
 
   return (
     <div style={SHELL}>
       {screen === 'alert' && (
         <AlertScreen
-          district={alert.district}
-          disaster={alert.disaster}
-          personName={protectedPerson.name}
-          sentAt={alert.sentAt}
+          district={token === undefined ? alert.district : (status.dongName ?? '')}
+          disaster={token === undefined ? alert.disaster : null}
+          personName={token === undefined ? protectedPerson.name : status.wardName}
+          sentAt={token === undefined ? alert.sentAt : null}
+          preview={token === undefined}
           onConfirm={() => setScreen('status')}
         />
       )}
       {screen === 'status' && (
         <StatusScreen
+          status={status}
+          guardianToken={token}
+          preview={token === undefined}
+          onStatusReload={reloadStatus}
           onBack={() => setScreen('alert')}
           onOpenAi={() => setScreen('ai')}
         />
       )}
-      {screen === 'ai' && <AiScreen onBack={() => setScreen('status')} />}
+      {screen === 'ai' && (
+        <AiScreen
+          personName={token === undefined ? protectedPerson.name : status.wardName}
+          onBack={() => setScreen('status')}
+        />
+      )}
     </div>
   )
 }
@@ -292,13 +367,14 @@ function HeaderBar({
 
 interface AlertScreenProps {
   district: string
-  disaster: string
+  disaster: string | null
   personName: string
-  sentAt: string
+  sentAt: string | null
+  preview: boolean
   onConfirm: () => void
 }
 
-function AlertScreen({ district, disaster, personName, sentAt, onConfirm }: AlertScreenProps) {
+function AlertScreen({ district, disaster, personName, sentAt, preview, onConfirm }: AlertScreenProps) {
   return (
     <main
       style={{
@@ -346,7 +422,9 @@ function AlertScreen({ district, disaster, personName, sentAt, onConfirm }: Aler
         >
           보호자님,
           <br />
-          {district} 지역에 {disaster} 발령 안내가 있어
+          {preview
+            ? `${district} 지역에 ${disaster ?? ''} 발령 안내가 있어`
+            : `${district !== '' ? `${district} 지역에 ` : ''}재난 안내가 있어`}
           <br />
           {personName}님께 안내 메시지를
           <br />
@@ -384,8 +462,12 @@ function AlertScreen({ district, disaster, personName, sentAt, onConfirm }: Aler
             </svg>
           </span>
           <div style={{ minWidth: 0 }}>
-            <p style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: GC.text }}>안내 메시지 발송 완료</p>
-            <p style={{ margin: '2px 0 0', fontSize: '14px', color: GC.textMuted }}>{sentAt}</p>
+            <p style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: GC.text }}>
+              {preview ? '안내 메시지 발송 완료' : '재난 안내 전달 완료'}
+            </p>
+            {preview && sentAt !== null && (
+              <p style={{ margin: '2px 0 0', fontSize: '14px', color: GC.textMuted }}>{sentAt}</p>
+            )}
           </div>
         </div>
       </div>
@@ -433,8 +515,21 @@ const sectionTitle: CSSProperties = {
   color: GC.textMuted,
 }
 
-function StatusScreen({ onBack, onOpenAi }: { onBack: () => void; onOpenAi: () => void }) {
-  const { protectedPerson, status } = GUARDIAN_MOCK
+function StatusScreen({
+  status,
+  guardianToken,
+  preview,
+  onStatusReload,
+  onBack,
+  onOpenAi,
+}: {
+  status: GuardianStatus
+  guardianToken?: string
+  preview: boolean
+  onStatusReload: () => Promise<void>
+  onBack: () => void
+  onOpenAi: () => void
+}) {
   const facts = guardianStatusFacts(status)
 
   return (
@@ -448,13 +543,41 @@ function StatusScreen({ onBack, onOpenAi }: { onBack: () => void; onOpenAi: () =
       <main style={{ flex: 1, padding: `18px ${gutter}px ${gutter}px`, display: 'flex', flexDirection: 'column', gap: '22px' }}>
         <section>
           <h1 style={{ ...sectionTitle, fontSize: '16px' }}>등록된 가족</h1>
-          <FamilyCard
-            name={protectedPerson.name}
-            relation={protectedPerson.relation}
-            age={protectedPerson.age}
-            persona={protectedPerson.persona}
-            safetyStatus={status.safetyStatus}
-          />
+          {preview ? (
+            <FamilyCard
+              name={GUARDIAN_MOCK.protectedPerson.name}
+              relation={GUARDIAN_MOCK.protectedPerson.relation}
+              age={GUARDIAN_MOCK.protectedPerson.age}
+              persona={GUARDIAN_MOCK.protectedPerson.persona}
+              safetyStatus={status.safetyStatus}
+            />
+          ) : (
+            <div style={card}>
+              <p style={{ margin: 0, fontSize: '19px', fontWeight: 800, color: GC.text }}>
+                {status.wardName}
+              </p>
+              {status.dongName !== undefined && (
+                <p style={{ margin: '6px 0 0', fontSize: '14.5px', color: GC.textMuted }}>
+                  {status.dongName}
+                </p>
+              )}
+              <span
+                style={{
+                  display: 'inline-block',
+                  marginTop: '8px',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  color: GC.textMuted,
+                  background: GC.surfaceSoft,
+                  border: `1px solid ${GC.line}`,
+                  borderRadius: `${radius.chip}px`,
+                  padding: '4px 12px',
+                }}
+              >
+                {SAFETY_STATUS_LABEL[status.safetyStatus]}
+              </span>
+            </div>
+          )}
         </section>
 
         <section>
@@ -525,8 +648,158 @@ function StatusScreen({ onBack, onOpenAi }: { onBack: () => void; onOpenAi: () =
             안전 확인 AI
           </button>
         </section>
+        {guardianToken !== undefined && (
+          <GuardianPushControl
+            token={guardianToken}
+            serverPushEnabled={status.pushEnabled}
+            onStatusReload={onStatusReload}
+          />
+        )}
       </main>
     </>
+  )
+}
+
+function isThisBrowserSubscribed(token: string): boolean {
+  const storedToken = migrateLegacyGuardianFcmToken(token)
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false
+  return storedToken !== null
+}
+
+function GuardianPushControl({
+  token,
+  serverPushEnabled,
+  onStatusReload,
+}: {
+  token: string
+  serverPushEnabled: boolean
+  onStatusReload: () => Promise<void>
+}) {
+  const [subscribed, setSubscribed] = useState(() => isThisBrowserSubscribed(token))
+  const [pending, setPending] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  async function subscribe(): Promise<void> {
+    setPending(true)
+    setNotice(null)
+    const result = await requestPushPermissionForGuardian(token)
+    setPending(false)
+    if (result.status !== 'granted') {
+      const isNoGuardian =
+        result.status === 'apiError' &&
+        result.error instanceof BackendApiError &&
+        result.error.status === 400 &&
+        result.error.code === 'INVALID_REQUEST'
+      setNotice(
+        isNoGuardian
+          ? '이 대상자에게는 등록된 보호자가 없어 등록할 수 없어요.'
+          : '알림 등록에 실패했습니다. 브라우저 권한과 연결 상태를 확인해 주세요.',
+      )
+      return
+    }
+    writeGuardianFcmToken(result.token)
+    try {
+      await onStatusReload()
+    } catch {
+      setNotice('알림 등록은 완료됐지만 현재 상태를 다시 확인하지 못했습니다.')
+    }
+    setSubscribed(true)
+  }
+
+  async function unsubscribe(): Promise<void> {
+    const fcmToken = readGuardianFcmToken()
+    if (fcmToken === null) {
+      setNotice('이 브라우저의 알림 토큰을 확인할 수 없어 해제하지 못했습니다.')
+      return
+    }
+    setPending(true)
+    setNotice(null)
+    try {
+      await api.unregisterGuardianDevice(token, {
+        fcmToken,
+        userAgent: typeof navigator === 'undefined' ? null : navigator.userAgent,
+      })
+      removeGuardianFcmToken()
+      try {
+        await onStatusReload()
+      } catch {
+        setNotice('알림 해제는 완료됐지만 현재 상태를 다시 확인하지 못했습니다.')
+      }
+      setSubscribed(false)
+    } catch {
+      setNotice('알림 해제에 실패했습니다. 잠시 뒤 다시 시도해 주세요.')
+    } finally {
+      setPending(false)
+    }
+  }
+
+  if (subscribed && serverPushEnabled) {
+    return (
+      <section style={{ ...card, marginTop: '14px' }}>
+        <p role="status" style={{ margin: '0 0 12px', fontSize: '14.5px', color: GC.text, lineHeight: 1.5 }}>
+          이 휴대폰에서 보호자 알림을 받도록 설정한 기록이 있어요.
+        </p>
+        <button
+          type="button"
+          className="guardian-push-btn guardian-push-btn--outline"
+          disabled={pending}
+          onClick={() => void unsubscribe()}
+        >
+          {pending ? '해제 중...' : '알림 해제'}
+        </button>
+        {notice !== null && (
+          <p role="status" style={{ margin: '10px 0 0', fontSize: '13.5px', color: GC.textMuted }}>
+            {notice}
+          </p>
+        )}
+      </section>
+    )
+  }
+  // 미등록 상태 — 정상 재난 흐름의 메인 CTA(안전 확인 AI)가 아니라, 다른
+  // 휴대폰에서 /g/{token} 링크를 열었을 때 쓰는 보조/복구 설정이다. 그래서
+  // 제목은 작게, 설명은 secondary 톤으로 낮춰 노출 위계를 지킨다. 이 등록은
+  // 기존 guardian device에 추가되는 것이 아니라 현재 휴대폰의 토큰 하나로
+  // 교체되는 계약이므로("이 기기도 알림 받기" 아님), 버튼 문구도 "변경"의
+  // 의미를 그대로 담는다.
+  const localStateMismatch = subscribed && !serverPushEnabled
+  const title = localStateMismatch
+    ? '알림 설정'
+    : serverPushEnabled
+      ? '알림 받을 휴대폰 변경'
+      : '알림 받을 휴대폰 설정'
+  const description = localStateMismatch
+    ? '이 휴대폰으로 보호자 알림을 다시 설정할 수 있어요.'
+    : serverPushEnabled
+      ? '보호자 알림을 받을 휴대폰이 이미 등록되어 있어요. 원하면 이 휴대폰으로 변경할 수 있어요.'
+      : '이 휴대폰으로 보호자 알림을 받을 수 있어요.'
+  const buttonLabel = localStateMismatch
+    ? '이 휴대폰으로 다시 등록'
+    : serverPushEnabled
+      ? '이 휴대폰으로 변경'
+      : '이 휴대폰으로 알림 받기'
+
+  return (
+    <section style={{ ...card, marginTop: '14px' }}>
+      <p style={{ margin: '0 0 4px', fontSize: '14.5px', fontWeight: 800, color: GC.text }}>
+        {title}
+      </p>
+      <p style={{ margin: '0 0 12px', fontSize: '13.5px', color: GC.textMuted, lineHeight: 1.5 }}>
+        {description}
+      </p>
+      <button
+        type="button"
+        className="guardian-push-btn guardian-push-btn--secondary"
+        disabled={pending}
+        onClick={() => void subscribe()}
+      >
+        {pending ? '등록 중...' : buttonLabel}
+      </button>
+      {notice !== null && (
+        <p role="status" style={{ margin: '10px 0 0', fontSize: '13.5px', color: GC.textMuted }}>
+          {notice}
+        </p>
+      )}
+    </section>
   )
 }
 
@@ -597,8 +870,8 @@ function FamilyCard({
 // Screen 3 — 안전 확인 AI (mock Q&A)
 // ---------------------------------------------------------------------------
 
-function AiScreen({ onBack }: { onBack: () => void }) {
-  const { protectedPerson, recommendedQuestions } = GUARDIAN_MOCK
+function AiScreen({ personName, onBack }: { personName: string; onBack: () => void }) {
+  const { recommendedQuestions } = GUARDIAN_MOCK
   const [turns, setTurns] = useState<QaTurn[]>([])
   // Which recommended-question button is currently pressed, for the
   // momentary orange-border press feedback below — NOT a persisted
@@ -651,7 +924,7 @@ function AiScreen({ onBack }: { onBack: () => void }) {
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <div style={{ padding: `14px ${gutter}px 0` }}>
           <p style={{ margin: '0 0 14px', fontSize: '14.5px', color: GC.textMuted, lineHeight: 1.5 }}>
-            {protectedPerson.name}님의 행동 기록을 기반으로 답변드려요.
+            {personName}님의 행동 기록을 기반으로 답변드려요.
           </p>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
