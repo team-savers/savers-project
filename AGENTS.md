@@ -34,8 +34,8 @@ First-target disaster type for the MVP: 호우·도시침수 (heavy rain / urban
 
 ## Planned architecture — three layers, three core technologies
 
-> ⚠️ **Row 1 is 확정 — [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) was accepted 2026-08-24.** Rows 2 ~ 4 now each have an ADR (0018, 0017, 0019, all written 2026-08-26), but those three are **Proposed, not yet accepted** — so the rows stay 검토 중 until their decision owners confirm.
-> Cite them that way in any outside-facing document, and switch the row to 확정 only when the ADR's own status line says 승인.
+> ⚠️ **All four rows are 확정.** Row 1's [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) was accepted 2026-08-24; rows 2 ~ 4 (ADR-0018, 0017, 0019, all written 2026-08-26) were accepted 2026-08-28 once their decision owners confirmed.
+> Cite a row as 확정 only while the ADR's own status line says 승인 — that line, not this table, is the source.
 > Row 4 was promoted as a **superseding ADR rather than an in-place amendment to [ADR-0002](docs/adr/0002-frontloaded-tech-lead.md)**:
 > ADR-0002 is accepted, and changing an accepted ADR's decision content is not one of the four
 > post-acceptance edit exceptions in [ADR-0005](docs/adr/0005-webpush-primary-channel.md) — ADR-0002 carries only a 대체 표시,
@@ -44,9 +44,9 @@ First-target disaster type for the MVP: 호우·도시침수 (heavy rain / urban
 > | # | Decision | Changes | Status |
 > |---|---|---|---|
 > | 1 | **M3 metric = 「위치정보 무저장·무로깅」** — the server *does* receive a coordinate on `/v1/shelters/search` and stores/logs it nowhere. Reworded twice: 「즉시 파기 준수율 100%」 → 「미수신」 (8/21) → 「무저장·무로깅」 (8/22); the client-side alternative (no coordinate endpoint) was considered and **rejected for the finals window** | Submitted metric + the location constraint below | [ADR-0011](docs/adr/0011-m3-no-storage-not-no-receipt.md) **Accepted** — 2026-08-24 Tech Lead 승인 |
-> | 2 | Four modules → three layers + three core technologies | Architecture framing | 검토 중 — [ADR-0018](docs/adr/0018-three-layers-three-core-technologies.md) **Proposed** (2026-08-26) |
-> | 3 | Route engine **OSMnx + networkx** instead of OSRM (2026-08-21) | Tech stack | 검토 중 — [ADR-0017](docs/adr/0017-route-engine-osmnx-networkx.md) **Proposed** (2026-08-26) |
-> | 4 | Tech Lead writes no code + infrastructure moves to PM (2026-08-11 reshuffle) | Supersedes part of [ADR-0002](docs/adr/0002-frontloaded-tech-lead.md) | 검토 중 — [ADR-0019](docs/adr/0019-role-scope-after-2026-08-11-reshuffle.md) **Proposed** (2026-08-26) |
+> | 2 | Four modules → three layers + three core technologies | Architecture framing | [ADR-0018](docs/adr/0018-three-layers-three-core-technologies.md) **Accepted** — 2026-08-28 PM·Backend·AI/RAG 확인 |
+> | 3 | Route engine **OSMnx + networkx** instead of OSRM (2026-08-21) | Tech stack | [ADR-0017](docs/adr/0017-route-engine-osmnx-networkx.md) **Accepted** — 2026-08-28 Backend 확인 |
+> | 4 | Tech Lead writes no code + infrastructure moves to PM (2026-08-11 reshuffle) | Supersedes part of [ADR-0002](docs/adr/0002-frontloaded-tech-lead.md) | [ADR-0019](docs/adr/0019-role-scope-after-2026-08-11-reshuffle.md) **Accepted** — 2026-08-28 PM·Backend 확인 |
 
 Per 기획서 v3 the service is split into three layers: **① 판정 (assessment) belongs to the government** (기상청·홍수통제소·기후부 도시침수예보), **② 계산 (computation) is SAVERS**, **③ 전달 (delivery) is a zero-install mobile web channel**. **SAVERS does not implement its own hazard determination** — it converts an already-issued official warning into "where do I go, in how many minutes."
 
@@ -86,6 +86,10 @@ These came out of explicit risk mitigation decisions in the planning doc — don
 - **Zero install burden on the vulnerable user.** Registration/setup is designed to be done by a guardian/복지관/지자체 on the person's behalf, not by the end user. Any feature that requires the vulnerable person to install an app or self-configure conflicts with this.
 - **Offline/degraded fallback required.** If the public disaster APIs are down or slow, the system must fall back to a pre-cached shelter/action-manual mode rather than failing silently.
 - **Minimal collection, encrypted.** Sensitive fields (location, disability status) are minimally collected and encrypted; treat this as a hard requirement when adding new user fields.
+  **There is exactly one scoped exception, and it is not a general licence**: the session store writes its rows in plaintext — session token and generated message body, the latter carrying mobility constraints tied to a `user_id` ([ADR-0022](docs/adr/0022-session-store-plaintext.md), Accepted 2026-08-28).
+  Application-level encryption is deferred past the finals there because the key would live on the same VM as the ciphertext, so it does not stop the threat it appears to; file permissions (0600) and the absence of a backup pipeline are what actually close the two reachable cases.
+  **That exception holds only while the registry carries fabricated demo personas and no record identifying a real vulnerable person.** ADR-0022 names that as its own 유효 조건 — the moment such a record enters, the exception lapses and this constraint applies unamended.
+  It covers the session store and nothing else: every other sensitive field stays under the rule above.
 
 ## Quality bar / evaluation methodology (build these as code, not manual review)
 
