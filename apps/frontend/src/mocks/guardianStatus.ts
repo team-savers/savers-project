@@ -126,6 +126,12 @@ export const GUARDIAN_MOCK: GuardianMockData = {
     lastResponse: 'none',
     // Always 'unknown' per contract — FE does not compute a safety status.
     safetyStatus: 'unknown',
+    // Server-side signal: whether this ward has 1+ guardian device registered
+    // for push, NOT this browser's Notification permission/local
+    // registration state. The mock preview has no real registration, so this
+    // stays false rather than inferring a subscription from the current
+    // browser.
+    pushEnabled: false,
   },
   recommendedQuestions: [
     {
