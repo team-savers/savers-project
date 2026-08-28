@@ -1,10 +1,14 @@
 # ADR-0014: 폐루프 2차 발송도 웹푸시(FCM)로 하고 SMS는 채택하지 않는다
 
-- **상태**: 승인 (Accepted) - 2026-08-25 안은남 (PM), 김도혁 (Backend) 확인 완료. [PR #119](https://github.com/team-savers/savers-project/pull/119) 리뷰에 두 확인이 다 남아 있다 - **2026-08-27 정정 포함** (결정 1번의 1차 수신자 서술. 채널 결정 자체는 불변)
+- **상태**: 승인 (Accepted) - 2026-08-25 안은남 (PM), 김도혁 (Backend) 확인 완료. [PR #119](https://github.com/team-savers/savers-project/pull/119) 리뷰에 두 확인이 다 남아 있다
+- **정정**: 2026-08-27, 승인 뒤의 수정이므로
+  [ADR-0005](0005-webpush-primary-channel.md) 사후편집 예외 (2)를 따랐다.
+  결정 1번의 1차 수신자 서술만 무효로 하고 원문은 지우지 않았다 - 아래 결정 절 정정 블록.
+  채널 결정과 SMS 미채택, 2차 수신자는 바뀌지 않는다
 - **번호**: 초안은 ADR-0012로 썼으나 [ADR-0012](0012-verifier-rules-and-closed-loop.md)(검증기 대조 규칙, 폐루프 상태, PR #106)가 먼저 머지됐고 0013은 [PR #110](https://github.com/team-savers/savers-project/pull/110)이 쓰고 있어 0014로 잡는다. [ADR-0011](0011-m3-no-storage-not-no-receipt.md)에서 같은 충돌이 한 번 났다
-- **날짜**: 2026-08-24 (작성) / 2026-08-25 (승인) / 2026-08-27 (결정 1번의 1차 수신자 서술 정정 - 아래 결정 절 정정 블록 참고, [ADR-0005](0005-webpush-primary-channel.md) 사후편집 예외 (2))
+- **날짜**: 2026-08-24 (작성) / 2026-08-25 (승인) / 2026-08-27 (정정 - 위 정정 항목)
 - **결정자**: 신호정 (Tech Lead) 작성 / 안은남 (PM), 김도혁 (Backend) 확인
-- **관련 문서**: [ADR-0005](0005-webpush-primary-channel.md) (1차 채널), [ADR-0012](0012-verifier-rules-and-closed-loop.md) 5절, 7절 (폐루프 상태와 M4 분모, 분자), [ADR-0013](0013-m1-measures-push-acceptance.md) (M1은 발송 접수까지, 승인 - 2026-08-26), [ADR-0015](0015-guardian-device-registration.md) (제안, 보호자 기기 등록과 `role` 구분. 결정 2번이 2026-08-27 개정으로 1차 수신자를 넓혔다 - 아래 결정 절 정정 블록), `packages/contracts/openapi.yaml` (`FollowupDueEvent`, `GuardianNotifiedEvent`, `DeviceRegisterRequest.role`), [서비스_기획서.md](../공유_문서/서비스_기획서.md) 정정 항목 표 4번, [정량목표_검증설계.md](../공유_문서/정량목표_검증설계.md) M4, [역할_일정/04-백엔드.md](../역할_일정/04-백엔드.md) 8/25
+- **관련 문서**: [ADR-0005](0005-webpush-primary-channel.md) (1차 채널), [ADR-0012](0012-verifier-rules-and-closed-loop.md) 5절, 7절 (폐루프 상태와 M4 분모, 분자), [ADR-0013](0013-m1-measures-push-acceptance.md) (M1은 발송 접수까지, 승인 - 2026-08-26), [ADR-0015](0015-guardian-device-registration.md) (제안, 보호자 기기 등록과 `role` 구분), `packages/contracts/openapi.yaml` (`FollowupDueEvent`, `GuardianNotifiedEvent`, `DeviceRegisterRequest.role`), [서비스_기획서.md](../공유_문서/서비스_기획서.md) 정정 항목 표 4번, [정량목표_검증설계.md](../공유_문서/정량목표_검증설계.md) M4, [역할_일정/04-백엔드.md](../역할_일정/04-백엔드.md) 8/25
 
 ## 배경 (Context)
 
@@ -96,3 +100,4 @@ ADR-0005 본문에는 2차 발송도 SMS 미채택도 없다. 인용이 문서�
 | [ADR-0012](0012-verifier-rules-and-closed-loop.md) 5절 전이표 5단계 "전달" 행에 채널 주석을 달지 판단. ADR-0012 가 2026-08-26 승인됐으므로 수정하려면 개정 절차를 따른다 | Tech Lead | 대기 |
 | 결정자 확인 후 상태를 승인으로 변경 | Tech Lead | 완료, 이 PR |
 | 결정 1번의 1차 수신자 서술 정정 ([ADR-0005](0005-webpush-primary-channel.md) 사후편집 예외 (2)). [ADR-0015](0015-guardian-device-registration.md) 결정 2번 2026-08-27 개정에 따른 것이고 채널 결정은 불변이다 | Tech Lead | 완료 ([PR 177](https://github.com/team-savers/savers-project/pull/177)) |
+| [워킹_스켈레톤_설명.md](../공통_가이드/워킹_스켈레톤_설명.md) 3절 엔드포인트 표의 `POST /v1/devices` 행에 같은 정정 반영. 서버가 아직 `ward` 에게만 보낸다는 사실도 함께 적었다 | Tech Lead | 완료 ([PR 177](https://github.com/team-savers/savers-project/pull/177)) |
