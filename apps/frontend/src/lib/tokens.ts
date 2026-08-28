@@ -99,6 +99,33 @@ export const C = {
   greyBg: '#F2F4F7',
   /** Card surface. */
   white: '#FFFFFF',
+
+  /**
+   * Guardian screen brand palette (`/guardian`) — a separate brand hue set
+   * from the app-wide navy/teal palette above, used only by
+   * `pages/Guardian.tsx`. Kept as its own five-colour group (rather than
+   * folded into the navy/teal names) because it is visually a different
+   * brand, not a synonym for an existing token — reusing e.g. `alert` here
+   * would silently repaint this screen if `alert` ever changes. `*Text`
+   * variants are TEXT-ONLY darker derivatives for AA contrast on light fills
+   * (same pairing technique as `tealText`/`alertText` above); `*Bg` variants
+   * are translucent tints for badge/card fills only.
+   */
+  guardianPrimary: '#1877F2',
+  guardianPrimaryText: '#0F5FCB',
+  guardianPrimaryBg: 'rgba(24,119,242,.12)',
+  guardianAccent: '#F8A008',
+  guardianAccentText: '#8A5800',
+  guardianAccentBg: 'rgba(248,160,8,.14)',
+  guardianDanger: '#E5483F',
+  guardianDangerText: '#A32F26',
+  guardianDangerBg: 'rgba(229,72,63,.12)',
+  guardianBg: '#F8F9FA',
+  guardianSurfaceSoft: '#EEF3F7',
+  guardianText: '#111111',
+  guardianTextMuted: '#4B5563',
+  /** Neutral card/input border for the guardian screen. */
+  guardianLine: '#D9E0E7',
 } as const
 
 /**

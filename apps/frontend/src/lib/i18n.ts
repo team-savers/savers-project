@@ -89,6 +89,11 @@ export type StringKey =
   | 'shelter.distance'
   | 'shelter.direction'
   | 'shelter.hasStairs'
+  // v0.9 (ADR-0016) — 요청자 기준 주의(Shelter.cautions) 라벨. hasStairs
+  // (시설 속성)와는 다른 축이다 — 위 shelter.hasStairs는 그대로 두고
+  // 새 키로 추가한다.
+  | 'shelter.caution.stairs'
+  | 'shelter.caution.overTime'
   | 'shelter.expand.map.open'
   | 'shelter.expand.map.close'
   | 'shelter.expand.detail.open'
@@ -333,6 +338,16 @@ const DICTIONARY: Dictionary = {
   'shelter.hasStairs': {
     ko: '계단 있음',
     vi: 'Có bậc thang',
+  },
+  // v0.9 (ADR-0016). vi 번역은 팀 검수 전 초안(추정) — ko가 baseline이라
+  // 화면이 깨지진 않지만, 병합 전 원어민 검수를 권장한다.
+  'shelter.caution.stairs': {
+    ko: '계단 이용 주의',
+    vi: 'Lưu ý bậc thang',
+  },
+  'shelter.caution.overTime': {
+    ko: '이동 시간 주의',
+    vi: 'Lưu ý thời gian di chuyển',
   },
   'shelter.expand.map.open': {
     ko: '▼ 지도 보기',

@@ -14,6 +14,7 @@ SAVERS 사용자 터미널 화면을 담당한다. React + Vite + TypeScript + P
 | `/join?u=<userId>` | 피보호자 폰 온보딩 (QR 스캔 → FCM 토큰 연결) | `src/pages/Join.tsx` |
 | `/preview?t=<token>` | ⚠️ 검토용 실험 화면(단계적 대피 플로우). `/a`에 반영된 것이 아니고, 생성 문안 본문·근거와 다국어 경로가 아직 없어 공개 링크를 걸지 않는다 — 진입은 `/demo`에서만 | `src/pages/Preview.tsx` |
 | `/mockup` | 발표용 정적 목업 5종. API 연동 없음 | `src/pages/Mockup.tsx` |
+| `/guardian` | ⚠️ 임시 mock 보호자 UI 미리보기. `mocks/guardianStatus.ts` 고정 데이터만 읽고, 실제 계약 경로 `/g/{token}` 은 아직 구현되지 않았다 | `src/pages/Guardian.tsx` |
 
 라우팅은 `window.location.pathname` 기반이다. 라우터 라이브러리를 쓰지 않는다.
 라우트를 추가하면 이 표도 같은 PR에서 갱신한다.
