@@ -2,7 +2,7 @@
 
 - **상태**: 승인 (Accepted) - 2026-08-28 안은남 (PM), 김도혁 (Backend),
   김소원 (AI/RAG/프론트엔드) 확인 완료
-  ([PR __N__](https://github.com/team-savers/savers-project/pull/__N__) 리뷰에 세 확인이 다 남아 있다).
+  ([PR 184](https://github.com/team-savers/savers-project/pull/184) 리뷰에 세 확인이 다 남아 있다).
   저장소의 설계 문서가 이미 이 구조로 서술하는데
   ADR 번호가 없어 승격 요청을 받았고([AGENTS.md](../../AGENTS.md) 검토 중 표 2행),
   2026-08-26에 이 문서로 옮겼다

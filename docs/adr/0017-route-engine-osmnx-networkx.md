@@ -1,7 +1,7 @@
 # ADR-0017: 침수 회피 경로의 계산 엔진은 OSRM이 아니라 OSMnx + networkx다
 
 - **상태**: 승인 (Accepted) - 2026-08-28 김도혁 (Backend) 확인 완료
-  ([PR __N__](https://github.com/team-savers/savers-project/pull/__N__) 리뷰에 확인이 남아 있다).
+  ([PR 184](https://github.com/team-savers/savers-project/pull/184) 리뷰에 확인이 남아 있다).
   2026-08-21 결정이 [서비스_기획서.md](../공유_문서/서비스_기획서.md)
   정정 박스와 [AGENTS.md](../../AGENTS.md)에만 있고 ADR 번호가 없어 승격 요청을 받아
   2026-08-26에 이 문서로 옮겼고, 그때부터 결정자 확인을 기다리고 있었다

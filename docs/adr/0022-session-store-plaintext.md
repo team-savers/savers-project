@@ -1,7 +1,7 @@
 # ADR-0022: 세션 저장소는 평문으로 시작하고 암호화는 본선 후로 미룬다
 
 - **상태**: 승인 (Accepted) - 2026-08-28 안은남 (PM, QA/보안) 확인 완료
-  ([PR __N__](https://github.com/team-savers/savers-project/pull/__N__) 리뷰에 확인이 남아 있다).
+  ([PR 184](https://github.com/team-savers/savers-project/pull/184) 리뷰에 확인이 남아 있다).
   2026-08-28 작성.
   [PR 179](https://github.com/team-savers/savers-project/pull/179)
   [리뷰](https://github.com/team-savers/savers-project/pull/179#pullrequestreview-5047355211)

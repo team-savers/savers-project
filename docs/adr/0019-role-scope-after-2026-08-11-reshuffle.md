@@ -1,7 +1,7 @@
 # ADR-0019: 2026-08-11 재편 이후 Tech Lead는 코드를 쓰지 않고 인프라는 PM이 갖는다
 
 - **상태**: 승인 (Accepted) - 2026-08-28 안은남 (PM), 김도혁 (Backend) 확인 완료
-  ([PR __N__](https://github.com/team-savers/savers-project/pull/__N__) 리뷰에 두 확인이 다 남아 있다).
+  ([PR 184](https://github.com/team-savers/savers-project/pull/184) 리뷰에 두 확인이 다 남아 있다).
   재편이 2026-08-11에 있었으나 ADR 번호가 없어
   승격 요청을 받았고([AGENTS.md](../../AGENTS.md) 검토 중 표 4행),
   2026-08-26에 이 문서로 옮겼다

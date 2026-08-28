@@ -1,7 +1,7 @@
 # ADR-0015: 보호자 기기는 사전등록에서 등록하고 보호자 페이지에서 갱신한다
 
 - **상태**: 승인 (Accepted) - 2026-08-28 김소원 (AI/RAG/프론트엔드) 확인 완료
-  ([PR __N__](https://github.com/team-savers/savers-project/pull/__N__) 리뷰에 확인이 남아 있다).
+  ([PR 184](https://github.com/team-savers/savers-project/pull/184) 리뷰에 확인이 남아 있다).
   2026-08-24 팀 메신저에서 Backend 가 A안으로 제기하고 AI/RAG 가 확인, 계약과 함께 작성.
   김도혁 (Backend) 확인은 2026-08-25에 끝나 있었다
   ([PR 122](https://github.com/team-savers/savers-project/pull/122) 승인).
