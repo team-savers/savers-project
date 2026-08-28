@@ -308,7 +308,7 @@ _COLLAPSED_SAFETY = tuple((p, _WHITESPACE.sub("", p)) for p in SAFETY_ASSERTIONS
 
 # 상태 추정 (ADR-0012 3절): "자고 있는 것 같습니다". The 추측 ending carries the category, so
 # matching the ending catches sentences no phrase list would anticipate.
-_SPECULATION = re.compile(r"것같")
+_SPECULATION = re.compile(r"것같|것으로보|듯합니다|추정됩니다|보입니다")
 
 # 행동 지시 (ADR-0012 3절): "지금 가 보세요", "119에 신고하세요". Any polite imperative is
 # out of scope for a guardian answer — 3절: "로그를 풀어 읽어 주는 자리이고, 무엇을 하라고
@@ -331,7 +331,6 @@ _GUARDIAN_EXTRA_FORBIDDEN = re.compile(
     r"(?:\d+|한|두|세|네)\s*(?:분|시간|일)(?:간|째|\s*동안)|지났습니다|계속|"
     r"(?:\d+|한|두|세|네|몇)\s*(?:번(?:째)?|회)|여러\s*차례|반복해서|"
     r"이후|그\s*뒤(?:로)?|그\s*후|가장\s*최근|마지막으로|"
-    r"듯합니다|추정됩니다|보입니다|"
     r"기록(?:이|은)\s*(?:없습니다|없었습니다)|하지\s*않|누르지\s*않|"
     r"선택하지\s*않|행동하지\s*않"
 )
@@ -342,35 +341,61 @@ _DISPLAY_TIME = re.compile(r"(?<!\d)(\d{2})시 (\d{2})분(?!\d)")
 _SEOUL = timezone(timedelta(hours=9))
 
 _KNOWN_GUARDIAN_CLAIMS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"상황 확인하기.*버튼을 누(?:르|른)"), "situation_check_selected"),
+    (re.compile(r"상황 확인(?:하기)?.*버튼을 누(?:르|른)"), "situation_check_selected"),
     (re.compile(r"정보 확인 화면을 (?:여|연)"), "profile_review_started"),
     (re.compile(r"정보 확인을 완료"), "profile_review_completed"),
     (re.compile(r"정보 확인 단계를 건너"), "profile_review_skipped"),
-    (re.compile(r"상황 선택 화면을 (?:보|본)"), "choice_screen_viewed"),
+    (re.compile(r"(?:(?:상황 )?선택 화면을 (?:보|본)|다시 보)"), "choice_screen_viewed"),
     (re.compile(r"도움이 필요해요.*선택"), "help_request_selected"),
     (re.compile(r"일단 대피할게요.*선택"), "direct_evacuation_selected"),
     (re.compile(r"대피 행동 권고와 대피소 안내를 (?:보|본)"), "evacuation_guidance_viewed"),
     (re.compile(r"경로 안내를 시작"), "route_guidance_started"),
     (re.compile(r"다음 안내를 요청"), "next_guidance_requested"),
     (re.compile(r"119 전화 버튼을 누(?:르|른)"), "emergency_call_119_selected"),
-    (re.compile(r"도착 완료.*버튼을 누(?:르|른)"), "arrival_confirmed_by_user"),
+    (
+        re.compile(r"(?:도착 완료는|도착 완료.*버튼을 누(?:르|른))"),
+        "arrival_confirmed_by_user",
+    ),
 )
+
+_EMPTY_PROGRESS_ANSWER = "현재 세션의 사용자 행동은 기록에서 확인되지 않습니다."
+
+
+def _recognized_guardian_claims(
+    answer: str,
+) -> list[tuple[str, bool, str | None]] | None:
+    """Independently normalize every claim unit to an event fact, or fail closed."""
+    recognized: list[tuple[str, bool, str | None]] = []
+    for unit in _claim_units(answer):
+        matches = [
+            event_type for pattern, event_type in _KNOWN_GUARDIAN_CLAIMS if pattern.search(unit)
+        ]
+        if len(matches) != 1:
+            return None
+        present = "기록에서 확인되지 않" not in unit
+        display_times = [
+            f"{int(hour):02d}시 {int(minute):02d}분" for hour, minute in _DISPLAY_TIME.findall(unit)
+        ]
+        if present and len(display_times) != 1:
+            return None
+        if not present and display_times:
+            return None
+        recognized.append((matches[0], present, display_times[0] if present else None))
+    return recognized
 
 
 def _known_claim_source_mismatch(answer: str, evidence: Sequence[Mapping[str, object]]) -> bool:
-    """Match recognized canonical claims and cited type/presence facts both ways."""
-    cited_claims = {(item.get("type"), item.get("present")) for item in evidence}
-    claimed: set[tuple[str, bool]] = set()
-    for sentence in sentences(answer):
-        present = "기록에서 확인되지 않습니다" not in sentence
-        claimed.update(
-            (event_type, present)
-            for pattern, event_type in _KNOWN_GUARDIAN_CLAIMS
-            if pattern.search(sentence)
-        )
-    return not claimed.issubset(cited_claims) or (
-        bool(claimed) and not cited_claims.issubset(claimed)
-    )
+    """Match independently recognized claim types/polarities and cited facts both ways."""
+    cited_types = Counter((item.get("type"), item.get("present")) for item in evidence)
+    if answer == _EMPTY_PROGRESS_ANSWER:
+        expected = Counter((event_type, False) for _pattern, event_type in _KNOWN_GUARDIAN_CLAIMS)
+        return cited_types != expected
+
+    claimed = _recognized_guardian_claims(answer)
+    if claimed is None:
+        return True
+    claimed_types = Counter((event_type, present) for event_type, present, _at in claimed)
+    return claimed_types != cited_types
 
 
 # 나열·대조 연결어미 — the joins that put two facts in one sentence. ADR-0012's claim unit
@@ -491,20 +516,22 @@ def _event_backed_fact_capacity(
 
 
 def _answer_display_time_mismatch(answer: str, evidence: Sequence[Mapping[str, object]]) -> bool:
-    """Whether any human-visible KST minute lacks a present evidence occurrence."""
+    """Whether a recognized event claim carries another event type's KST minute."""
+    claims = _recognized_guardian_claims(answer)
+    if claims is None:
+        return False
     displayed = Counter(
-        f"{int(hour):02d}시 {int(minute):02d}분" for hour, minute in _DISPLAY_TIME.findall(answer)
+        (event_type, display_time)
+        for event_type, present, display_time in claims
+        if present and display_time is not None
     )
     expected = Counter(
-        instant.astimezone(_SEOUL).strftime("%H시 %M분")
+        (item.get("type"), instant.astimezone(_SEOUL).strftime("%H시 %M분"))
         for item in evidence
         if item.get("present") is True
         if (instant := _instant(item.get("at"))) is not None
     )
-    # This direction is intentional: an extra source is a support/coverage problem, not
-    # a claim that the answer displayed a wrong time. The reverse direction (an answer
-    # minute with no source occurrence) is the actual `time_mismatch` contract.
-    return any(count > expected[display_time] for display_time, count in displayed.items())
+    return any(count > expected[fact] for fact, count in displayed.items())
 
 
 def _distinct(codes: Sequence[str]) -> list[str]:

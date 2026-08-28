@@ -708,6 +708,61 @@ def test_verifier_does_not_depend_on_source_order() -> None:
     assert verification.response.answer == response.answer
 
 
+def test_verifier_allows_multiple_grounded_claims_joined_in_one_sentence() -> None:
+    events = [
+        event("help_request_selected", "2026-08-24T01:15:00Z"),
+        event("emergency_call_119_selected", "2026-08-24T01:16:00Z"),
+    ]
+    response = answer_guardian_question("help_request", events).model_copy(
+        update={
+            "answer": (
+                "10시 15분에 [도움이 필요해요]를 선택하셨고 "
+                "10시 16분에 119 전화 버튼을 누르셨습니다."
+            )
+        }
+    )
+
+    assert verify_guardian_answer_detailed("help_request", response, events).deliverable
+
+
+def test_verifier_rejects_joined_claim_when_one_source_is_missing() -> None:
+    events = [
+        event("help_request_selected", "2026-08-24T01:15:00Z"),
+        event("emergency_call_119_selected", "2026-08-24T01:16:00Z"),
+    ]
+    generated = answer_guardian_question("help_request", events)
+    response = generated.model_copy(
+        update={
+            "answer": (
+                "10시 15분에 [도움이 필요해요]를 선택하셨고 "
+                "10시 16분에 119 전화 버튼을 누르셨습니다."
+            ),
+            "sources": generated.sources[:1],
+        }
+    )
+
+    verification = verify_guardian_answer_detailed("help_request", response, events)
+    assert verification.violations == ("unsupported_claim",)
+
+
+def test_verifier_reports_type_specific_swapped_times_as_time_mismatch() -> None:
+    events = [
+        event("help_request_selected", "2026-08-24T01:15:00Z"),
+        event("emergency_call_119_selected", "2026-08-24T01:16:00Z"),
+    ]
+    response = answer_guardian_question("help_request", events).model_copy(
+        update={
+            "answer": (
+                "10시 16분에 [도움이 필요해요]를 선택하셨습니다. "
+                "10시 15분에 119 전화 버튼을 누르셨습니다."
+            )
+        }
+    )
+
+    verification = verify_guardian_answer_detailed("help_request", response, events)
+    assert verification.violations == ("time_mismatch",)
+
+
 def test_verifier_rejects_duplicate_source_as_unsupported() -> None:
     response, events = arrival_response()
     duplicated = response.model_copy(update={"sources": response.sources * 2})
