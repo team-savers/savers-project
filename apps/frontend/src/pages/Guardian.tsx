@@ -198,7 +198,7 @@ function LogoMark() {
   )
 }
 
-export function Guardian() {
+export function GuardianPreview() {
   const [screen, setScreen] = useState<GuardianScreen>('alert')
   const { protectedPerson, alert } = GUARDIAN_MOCK
 

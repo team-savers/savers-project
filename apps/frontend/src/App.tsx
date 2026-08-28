@@ -21,9 +21,12 @@
 //                             from mocks/guardianStatus.ts — not wired to
 //                             ../api/* at all.
 //
-// The real contract route (/g/{token}) and its ?s= stage parameter are not
-// part of the route set yet — `/guardian` above is a mock-only stand-in
-// until that contract lands. Landing takes only the session token.
+// The `/g/{token}` guardian route and its ?s= stage parameter are not part
+// of the route set yet — `/guardian` above is a mock-only stand-in until the
+// real `/g/{token}` frontend wiring lands. The contract itself (GuardianStatus,
+// GuardianQuestionId, `POST /v1/guardian/{token}/ask`) already exists in
+// packages/contracts/openapi.yaml; what's missing is this frontend route.
+// Landing takes only the session token.
 
 import { useEffect, useRef, useState } from 'react'
 import {
@@ -39,7 +42,7 @@ import { Home } from './pages/Home'
 import { Register } from './pages/Register'
 import { Preview } from './pages/Preview'
 import { Mockup } from './pages/Mockup'
-import { Guardian } from './pages/Guardian'
+import { GuardianPreview } from './pages/Guardian'
 import { initSwUpdates } from './lib/swUpdate'
 import { PROFILES } from './mocks/profiles'
 import type { Profile } from './api/types'
@@ -627,7 +630,7 @@ function AppRoutes({ pathname }: { pathname: string }): React.ReactElement {
     return <Mockup />
   }
   if (pathname === '/guardian') {
-    return <Guardian />
+    return <GuardianPreview />
   }
   return <HomeView />
 }
