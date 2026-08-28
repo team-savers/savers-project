@@ -15,7 +15,15 @@
   background: var(--h-bg);
   color: var(--h-text);
   font-family: 'Pretendard', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  overflow-x: hidden;
+  /* overflow-x: hidden (any non-visible overflow-x) forces overflow-y to
+     compute to auto too, turning .home-page into its own scroll container.
+     .home-header's `position: sticky` then sticks to *that* container
+     instead of the viewport, and since .home-page never actually scrolls
+     internally (its height is just its content height), the header never
+     re-sticks on real page scroll. `clip` suppresses horizontal overflow
+     without creating a scrolling box, so sticky keeps tracking the
+     viewport as intended. */
+  overflow-x: clip;
   word-break: keep-all;
   overflow-wrap: break-word;
 }

@@ -177,7 +177,9 @@ function StepItem({ n, title, body, icon, tone = 'blue' }: StepItemProps) {
         {icon}
       </div>
       <div style={{ marginTop: '14px' }}>
-        <span style={{ color: 'var(--h-orange)', fontWeight: 800, fontSize: '16px' }}>
+        {/* Brand orange fails AA text contrast (~2.1:1) at this 16px weight;
+            dark text keeps the numbering legible without a palette change. */}
+        <span style={{ color: 'var(--h-text)', fontWeight: 800, fontSize: '16px' }}>
           {n}
         </span>{' '}
         <span style={{ fontWeight: 700, fontSize: '16px' }}>{title}</span>
@@ -409,7 +411,9 @@ function Hero() {
           >
             재난이 와도,
             <br />
-            함께라서 <span style={{ color: 'var(--h-orange)' }}>안심</span>입니다
+            {/* Brand orange fails AA text contrast on this light background;
+                blue is the accessible in-palette accent for readable text. */}
+            함께라서 <span style={{ color: 'var(--h-blue)' }}>안심</span>입니다
           </h1>
 
           <p
@@ -435,7 +439,9 @@ function Hero() {
                 alignItems: 'center',
                 justifyContent: 'center',
                 background: 'var(--h-orange)',
-                color: '#fff',
+                // White text on brand orange is ~2.1:1 (fails AA 4.5:1).
+                // Dark text on the same orange background is ~9:1.
+                color: 'var(--h-text)',
                 borderRadius: '12px',
                 padding: '16px 26px',
                 fontSize: '16px',
