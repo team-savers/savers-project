@@ -47,7 +47,7 @@ SAVERS의 차별화 전략은 **"품질을 재현 가능한 자동 스크립트�
 | `metrics.py` | 순수 지표 함수. 입력이 같으면 결과가 같고, I/O·시계·네트워크가 없습니다. 예선 4지표 + 본선 M2·M4 |
 | `dataset.py` | 골든셋 로더 + 스키마 검사 |
 | `golden_dataset/flood_v0.jsonl` | 호우 시나리오 6건 (**전부 `[더미]`** — 실제 코퍼스 확보 전 자리표시자) |
-| `test_metrics.py` · `test_golden_dataset.py` | CI가 돌리는 회귀 검사 |
+| `test_metrics.py` · `test_golden_dataset.py` · `test_threshold_sweep.py` | CI가 돌리는 회귀 검사 |
 | `run_grounding_eval.py` | 근거 일치율·환각 억제율 채점 → JSON 보고서 |
 | `run_latency_eval.py` | 알림 도달 속도 실측(HTTP) → JSON 보고서 |
 | `run_threshold_sweep.py` | 가드레일 `SUPPORT_THRESHOLD` 민감도 측정(이슈 #23) → JSON 보고서 |

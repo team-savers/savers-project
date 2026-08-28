@@ -38,7 +38,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import statistics
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -48,12 +49,16 @@ import metrics
 from dataset import GOLDEN_DIR, GoldenCase, load_cases
 from run_grounding_eval import evaluate
 
+from ai_engine import guardrail
 from ai_engine.chunking import chunk_csv
-from ai_engine.generation import StubGenerator
-from ai_engine.guardrail import SUPPORT_THRESHOLD as ENGINE_THRESHOLD
+from ai_engine.generation import Generator, StubGenerator
 from ai_engine.indexing import DISASTER_TYPE_MAP
 from ai_engine.models import GenerationRequest, Passage
 from ai_engine.retrieval import FixtureRetriever, Retriever, build_query, profile_tags
+
+# Read once, before any sweep rebinds it — this is the value the engine ships with, and the
+# drift alarm below compares it against the harness default.
+ENGINE_THRESHOLD = guardrail.SUPPORT_THRESHOLD
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "src" / "ai_engine" / "fixtures"
 REAL_CORPUS = FIXTURE_DIR / "flood_action_manual.csv"
@@ -210,14 +215,17 @@ def _share_at_least(values: list[float], threshold: float) -> float | None:
 
 
 def _distribution(values: list[float]) -> dict[str, float | int | None]:
+    """Five-number summary through `metrics.percentile` — nearest-rank, like every other
+    percentile in this repo. An ad-hoc median here would round to the same value on today's
+    samples and diverge once the golden set grows to the planned 30 ~ 50 cases."""
     if not values:
         return {"n": 0, "min": None, "p50": None, "p90": None, "max": None}
     ordered = sorted(values)
     return {
         "n": len(ordered),
         "min": ordered[0],
-        "p50": statistics.median(ordered),
-        "p90": ordered[min(len(ordered) - 1, int(len(ordered) * 0.9))],
+        "p50": metrics.percentile(ordered, 0.5),
+        "p90": metrics.percentile(ordered, 0.9),
         "max": ordered[-1],
     }
 
@@ -251,19 +259,80 @@ def discrimination_rows(
     ]
 
 
+@contextmanager
+def engine_gate(threshold: float) -> Iterator[None]:
+    """Run `verify()`'s real gate at `threshold` for the duration of the block.
+
+    ⚠️ Sweeping `evaluate(threshold=...)` alone does **not** move the gate. That argument
+    reaches `metrics` — the *scorer* — while `generate_message` -> `verify` -> `_supported`
+    reads the module-level `guardrail.SUPPORT_THRESHOLD` at call time. Without this rebind
+    every row of the sweep runs the same 0.5 gate, and the table answers a question about
+    the scorer while claiming to answer one about the guardrail (PR #188 리뷰, 김소원).
+
+    Rebinding the constant rather than adding a `threshold=` parameter to `verify()` is
+    deliberate: the production signature stays as it is through the 8/29 freeze, and the
+    knob lives in the harness that needs it. The guardrail itself still runs — this varies
+    the number it compares against, which is the thing under test, and is not a bypass.
+    """
+    original = guardrail.SUPPORT_THRESHOLD
+    guardrail.SUPPORT_THRESHOLD = threshold
+    try:
+        yield
+    finally:
+        guardrail.SUPPORT_THRESHOLD = original
+
+
+class CachingGenerator:
+    """`Generator` that answers a repeated prompt from cache instead of re-generating.
+
+    Two reasons, and the second is the one that matters for correctness:
+
+    - **Cost.** The same case is generated once per swept threshold. Free against a stub,
+      seven times the HyperCLOVA X bill once a real model sits behind the seam
+      (PR #188 리뷰, 안은남).
+    - **Control.** A real model is non-deterministic, so regenerating per threshold would
+      let the body change between rows and confound the gate's effect with sampling noise.
+      One body per case, many gates, is the comparison this sweep is supposed to make.
+
+    Keyed on the full prompt, so a future change that makes the guardrail-off control group
+    use a different prompt gets its own generation rather than a stale hit.
+    """
+
+    def __init__(self, inner: Generator) -> None:
+        self._inner = inner
+        self._cache: dict[str, str] = {}
+        self.calls = 0
+
+    def complete(self, prompt: str) -> str:
+        if prompt not in self._cache:
+            self.calls += 1
+            self._cache[prompt] = self._inner.complete(prompt)
+        return self._cache[prompt]
+
+
 def kpi_rows(
     cases: list[GoldenCase], thresholds: tuple[float, ...], *, corpus: list[Passage], label: str
-) -> list[dict[str, Any]]:
-    """Layer 1: the golden set scored at each threshold, through the unmodified harness."""
+) -> tuple[list[dict[str, Any]], int]:
+    """Layer 1: the golden set generated once, then gated *and* scored at each threshold.
+
+    Returns the rows and the number of generator calls actually made — the second value is
+    what shows the cache held (`caseCount` calls, not `caseCount * len(thresholds)`).
+    """
     rows = []
+    generator = CachingGenerator(StubGenerator())
     for threshold in thresholds:
-        report = evaluate(
-            cases,
-            retriever=FixtureRetriever(corpus),
-            generator=StubGenerator(),
-            threshold=threshold,
-        )
+        with engine_gate(threshold):
+            report = evaluate(
+                cases,
+                retriever=FixtureRetriever(corpus),
+                generator=generator,
+                threshold=threshold,
+            )
         summary = report["summary"]
+        # A case the golden set expects to refuse (flood-004: no shelter + stairs blocked)
+        # is refused before retrieval and has nothing to do with the gate. Counting it as a
+        # block would report a designed path as a guardrail action.
+        expected_refusals = {case.id for case in cases if case.expect.refuse is not None}
         rows.append(
             {
                 "corpus": label,
@@ -272,10 +341,16 @@ def kpi_rows(
                 "suppressionRate": summary["suppressionRate"],
                 "expectationMetRate": summary["expectationMetRate"],
                 "deliveredCount": sum(1 for c in report["cases"] if c["guardrailOn"]["delivered"]),
+                "gateBlockedCount": sum(
+                    1
+                    for c in report["cases"]
+                    if not c["guardrailOn"]["delivered"]
+                    if c["id"] not in expected_refusals
+                ),
                 "guardrailOffIsIdentical": report["guardrailOffIsIdentical"],
             }
         )
-    return rows
+    return rows, generator.calls
 
 
 def sweep(cases: list[GoldenCase], thresholds: tuple[float, ...]) -> dict[str, Any]:
@@ -286,6 +361,8 @@ def sweep(cases: list[GoldenCase], thresholds: tuple[float, ...]) -> dict[str, A
     off_evidence = off_evidence_ratios(cases, real)
     pairs = paraphrase_pairs(restatements, real)
     alone, union = paraphrase_ratios(pairs, real)
+    dummy_rows, dummy_calls = kpi_rows(cases, thresholds, corpus=dummy, label="dummy")
+    real_rows, real_calls = kpi_rows(cases, thresholds, corpus=real, label="real")
 
     return {
         "generatedAt": datetime.now(UTC).isoformat(),
@@ -306,10 +383,12 @@ def sweep(cases: list[GoldenCase], thresholds: tuple[float, ...]) -> dict[str, A
                 "chunks": len(restatements),
             },
         },
-        "kpiSweep": [
-            *kpi_rows(cases, thresholds, corpus=dummy, label="dummy"),
-            *kpi_rows(cases, thresholds, corpus=real, label="real"),
-        ],
+        # Both the scorer and the engine gate move together across these rows — see
+        # `engine_gate`. `generatorCalls` is the cache receipt: one call per case, not one
+        # per case per threshold.
+        "gateSwept": True,
+        "generatorCalls": {"dummy": dummy_calls, "real": real_calls},
+        "kpiSweep": [*dummy_rows, *real_rows],
         "distributions": {
             "offEvidence": _distribution(off_evidence),
             "paraphraseSingleSource": _distribution(alone),
@@ -342,13 +421,18 @@ def _print(report: dict[str, Any]) -> None:
         f"근접쌍 원본 {corpora['paraphraseSource']['chunks']}건"
     )
 
-    print("\n[층 1] 골든셋 KPI 스윕")
-    print("  코퍼스  임계값   근거 일치율   환각 억제율   기대 동작   전달")
+    calls = report["generatorCalls"]
+    print(
+        f"\n[층 1] 골든셋 KPI 스윕 — 채점 기준과 엔진 gate를 함께 이동"
+        f" (생성 호출 더미 {calls['dummy']}회 · 실제 {calls['real']}회)"
+    )
+    print("  코퍼스  임계값   근거 일치율   환각 억제율   기대 동작   전달   gate 차단")
     for row in report["kpiSweep"]:
         print(
             f"  {row['corpus']:<6} {row['threshold']:<7} "
             f"{_pct(row['sourceFidelity']):<13} {_pct(row['suppressionRate']):<13} "
-            f"{_pct(row['expectationMetRate']):<10} {row['deliveredCount']}건"
+            f"{_pct(row['expectationMetRate']):<10} {row['deliveredCount']}건   "
+            f"{row['gateBlockedCount']}건"
         )
 
     print("\n[층 2] 실제 원문 판별력 — 지표가 아니라 오류율입니다 (둘 다 낮을수록 좋음)")
