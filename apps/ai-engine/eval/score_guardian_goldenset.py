@@ -38,6 +38,13 @@ mismatch로 잡혔다. 구현 오너(김소원) 확인 결과 — runtime의 질
 `_matches_golden()`에 `_normalize_at()`을 추가해 인스턴트 기준으로 비교하도록
 고쳤다. 재검증 결과: 골든 기대값 일치 30/30, 적대 회귀 12/12 차단, exit 0.
 
+**2026-08-28 추가 — questionId 30건이 실제로 내는 응답은 30가지가 아니다(신호정님 리뷰).**
+`arrival_status`/`help_request`는 CITATION_SCOPE가 "최근 1건"만 인용하도록 정해져 있어,
+선행 이벤트가 다른 여러 케이스가 같은 answer/evidence로 수렴한다 — 이는 계약이 의도한
+동작이라 이 PR에서 고칠 대상이 아니다. `--runtime`은 이제 이 수를 "골든 기대값 일치
+N/30"과 별도로 "실제 서로 다른 응답 조합 M가지"로 함께 보고한다(아래 `score_runtime`).
+40건 구성 자체(카테고리별 10건)는 07절 스펙을 유지하기 위해 그대로 둔다.
+
 **작성 이력을 정확히 남긴다(소원님 2026-08-27 15:06 요청)** — 위 30건은 계약을
 먼저 읽고 처음부터 독립적으로 다시 쓴 것이 **아니다.** `guardian_log_qa.py`
 실행 결과를 먼저 채택한 뒤, 그 값을 계약 문서(구현 코드가 아님)인
@@ -171,7 +178,7 @@ def _matches_golden(case: dict, response: GuardianLogAnswer) -> bool:
 
 def score_runtime(
     cases: list[dict],
-) -> tuple[float | None, list[tuple[str, list[str]]], list[str], list[str]]:
+) -> tuple[float | None, list[tuple[str, list[str]]], list[str], list[str], int]:
     """`questionId`가 있는 케이스만 실제 `guardian_log_qa.py`(runtime)를 호출해 채점한다.
 
     경로: events + questionId -> `answer_guardian_question()`(runtime) -> answer/sources
@@ -180,12 +187,18 @@ def score_runtime(
     골든 케이스의 기대값과도 별도로 비교한다(`_matches_golden`) — 규약 위반이 0건이어도
     골든 케이스가 의도한 답이 아닐 수 있기 때문이다.
 
-    Returns (M2, 위반 목록, questionId 없어 건너뛴 id 목록, 골든 기대값과 어긋난 id 목록).
+    `distinct_responses`는 채점된 케이스들이 실제로 낸 서로 다른 (answer, evidence) 조합
+    개수다 — CITATION_SCOPE가 "최근 1건"만 인용하는 질문은 선행 이벤트가 다른 케이스도
+    같은 응답으로 수렴하므로, 채점 건수와 이 수는 다를 수 있다(신호정님 2026-08-27 리뷰).
+
+    Returns (M2, 위반 목록, questionId 없어 건너뛴 id 목록, 골든 기대값과 어긋난 id 목록,
+    실제 서로 다른 응답 조합 개수).
     """
     all_violations = []
     failures = []
     skipped = []
     golden_mismatches = []
+    response_signatures = set()
     for case in cases:
         question_id = case.get("questionId")
         if question_id is None:
@@ -202,8 +215,17 @@ def score_runtime(
             failures.append((case["id"], violations))
         if not _matches_golden(case, response):
             golden_mismatches.append(case["id"])
+        response_signatures.add(
+            (
+                response.answer,
+                frozenset(
+                    (source.type, source.present, _normalize_at(source.at))
+                    for source in response.sources
+                ),
+            )
+        )
     m2 = metrics.guardian_accuracy(all_violations) if all_violations else None
-    return m2, failures, skipped, golden_mismatches
+    return m2, failures, skipped, golden_mismatches, len(response_signatures)
 
 
 def score_adversarial(cases: list[dict]) -> list[tuple[str, list[str], bool]]:
@@ -244,7 +266,9 @@ def main() -> int:
     exit_code = 0 if not failures and not refusal_mismatches else 1
 
     if args.runtime:
-        m2_rt, failures_rt, skipped, golden_mismatches = score_runtime(main_cases)
+        m2_rt, failures_rt, skipped, golden_mismatches, distinct_responses = score_runtime(
+            main_cases
+        )
         scored = len(main_cases) - len(skipped)
         print(
             f"\n[runtime] questionId 보유 {scored}건 · 규약 위반 {len(failures_rt)}건 · "
@@ -256,6 +280,11 @@ def main() -> int:
         print(
             f"[runtime] 골든 기대값(answer/evidence) 일치 {scored - len(golden_mismatches)}건 · "
             f"불일치 {len(golden_mismatches)}건"
+        )
+        print(
+            f"[runtime] 실제 서로 다른 응답 조합 {distinct_responses}가지 "
+            f"(CITATION_SCOPE 최근 1건 정책으로 여러 케이스가 같은 응답에 수렴함 — "
+            "PR #162 리뷰, 신호정)"
         )
         for case_id in golden_mismatches:
             print(f"  [runtime] MISMATCH {case_id}: runtime 응답이 골든 케이스 기대값과 다름")
