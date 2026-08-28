@@ -48,13 +48,15 @@ ADR-0005 본문에는 2차 발송도 SMS 미채택도 없다. 인용이 문서�
    > 피보호자가 30분 안에 정상적으로 대피를 마친 성공 경로에서 보호자에게 아무 알림도 가지 않아,
    > 보호자 연계가 실패 경로에서만 발화하던 구조를 고친 것이다.
    >
-   > **이 문서의 결정은 바뀌지 않는다.** 채널은 여전히 웹푸시(FCM) 하나이고,
+   > **이 문서의 결정은 바뀌지 않는다.**
+   > 채널은 여전히 웹푸시(FCM) 하나이고,
    > SMS 미채택도 그대로이며, 2차 발송이 `role: guardian` 기기로만 나가는 것도 그대로다.
    > 바뀐 것은 1차의 수신자 범위 하나이고, 그 결정의 소관은 ADR-0015다.
    > 같은 재난에 두 사람이 받는 문안도 여전히 다르다 - `ward`는 행동 지시를,
    > `guardian`은 재난 1건당 1회의 정보성 통지를 받는다.
    >
-   > **M4는 영향받지 않는다.** 1차 보호자 통지는 계약 v0.10이 신설한 `guardian_informed`로 남고,
+   > **M4는 영향받지 않는다.**
+   > 1차 보호자 통지는 계약 v0.10이 신설한 `guardian_informed`로 남고,
    > M4 분자의 예약어인 `guardian_notified`와 별개다. 아래 결정 3번은 그대로 유효하다.
    >
    > 원문은 결정 시점(2026-08-24)의 판단을 남기기 위해 지우지 않는다
@@ -101,3 +103,4 @@ ADR-0005 본문에는 2차 발송도 SMS 미채택도 없다. 인용이 문서�
 | 결정자 확인 후 상태를 승인으로 변경 | Tech Lead | 완료, 이 PR |
 | 결정 1번의 1차 수신자 서술 정정 ([ADR-0005](0005-webpush-primary-channel.md) 사후편집 예외 (2)). [ADR-0015](0015-guardian-device-registration.md) 결정 2번 2026-08-27 개정에 따른 것이고 채널 결정은 불변이다 | Tech Lead | 완료 ([PR 177](https://github.com/team-savers/savers-project/pull/177)) |
 | [워킹_스켈레톤_설명.md](../공통_가이드/워킹_스켈레톤_설명.md) 3절 엔드포인트 표의 `POST /v1/devices` 행에 같은 정정 반영. 서버가 아직 `ward` 에게만 보낸다는 사실도 함께 적었다 | Tech Lead | 완료 ([PR 177](https://github.com/team-savers/savers-project/pull/177)) |
+| `packages/contracts/openapi.yaml` 의 `device` 태그 설명과 `POST /v1/devices` 설명 두 곳. v0.10 이 계약을 넓혔는데 산문이 v0.7 서술로 남아 있었다. v0.7 변경 이력 블록은 그 시점 기록이므로 고치지 않는다 | Tech Lead | 완료 ([PR 177](https://github.com/team-savers/savers-project/pull/177)) |
