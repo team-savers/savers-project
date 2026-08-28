@@ -16,10 +16,19 @@
 //   /mockup                 → PRESENTATION-ONLY static mockups, 5 screens
 //                             (pages/Mockup.tsx). Not wired to ../api/* at
 //                             all — hardcoded example data only.
+//   /guardian                → TEMPORARY mock guardian UI preview
+//                             (pages/Guardian.tsx). Reads only fixed data
+//                             from mocks/guardianStatus.ts — not wired to
+//                             ../api/* at all.
+//   /evacuation             → interactive mobile evacuation demo. Local state
+//                             and static mock data only; no API/geolocation.
 //
-// The guardian route (/g/{token}), its page, and the ?s= stage parameter are
-// intentionally not part of the route set. Landing takes only the session
-// token.
+// The `/g/{token}` guardian route and its ?s= stage parameter are not part
+// of the route set yet — `/guardian` above is a mock-only stand-in until the
+// real `/g/{token}` frontend wiring lands. The contract itself (GuardianStatus,
+// GuardianQuestionId, `POST /v1/guardian/{token}/ask`) already exists in
+// packages/contracts/openapi.yaml; what's missing is this frontend route.
+// Landing takes only the session token.
 
 import { useEffect, useRef, useState } from 'react'
 import {
@@ -35,6 +44,8 @@ import { Home } from './pages/Home'
 import { Register } from './pages/Register'
 import { Preview } from './pages/Preview'
 import { Mockup } from './pages/Mockup'
+import { GuardianPreview } from './pages/Guardian'
+import { EvacuationFlow } from './pages/EvacuationFlow'
 import { initSwUpdates } from './lib/swUpdate'
 import { PROFILES } from './mocks/profiles'
 import type { Profile } from './api/types'
@@ -620,6 +631,12 @@ function AppRoutes({ pathname }: { pathname: string }): React.ReactElement {
   }
   if (pathname === '/mockup') {
     return <Mockup />
+  }
+  if (pathname === '/guardian') {
+    return <GuardianPreview />
+  }
+  if (pathname === '/evacuation') {
+    return <EvacuationFlow />
   }
   return <HomeView />
 }
