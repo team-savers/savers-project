@@ -173,5 +173,28 @@ def test_fcm_factory_reuses_existing_named_app_without_send(
 
     assert isinstance(result, FcmDispatcher)
     assert admin.initialized == []
-    assert credentials.paths == []
+    assert credentials.paths == [str(path)]
+    assert messaging.send_calls == 0
+
+
+def test_fcm_factory_rejects_invalid_certificate_with_existing_named_app(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    class _InvalidCredentials:
+        def Certificate(self, path: str) -> object:  # noqa: N802 - Firebase SDK spelling
+            raise ValueError("invalid existing-app certificate")
+
+    path = _fake_credential_file(tmp_path)
+    admin = _Admin(existing={"name": "savers"})
+    messaging = _Messaging()
+    monkeypatch.setattr(
+        dispatch,
+        "_load_firebase",
+        lambda: (admin, _InvalidCredentials(), messaging),
+    )
+
+    with pytest.raises(DispatcherConfigurationError, match="initialization failed"):
+        create_dispatcher("fcm", path)
+
+    assert admin.initialized == []
     assert messaging.send_calls == 0

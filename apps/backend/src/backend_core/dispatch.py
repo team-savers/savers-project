@@ -141,14 +141,13 @@ class FcmDispatcher:
         """
         if self._messaging is None:
             firebase_admin, credentials, messaging = _load_firebase()
+            # Validate the explicitly configured credential even when this process already
+            # owns the named app. Reuse avoids duplicate initialization; it must not turn a
+            # stale or corrupted SAVERS_FCM_SERVICE_ACCOUNT_PATH into a silent success.
+            cred = credentials.Certificate(self._path)
             try:
                 app = firebase_admin.get_app(self._app_name)
             except ValueError:
-                # Build the credential *outside* the init-race try below: a corrupted service
-                # account JSON raises ValueError from Certificate(), and if that were inside
-                # the try it would be swallowed and disguised as "app already exists" — a
-                # config fault masquerading as a benign race. Let it propagate loudly.
-                cred = credentials.Certificate(self._path)
                 try:
                     app = firebase_admin.initialize_app(cred, name=self._app_name)
                 except ValueError:
