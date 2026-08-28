@@ -139,6 +139,7 @@ credentials/
 *.npy
 *.npz
 *.sqlite
+*.sqlite3
 *.db
 
 # 커밋해야 하는 소형 데이터 예외 (반드시 위 무시 규칙보다 아래에 위치해야 동작)

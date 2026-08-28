@@ -1,11 +1,14 @@
 # ADR-0015: 보호자 기기는 사전등록에서 등록하고 보호자 페이지에서 갱신한다
 
-- **상태**: 제안 (Proposed) - 2026-08-24 팀 메신저에서 Backend 가 A안으로 제기하고 AI/RAG 가 확인, 계약과 함께 작성.
-  김도혁 (Backend) 확인 완료
+- **상태**: 승인 (Accepted) - 2026-08-28 김소원 (AI/RAG/프론트엔드) 확인 완료
+  ([PR 184](https://github.com/team-savers/savers-project/pull/184) 리뷰에 확인이 남아 있다).
+  2026-08-24 팀 메신저에서 Backend 가 A안으로 제기하고 AI/RAG 가 확인, 계약과 함께 작성.
+  김도혁 (Backend) 확인은 2026-08-25에 끝나 있었다
   ([PR 122](https://github.com/team-savers/savers-project/pull/122) 승인).
-  **김소원 (AI/RAG/프론트엔드) 확인 대기** - 사전등록 화면과 보호자 페이지가 그쪽 소관이고
+  사전등록 화면과 보호자 페이지가 AI/RAG/프론트엔드 소관인데
   [PR 122](https://github.com/team-savers/savers-project/pull/122),
-  [PR 147](https://github.com/team-savers/savers-project/pull/147) 어디에도 리뷰가 없다.
+  [PR 147](https://github.com/team-savers/savers-project/pull/147) 어디에도 그쪽 리뷰가 없어
+  그 확인만 기다리고 있었다.
   결과 절의 리허설 잔여 등록 정리 절차는
   [이슈 151](https://github.com/team-savers/savers-project/issues/151) 판정으로 정해졌다 -
   이슈가 낸 A, B, C 가 아니라 갱신을 교체로 바꾸는 넷째 안이며, 아래 2026-08-26 개정이 그것이다
@@ -364,7 +367,7 @@ M4 가 폐루프 신뢰성이 아니라 **보호자 가입률 지표**가 되기
 | 항목 | 소관 | 상태 |
 |---|---|---|
 | 계약 v0.7 (`role`, `/v1/guardian/{token}/device`, `pushEnabled`) | Tech Lead | 완료, 이 PR |
-| `Resident.devices` 를 역할별로 분리하고 1차 발송을 `ward` 로 한정. 실제 편집 지점 다섯 - `backend_core/models.py` 250행 `DeviceRegisterRequest` 와 `DeviceUnregisterRequest` 신설, `backend_core/registry.py` 36행 `Resident.devices`(지금 `list[str]` 이라 자료구조부터 바뀐다)와 70행 `register_device`, 76행 `unregister_device`, `api/routes/devices.py` 24행과 36행(해제 핸들러는 `DeviceUnregisterRequest` 를 받는다 - `role` 없음), `backend_core/pipeline.py` 231행 `skipped_no_device` 판정과 249행 `for token in resident.devices` (**231행을 함께 고치지 않으면 발송 0건 실행이 252행에서 `Delivery` 로 기록되어 M1 지연 표본에 섞인다.** 실제 발송이 없어 빠르기까지 하므로 p95 가 좋아지는 방향으로 오염된다), `tests/api/test_main.py` 122행 payload, `tests/backend_core/test_registry.py` 9행, 10행, 16행, 22행(`register_device`, `unregister_device` 직접 호출). **`pipeline.py` 를 빠뜨리면 계약이 `role` 을 나눠도 실제 발송은 전과 같이 전원에게 나간다.** `tests/api/test_cors.py` 는 본문 없는 OPTIONS 프리플라이트라 해당 없다 | Backend | 대기 (8/25 슬롯) |
+| `Resident.devices` 를 역할별로 분리한다. **1차 발송 대상은 결정 2번대로 `ward` 와 `guardian` 양쪽이다** - 이 행이 처음 쓰인 시점의 "1차 발송을 `ward` 로 한정"은 2026-08-27 개정으로 무효이고, `guardian` 버킷을 읽도록 넓히는 일은 아래 별도 행이 맡는다. 실제 편집 지점 다섯 - `backend_core/models.py` 250행 `DeviceRegisterRequest` 와 `DeviceUnregisterRequest` 신설, `backend_core/registry.py` 36행 `Resident.devices`(지금 `list[str]` 이라 자료구조부터 바뀐다)와 70행 `register_device`, 76행 `unregister_device`, `api/routes/devices.py` 24행과 36행(해제 핸들러는 `DeviceUnregisterRequest` 를 받는다 - `role` 없음), `backend_core/pipeline.py` 231행 `skipped_no_device` 판정과 249행 `for token in resident.devices` (**231행을 함께 고치지 않으면 발송 0건 실행이 252행에서 `Delivery` 로 기록되어 M1 지연 표본에 섞인다.** 실제 발송이 없어 빠르기까지 하므로 p95 가 좋아지는 방향으로 오염된다), `tests/api/test_main.py` 122행 payload, `tests/backend_core/test_registry.py` 9행, 10행, 16행, 22행(`register_device`, `unregister_device` 직접 호출). **`pipeline.py` 를 빠뜨리면 계약이 `role` 을 나눠도 실제 발송은 전과 같이 전원에게 나간다.** `tests/api/test_cors.py` 는 본문 없는 OPTIONS 프리플라이트라 해당 없다 | Backend | 대기 (8/25 슬롯) |
 | `/g/` 랜딩의 구독과 해제. `api/types.ts` 의 `DeviceRegisterRequest`(+`DeviceUnregisterRequest`)와 `api/mock.ts` 에 `role` 추가 | AI/RAG/프론트엔드 | 대기 (8/28 보호자 화면 칸) |
 | **`/register` 완료 화면의 보호자 구독 - 본선 후 과제로 내린다**(Tech Lead 판단, 2026-08-25). [역할_일정/03](../역할_일정/03-AI-RAG-프론트엔드.md)에 슬롯이 없고, 8/28 칸의 "보호자 화면 + Q&A UI 7h"는 이 계약 이전 견적이라 여기에 얹으면 조건부인 SHAP 이 아니라 P1 인 보호자 화면이 밀린다. 슬롯을 배정하지 **않기로** 정한 것이지 미결이 아니다. 시연 경로는 아래 문단의 시드로 세운다. [후속_과제.md](../공통_가이드/후속_과제.md) P1 15번에 등재([PR 126](https://github.com/team-savers/savers-project/pull/126)) | AI/RAG/프론트엔드 | 본선 후 |
 | 계약에 `followup_unreachable` 신설, 시스템 이벤트 4종 표기를 5종으로 (`SessionEvent` oneOf/discriminator, 세션당 1회 목록, `POST /v1/session/{token}/events`, `RecordedUserActionEvent`) | Tech Lead | 완료, 이 PR |
@@ -384,4 +387,4 @@ M4 가 폐루프 신뢰성이 아니라 **보호자 가입률 지표**가 되기
 | **1차 `guardian` 발송이 없는 경우의 계상.** `skipped_no_device`(`pipeline.py` 258행 `if not ward_devices`, 적재는 263행)는 `ward` 가 빌 때만 잡으므로 그대로 쓸 수 없다 - 결정 2번대로 그것은 실패가 아니고, 세는 단위도 주민이 아니라 발송 건이다 | Backend | 대기, **이 개정의 선행** |
 | [ADR-0013](0013-m1-measures-push-acceptance.md) 후속 조치의 `Delivery.latency_ms` 계산 시점 이동. 그 행이 "루프가 읽는 버킷이 늘면 그 한정은 사라진다"로 이미 조건을 걸어 두었고([PR 153](https://github.com/team-savers/savers-project/pull/153)), 이 개정이 그 조건을 성립시킨다. **본문 수정 없이 우선순위만 8/28 폐루프 조립 선행으로 올린다** - 시드에서 `guardian` 버킷을 가진 유일한 대상이 `p001`, 곧 킬러 데모 페르소나다 | Backend | 대기, 우선순위 상향 |
 | **`guardian_informed` 는 `GuardianEvidenceType` 에는 들어가되 3질문의 인용 범위에는 넣지 않는다.** 처음에는 매핑표에 넣는 쪽으로 정했으나(Tech Lead 판단, 2026-08-27 오전) 넣을 행이 없었다 - `evacuation_progress` 는 `EvacuationProgressEvidenceType` 이 사용자 행동 12종으로 닫아 두었고, `help_request` 와 `arrival_status` 는 특정 사용자 행동으로 제한된다. **AI/RAG 확인(2026-08-27)으로 그 자리 없음이 우연이 아니라는 것이 확인됐다** - 이번 3질문은 셋 다 **피보호자의 행동과 상태**를 확인하는 질문인데 1차 보호자 통지는 서비스가 보호자에게 한 행위라 축이 다르다. 그래서 `alert_dispatched` 와 같이 "어느 질문의 근거도 아닌 이벤트" 목록(다섯에서 여섯)에 둔다. **보호자 통지 자체를 확인하는 질문이 추가되면 그 질문의 근거가 될 자리이며**, 그 질문을 여는 것은 이번 구간 범위 밖이다 | AI/RAG/프론트엔드 | 확인 완료 (2026-08-27) |
-| 결정자 확인 후 상태를 승인으로 변경 | Tech Lead | 대기 |
+| 결정자 확인 후 상태를 승인으로 변경 | Tech Lead | 완료, 이 PR. 김소원 확인은 [PR 184](https://github.com/team-savers/savers-project/pull/184) 리뷰에 있다 |
