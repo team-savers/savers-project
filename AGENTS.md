@@ -16,7 +16,9 @@ What exists in code today is a **walking skeleton, not a working service**. One 
 The bundled corpus is dummy text marked `[더미]`;
 scoring 근거 일치율 against it measures agreement with a placeholder.
 `apps/frontend/` is a real PWA now, and `src/api/http.ts` implements the contract HTTP adapter,
-but `VITE_USE_MOCK=true` remains the default and most screens still use the mock path;
+but `src/api/client.ts` chooses one adapter for every screen through `VITE_USE_MOCK`,
+which still defaults to `true` — so every screen resolves to the in-memory mock until the flag is flipped,
+and no screen has been run against a live `apps/backend` yet;
 Guardian FCM/Q&A and Evacuation screen wiring remain follow-up work.
 `infra/docker-compose.yml` brings up backend + ai-engine only; the frontend is not a compose service.
 Don't improvise a different structure — extend the one described under "Repo structure convention",
