@@ -201,18 +201,16 @@ export function GuardianRegister({ registrationToken }: Props) {
       setState('unavailable')
       return
     }
-    // apiError — 성공 화면으로 절대 넘어가지 않는다. Guardian.tsx의
-    // PushSubscribeSection과 같은 이유로 status까지 함께 확인한다 — 이
-    // 백엔드는 "보호자 없음"과 FastAPI 자체 검증 실패(422) 모두 같은 code
-    // (INVALID_REQUEST)를 쓰지만 status가 다르다(apps/backend/src/api/
-    // routes/devices.py의 GuardianNotRegisteredError 분기는 400).
-    const isNoGuardian =
+    // apiError — 성공 화면으로 절대 넘어가지 않는다. 이 endpoint의
+    // INVALID_REQUEST는 만료된 링크와 보호자 미등록 등 여러 원인을 포함하므로
+    // 화면에서 하나의 원인으로 단정하지 않는다.
+    const isInvalidRegistration =
       result.error instanceof BackendApiError &&
       result.error.status === 400 &&
       result.error.code === 'INVALID_REQUEST'
     setNotice(
-      isNoGuardian
-        ? '이 대상자에게는 등록된 보호자가 없어 등록할 수 없어요.'
+      isInvalidRegistration
+        ? '등록 정보를 확인할 수 없어요. 전달받은 링크를 다시 확인해 주세요.'
         : '알림 등록에 실패했습니다. 잠시 뒤 다시 시도해 주세요.',
     )
     setState('error')

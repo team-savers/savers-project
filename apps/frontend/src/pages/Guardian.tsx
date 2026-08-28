@@ -33,7 +33,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import './GuardianPushControl.css'
 import rain from '../assets/rain.webp'
 import type { GuardianStatus, SafetyStatus } from '../api/types'
-import { api } from '../api/client'
+import { api, BackendApiError } from '../api/client'
 import { requestPushPermissionForGuardian } from '../lib/push'
 import {
   readGuardianFcmToken,
@@ -221,8 +221,15 @@ export function Guardian({ token }: GuardianProps) {
 
   async function reloadStatus(): Promise<void> {
     if (token === undefined) return
-    const next = await api.getGuardianStatus(token)
-    setStatus(next)
+    const isInitialLoad = status === null
+    setLoadError(false)
+    try {
+      const next = await api.getGuardianStatus(token)
+      setStatus(next)
+    } catch (error) {
+      if (isInitialLoad) setLoadError(true)
+      throw error
+    }
   }
 
   useEffect(() => {
@@ -247,7 +254,14 @@ export function Guardian({ token }: GuardianProps) {
   }, [token])
 
   if (loadError) {
-    return <main style={{ ...SHELL, padding: gutter }}>보호자 상태를 불러오지 못했습니다.</main>
+    return (
+      <main style={{ ...SHELL, padding: gutter }}>
+        <p>보호자 상태를 불러오지 못했습니다.</p>
+        <button type="button" onClick={() => void reloadStatus().catch(() => {})}>
+          다시 시도
+        </button>
+      </main>
+    )
   }
   if (status === null) {
     return <main style={{ ...SHELL, padding: gutter }}>보호자 상태를 확인하는 중입니다.</main>
@@ -258,9 +272,10 @@ export function Guardian({ token }: GuardianProps) {
       {screen === 'alert' && (
         <AlertScreen
           district={token === undefined ? alert.district : (status.dongName ?? '')}
-          disaster={alert.disaster}
+          disaster={token === undefined ? alert.disaster : null}
           personName={token === undefined ? protectedPerson.name : status.wardName}
-          sentAt={alert.sentAt}
+          sentAt={token === undefined ? alert.sentAt : null}
+          preview={token === undefined}
           onConfirm={() => setScreen('status')}
         />
       )}
@@ -352,13 +367,14 @@ function HeaderBar({
 
 interface AlertScreenProps {
   district: string
-  disaster: string
+  disaster: string | null
   personName: string
-  sentAt: string
+  sentAt: string | null
+  preview: boolean
   onConfirm: () => void
 }
 
-function AlertScreen({ district, disaster, personName, sentAt, onConfirm }: AlertScreenProps) {
+function AlertScreen({ district, disaster, personName, sentAt, preview, onConfirm }: AlertScreenProps) {
   return (
     <main
       style={{
@@ -406,7 +422,9 @@ function AlertScreen({ district, disaster, personName, sentAt, onConfirm }: Aler
         >
           보호자님,
           <br />
-          {district} 지역에 {disaster} 발령 안내가 있어
+          {preview
+            ? `${district} 지역에 ${disaster ?? ''} 발령 안내가 있어`
+            : `${district !== '' ? `${district} 지역에 ` : ''}재난 안내가 있어`}
           <br />
           {personName}님께 안내 메시지를
           <br />
@@ -444,8 +462,12 @@ function AlertScreen({ district, disaster, personName, sentAt, onConfirm }: Aler
             </svg>
           </span>
           <div style={{ minWidth: 0 }}>
-            <p style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: GC.text }}>안내 메시지 발송 완료</p>
-            <p style={{ margin: '2px 0 0', fontSize: '14px', color: GC.textMuted }}>{sentAt}</p>
+            <p style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: GC.text }}>
+              {preview ? '안내 메시지 발송 완료' : '재난 안내 전달 완료'}
+            </p>
+            {preview && sentAt !== null && (
+              <p style={{ margin: '2px 0 0', fontSize: '14px', color: GC.textMuted }}>{sentAt}</p>
+            )}
           </div>
         </div>
       </div>
@@ -539,6 +561,21 @@ function StatusScreen({
                   {status.dongName}
                 </p>
               )}
+              <span
+                style={{
+                  display: 'inline-block',
+                  marginTop: '8px',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  color: GC.textMuted,
+                  background: GC.surfaceSoft,
+                  border: `1px solid ${GC.line}`,
+                  borderRadius: `${radius.chip}px`,
+                  padding: '4px 12px',
+                }}
+              >
+                {SAFETY_STATUS_LABEL[status.safetyStatus]}
+              </span>
             </div>
           )}
         </section>
@@ -648,7 +685,16 @@ function GuardianPushControl({
     const result = await requestPushPermissionForGuardian(token)
     setPending(false)
     if (result.status !== 'granted') {
-      setNotice('알림 등록에 실패했습니다. 브라우저 권한과 연결 상태를 확인해 주세요.')
+      const isNoGuardian =
+        result.status === 'apiError' &&
+        result.error instanceof BackendApiError &&
+        result.error.status === 400 &&
+        result.error.code === 'INVALID_REQUEST'
+      setNotice(
+        isNoGuardian
+          ? '이 대상자에게는 등록된 보호자가 없어 등록할 수 없어요.'
+          : '알림 등록에 실패했습니다. 브라우저 권한과 연결 상태를 확인해 주세요.',
+      )
       return
     }
     writeGuardianFcmToken(result.token)
@@ -717,12 +763,12 @@ function GuardianPushControl({
   // 의미를 그대로 담는다.
   const localStateMismatch = subscribed && !serverPushEnabled
   const title = localStateMismatch
-    ? '알림 설정을 다시 확인해 주세요'
+    ? '알림 설정'
     : serverPushEnabled
       ? '알림 받을 휴대폰 변경'
       : '알림 받을 휴대폰 설정'
   const description = localStateMismatch
-    ? '이 휴대폰의 등록 기록과 서버 상태가 달라요. 이 휴대폰으로 다시 등록해 주세요.'
+    ? '이 휴대폰으로 보호자 알림을 다시 설정할 수 있어요.'
     : serverPushEnabled
       ? '보호자 알림을 받을 휴대폰이 이미 등록되어 있어요. 원하면 이 휴대폰으로 변경할 수 있어요.'
       : '이 휴대폰으로 보호자 알림을 받을 수 있어요.'

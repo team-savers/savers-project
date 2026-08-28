@@ -624,7 +624,10 @@ function App() {
   // "새로 불러오기" banner instead of reloading; everywhere else we apply the
   // update quietly (once). The rule is: apply at a safe time, never mid-alert.
   const onAlertRoute =
-    pathname === '/a' || pathname.startsWith('/a/') || pathname.startsWith('/g/')
+    pathname === '/a' ||
+    pathname.startsWith('/a/') ||
+    pathname.startsWith('/g/') ||
+    pathname.startsWith('/r/')
   const { prompt: updatePrompt } = useSwUpdate(onAlertRoute)
 
   return (
