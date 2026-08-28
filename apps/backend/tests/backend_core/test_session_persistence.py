@@ -192,6 +192,30 @@ def test_once_per_session_unique_index_is_db_defence(tmp_path: Path) -> None:
         )
 
 
+def test_idempotency_event_must_belong_to_the_same_session(tmp_path: Path) -> None:
+    path = tmp_path / "sessions.sqlite3"
+    store = _store(path)
+    session_a = _create(store)
+    session_b = _create(store)
+    event_b = store.append_user_event(
+        session_b,
+        key="session-b-key",
+        create=_user_event("choice_screen_viewed"),
+    )
+    event_b_id = store._event_ids[id(event_b)]
+
+    with sqlite3.connect(path) as connection:
+        connection.execute("PRAGMA foreign_keys = ON")
+        with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+            connection.execute(
+                """
+                INSERT INTO session_idempotency(session_token, idempotency_key, event_id)
+                VALUES (?, 'cross-session-key', ?)
+                """,
+                (session_a.token, event_b_id),
+            )
+
+
 def test_expired_session_stays_addressable_as_expired_after_restart(tmp_path: Path) -> None:
     path = tmp_path / "sessions.sqlite3"
     created_at = datetime(2026, 8, 28, 1, 0, tzinfo=UTC)

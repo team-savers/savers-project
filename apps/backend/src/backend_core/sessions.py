@@ -9,8 +9,7 @@ delete it before the user could press [집이에요]. Leak containment is the TT
 shelter search uses it in-request, and it is gone. `SessionRecord` has no field for it and
 should not grow one — see test_no_location_is_persisted.
 
-⚠️ P1 storage is in-memory, so sessions die with the process. A restart mid-alert drops
-live links. SQLite now preserves the records and events across process restarts.
+Session records and events are persisted in SQLite and restored across process restarts.
 """
 
 from __future__ import annotations
@@ -145,7 +144,8 @@ class SessionStore:
                 session_token TEXT NOT NULL REFERENCES sessions(token) ON DELETE CASCADE,
                 event_type TEXT NOT NULL,
                 at TEXT NOT NULL,
-                payload_json TEXT NOT NULL
+                payload_json TEXT NOT NULL,
+                UNIQUE (session_token, id)
             );
 
             CREATE UNIQUE INDEX IF NOT EXISTS ux_once_per_session
@@ -155,8 +155,10 @@ class SessionStore:
             CREATE TABLE IF NOT EXISTS session_idempotency (
                 session_token TEXT NOT NULL REFERENCES sessions(token) ON DELETE CASCADE,
                 idempotency_key TEXT NOT NULL,
-                event_id INTEGER NOT NULL REFERENCES session_events(id) ON DELETE CASCADE,
-                PRIMARY KEY (session_token, idempotency_key)
+                event_id INTEGER NOT NULL,
+                PRIMARY KEY (session_token, idempotency_key),
+                FOREIGN KEY (session_token, event_id)
+                    REFERENCES session_events(session_token, id) ON DELETE CASCADE
             );
 
             CREATE TRIGGER IF NOT EXISTS prevent_exclusive_followup_insert
