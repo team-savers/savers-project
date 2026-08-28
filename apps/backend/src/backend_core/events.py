@@ -49,12 +49,13 @@ UserActionEventType = Literal[
     "arrival_confirmed_by_user",
 ]
 
-# 시스템 이벤트 5종. Backend·푸시 시스템이 관측한 발송·폐루프 상태다. FE 기록 요청으로
-# 받지 않고 서버가 직접 생성한다. `followup_unreachable`은 #122(ADR-0015 결정 7)로 신설된
-# 다섯째 — 보낼 보호자 기기가 없어 2차 발송을 건너뛴 재진입 기록이다.
+# 시스템 이벤트 6종. Backend·푸시 시스템이 관측한 발송·폐루프 상태다. FE 기록 요청으로
+# 받지 않고 서버가 직접 생성한다. `guardian_informed`는 1차 보호자 정보성 통지 접수,
+# `guardian_notified`는 30분 무응답 뒤 2차 발송 접수라 서로 별개이며 함께 존재할 수 있다.
 SystemEventType = Literal[
     "alert_dispatched",
     "push_accepted",
+    "guardian_informed",
     "followup_due",
     "followup_unreachable",
     "guardian_notified",
@@ -64,13 +65,14 @@ EventType = UserActionEventType | SystemEventType
 
 # 「세션당 1건」 = 멱등 제약. 이미 있으면 두 번째 기록은 새 이벤트를 만들지 않고 최초 `at`을
 # 유지한다 — 재시도가 M4(폐루프 2차 발송 성공률)를 부풀리지 못하게 한다. 도착 완료 1종과
-# 시스템 5종이 여기 든다. `followup_unreachable`을 30분마다 다시 남기면 TTL 6시간 동안 최대
+# 시스템 6종이 여기 든다. `followup_unreachable`을 30분마다 다시 남기면 TTL 6시간 동안 최대
 # 12건이 쌓여 「보낼 곳이 없었다」가 열두 번 있었던 일처럼 읽히므로, 이것도 세션당 1회다.
 ONCE_PER_SESSION: frozenset[EventType] = frozenset(
     {
         "arrival_confirmed_by_user",
         "alert_dispatched",
         "push_accepted",
+        "guardian_informed",
         "followup_due",
         "followup_unreachable",
         "guardian_notified",
