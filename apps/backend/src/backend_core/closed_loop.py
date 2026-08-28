@@ -158,15 +158,17 @@ def reconcile_once(
                 ):
                     continue
                 devices = residents.devices_for(resident, "guardian")
-                accepted_at = devices and _send_followup(
-                    record,
-                    devices,
-                    dispatcher,
-                    public_base_url,
-                    _followup_body(ai, events),
-                    success_clock,
-                )
-                if accepted_at:
+                accepted_at: datetime | None = None
+                if devices:
+                    accepted_at = _send_followup(
+                        record,
+                        devices,
+                        dispatcher,
+                        public_base_url,
+                        _followup_body(ai, events),
+                        success_clock,
+                    )
+                if accepted_at is not None:
                     sessions.append_system_event(record, "guardian_notified", now=accepted_at)
                     notified += 1
                 continue
@@ -192,7 +194,7 @@ def reconcile_once(
                 _followup_body(ai, followup_events),
                 success_clock,
             )
-            if accepted_at:
+            if accepted_at is not None:
                 sessions.append_system_event(record, "guardian_notified", now=accepted_at)
                 notified += 1
 
