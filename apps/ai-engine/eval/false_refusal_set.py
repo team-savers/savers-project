@@ -41,6 +41,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from ai_engine.chunking import chunk_csv
 from ai_engine.indexing import chunk_metadata
 from ai_engine.models import Passage, RecipientContext
@@ -118,18 +120,7 @@ def parse_case(raw: dict[str, Any]) -> ProbeCase:
         # `anchorss` block would make an answerable case look uncovered by every corpus.
         raise ProbeCaseError(f"{case_id}: unknown key(s) {sorted(unknown)}")
 
-    anchors_raw = raw.get("anchors") or {}
-    if not isinstance(anchors_raw, dict):
-        raise ProbeCaseError(f"{case_id}: 'anchors' must be an object")
-    unknown_corpora = set(anchors_raw) - {REAL_CORPUS, DUMMY_CORPUS}
-    if unknown_corpora:
-        raise ProbeCaseError(f"{case_id}: unknown anchor corpus {sorted(unknown_corpora)}")
-    anchors = {}
-    for corpus, value in anchors_raw.items():
-        if not isinstance(value, str) or not value.strip():
-            raise ProbeCaseError(f"{case_id}: anchors.{corpus} must be non-empty text")
-        anchors[corpus] = value
-
+    anchors = _parse_anchors(raw.get("anchors") or {}, case_id=case_id)
     if should_answer and not anchors:
         # The anchor *is* the claim that this question is answerable. Without one the case
         # asserts a defect it cannot evidence.
@@ -143,7 +134,7 @@ def parse_case(raw: dict[str, Any]) -> ProbeCase:
     if not isinstance(recipient_override, dict):
         raise ProbeCaseError(f"{case_id}: 'recipient' must be an object")
 
-    return ProbeCase(
+    case = ProbeCase(
         id=case_id,
         question=question,
         note=note,
@@ -151,6 +142,30 @@ def parse_case(raw: dict[str, Any]) -> ProbeCase:
         anchors=anchors,
         recipient_override=recipient_override,
     )
+    # Built once here so a bad override fails at load, naming the case. Left to run time it
+    # surfaces as a bare pydantic ValidationError partway through a scoring pass, with
+    # nothing in it to say which line of which file to go fix.
+    try:
+        case.recipient()
+    except ValidationError as exc:
+        raise ProbeCaseError(
+            f"{case_id}: 'recipient' override is not a valid profile — {exc}"
+        ) from exc
+    return case
+
+
+def _parse_anchors(anchors_raw: Any, *, case_id: str) -> dict[str, str]:
+    if not isinstance(anchors_raw, dict):
+        raise ProbeCaseError(f"{case_id}: 'anchors' must be an object")
+    unknown_corpora = set(anchors_raw) - {REAL_CORPUS, DUMMY_CORPUS}
+    if unknown_corpora:
+        raise ProbeCaseError(f"{case_id}: unknown anchor corpus {sorted(unknown_corpora)}")
+    anchors = {}
+    for corpus, value in anchors_raw.items():
+        if not isinstance(value, str) or not value.strip():
+            raise ProbeCaseError(f"{case_id}: anchors.{corpus} must be non-empty text")
+        anchors[corpus] = value
+    return anchors
 
 
 def iter_cases(path: Path) -> Iterator[ProbeCase]:
@@ -162,7 +177,16 @@ def iter_cases(path: Path) -> Iterator[ProbeCase]:
                 raw = json.loads(line)
             except json.JSONDecodeError as exc:
                 raise ProbeCaseError(f"{path.name}:{lineno}: invalid JSON — {exc}") from exc
-            yield parse_case(raw)
+            if not isinstance(raw, dict):
+                # A line holding a list or a bare string parses fine and then dies inside
+                # `parse_case` with an AttributeError naming neither the file nor the line.
+                raise ProbeCaseError(f"{path.name}:{lineno}: each line must be a JSON object")
+            try:
+                yield parse_case(raw)
+            except ProbeCaseError as exc:
+                # Re-raised with the location: the message already names the case id, but a
+                # case whose *id* is what is malformed has no id to name.
+                raise ProbeCaseError(f"{path.name}:{lineno}: {exc}") from exc
 
 
 def load_cases(directory: Path = PROBE_DIR) -> list[ProbeCase]:

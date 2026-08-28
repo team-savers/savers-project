@@ -13,9 +13,9 @@ split `run_grounding_eval.py` documents. Schema and anchor integrity are checked
 **What is being measured, and what is not.** `/v1/answer` refuses with a single
 `refusalReason: no_evidence` whatever went wrong upstream, so the contract cannot tell a
 recall failure apart from a guardrail block. This script re-derives the stage by replaying
-the same deterministic pipeline `answer_question` runs, and cross-checks that the replay
-reaches the same verdict (`diagnosisAgrees` in the report). Three stages, and issue #24
-asks which of them is doing the refusing:
+the same deterministic pipeline `answer_question` runs, and cross-checks the replay against
+the real call on both the verdict and the evidence it was reached with
+(`diagnosisAgrees` in the report). Three stages, and issue #24 asks which is refusing:
 
     retrieval_empty    검색이 0건 — 생성도 가드레일도 실행되지 않는다
     generator_refusal  모델이 NO_EVIDENCE를 냈다 — 프롬프트 7번 규칙
@@ -35,8 +35,10 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from statistics import median
 from typing import Any
 
 from false_refusal_set import (
@@ -66,11 +68,22 @@ from ai_engine.models import AnswerRequest, Passage
 from ai_engine.retrieval import FixtureRetriever, profile_tags
 
 DEFAULT_OUT = Path(__file__).parent / "reports"
-TOP_K = 4
 
 # `answer_question` searches with these; the replay must match or it diagnoses a different
 # retrieval than the one that actually ran. Kept next to each other for that reason.
+#
+# ⚠️ `TOP_K` mirrors the literal inside `ai_engine.generation.answer_question`, which
+# exports no constant to import. A silent drift would leave `anchorRank` describing a
+# retrieval the engine never performed, so it is not left to review: every delivered case
+# compares the replay's passages against the real call's `sources`, and a mismatch clears
+# `diagnosisAgrees` (see `_run_case`).
+TOP_K = 4
 DISASTER = {"type": "flood", "severity": "warning"}
+
+# One switch for both the real call and the replay. Splitting them lets a future on/off
+# comparison set one and forget the other, at which point the stage column would describe
+# a guardrail configuration the request never ran under.
+GUARDRAIL_ENABLED = True
 
 STAGE_RETRIEVAL = "retrieval_empty"
 STAGE_GENERATOR = "generator_refusal"
@@ -93,7 +106,7 @@ def _request(case: ProbeCase) -> AnswerRequest:
             "question": case.question,
             "recipient": case.recipient().model_dump(by_alias=True),
             "disaster": DISASTER,
-            "guardrail": True,
+            "guardrail": GUARDRAIL_ENABLED,
         }
     )
 
@@ -109,35 +122,49 @@ def _search(case: ProbeCase, retriever: FixtureRetriever) -> list[Passage]:
     )
 
 
-def _diagnose(
-    case: ProbeCase, retriever: FixtureRetriever, generator: Generator
-) -> tuple[str, list[str], str | None]:
-    """Replay the pipeline to find *which* stage refused. Returns (stage, violations, body).
+@dataclass(frozen=True)
+class Diagnosis:
+    """Which stage refused, and the evidence the replay saw getting there."""
+
+    stage: str
+    violations: list[str]
+    body: str | None
+    passages: list[Passage]
+
+
+def _diagnose(case: ProbeCase, retriever: FixtureRetriever, generator: Generator) -> Diagnosis:
+    """Replay the pipeline to find *which* stage refused.
 
     Deterministic replay of `ai_engine.generation.answer_question`, not a reimplementation
     of its policy: every decision below is made by the engine's own function
     (`retriever.search`, `generator.complete`, `guardrail.verify`). The caller cross-checks
     the verdict against the real call, so a drift between the two surfaces as
     `diagnosisAgrees: false` rather than as a confidently wrong classification.
+
+    ⚠️ **An empty body is a `guardrail_block`, not a `generator_refusal`.** Only the
+    explicit `NO_EVIDENCE` sentinel is the prompt refusing (rule 7). Empty output is caught
+    downstream by `verify` as the `empty_output` violation — which is exactly what
+    `answer_question` does with it — and calling it a prompt problem would hand the fix to
+    the wrong owner the moment a real model starts returning blanks.
     """
     passages = _search(case, retriever)
     if not passages:
-        return STAGE_RETRIEVAL, [], None
+        return Diagnosis(STAGE_RETRIEVAL, [], None, passages)
 
     prompt = build_prompt("", recipient_summary(case.recipient()), passages, question=case.question)
     body = generator.complete(prompt).strip()
-    if body == NO_EVIDENCE_SENTINEL or not body:
-        return STAGE_GENERATOR, [], body
+    if body == NO_EVIDENCE_SENTINEL:
+        return Diagnosis(STAGE_GENERATOR, [], body, passages)
 
     report = verify(
         body,
         GuardrailContext.from_passages(passages, ()),
-        enabled=True,
+        enabled=GUARDRAIL_ENABLED,
         require_directive=False,
     )
     if not report.passed:
-        return STAGE_GUARDRAIL, list(report.violations), body
-    return STAGE_DELIVERED, [], body
+        return Diagnosis(STAGE_GUARDRAIL, list(report.violations), body, passages)
+    return Diagnosis(STAGE_DELIVERED, [], body, passages)
 
 
 def _share(part: int, whole: int) -> float | None:
@@ -147,16 +174,6 @@ def _share(part: int, whole: int) -> float | None:
     a 부당 거절률 of 0.0 over an empty denominator would read as a perfect run.
     """
     return None if whole == 0 else part / whole
-
-
-def _median(values: list[float]) -> float | None:
-    if not values:
-        return None
-    ordered = sorted(values)
-    middle = len(ordered) // 2
-    if len(ordered) % 2:
-        return ordered[middle]
-    return (ordered[middle - 1] + ordered[middle]) / 2
 
 
 def _anchor_rank(case: ProbeCase, corpus: str, passages: list[Passage]) -> int | None:
@@ -206,11 +223,28 @@ def _anchor_overlap(case: ProbeCase, corpus: str, retriever: FixtureRetriever) -
 def _run_case(
     case: ProbeCase, corpus: str, retriever: FixtureRetriever, generator: Generator
 ) -> dict[str, Any]:
+    # Two passes over the pipeline per case, and no more: the real call decides the verdict,
+    # the replay explains it, and the replay's own passages are reused instead of searching
+    # a third time. The second generation is the price of the cross-check — with a paid
+    # model behind the `Generator` seam this run costs 2x, which is the trade for being able
+    # to say *why* a case refused rather than only *that* it did.
     response = answer_question(_request(case), retriever, generator)
-    stage, violations, body = _diagnose(case, retriever, generator)
-    passages = _search(case, retriever)
+    diagnosis = _diagnose(case, retriever, generator)
+    stage, violations, body, passages = (
+        diagnosis.stage,
+        diagnosis.violations,
+        diagnosis.body,
+        diagnosis.passages,
+    )
 
     answered = response.answer is not None
+    # A delivered answer cites what it was built from, so the quotes are the one observable
+    # the two paths share. If they diverge, the replay searched differently than the engine
+    # did — a drifted `TOP_K` being the realistic cause — and every passage-derived column
+    # below (`anchorRank`, `retrievedCount`, `topScore`) is describing the wrong retrieval.
+    evidence_matches = not answered or [s.quote for s in response.sources] == [
+        p.text for p in passages
+    ]
     return {
         "id": case.id,
         "question": case.question,
@@ -231,16 +265,14 @@ def _run_case(
         "topScore": passages[0].score if passages else None,
         "answer": response.answer,
         "body": body,
-        # If the replay and the real call ever disagree, the stage column is describing a
-        # pipeline that did not run. Reported rather than asserted so one drifting case
-        # does not throw away the whole run.
-        "diagnosisAgrees": answered == (stage == STAGE_DELIVERED),
+        # If the replay and the real call ever disagree — on the verdict or on the evidence
+        # they reached it with — the stage column is describing a pipeline that did not run.
+        # Reported rather than asserted so one drifting case does not throw away the run.
+        "diagnosisAgrees": answered == (stage == STAGE_DELIVERED) and evidence_matches,
     }
 
 
-def evaluate(
-    cases: list[ProbeCase], *, corpus: str, generator: Generator, threshold: float
-) -> dict[str, Any]:
+def evaluate(cases: list[ProbeCase], *, corpus: str, generator: Generator) -> dict[str, Any]:
     retriever = build_retriever(corpus)
     # A case with no anchor for this corpus was never claimed to be answerable *here*.
     # Scoring it would count a coverage gap in a 10-passage placeholder fixture as an
@@ -264,11 +296,12 @@ def evaluate(
         "corpusSize": len(retriever.passages),
         "generator": type(generator).__name__,
         "retriever": type(retriever).__name__,
-        "supportThreshold": threshold,
-        # The engine constant, not the harness default. They agree today; a drift means the
-        # stage column was produced at a threshold the engine no longer uses.
-        "engineSupportThreshold": SUPPORT_THRESHOLD,
-        "thresholdDrift": threshold != SUPPORT_THRESHOLD,
+        # The engine's own constant, read at runtime. There is deliberately no override:
+        # `verify` resolves `SUPPORT_THRESHOLD` at module scope, so a harness-local value
+        # could be printed but never applied — a knob that reports a threshold it did not
+        # use is worse than no knob on a run that feeds a threshold decision. Sweeping the
+        # threshold is issue #23's harness, which varies it where it is actually read.
+        "supportThreshold": SUPPORT_THRESHOLD,
         "minLexicalOverlap": FixtureRetriever.MIN_LEXICAL_OVERLAP,
         "skippedNoAnchor": [c.id for c in cases if c.id not in scored_ids],
         "summary": {
@@ -294,8 +327,14 @@ def evaluate(
             # Probe-set bias, reported as a number instead of a caveat. A set whose
             # questions all sit far above the floor cannot observe the recall failure it
             # was written to look for; `nearFloor` counts the ones that can.
-            "anchorOverlapMedian": _median(
-                [r["anchorOverlap"] for r in answerable if r["anchorOverlap"] is not None]
+            "anchorOverlapMedian": (
+                median(overlaps)
+                if (
+                    overlaps := [
+                        r["anchorOverlap"] for r in answerable if r["anchorOverlap"] is not None
+                    ]
+                )
+                else None
             ),
             "anchorOverlapNearFloor": sum(
                 1
@@ -332,9 +371,9 @@ def _print_report(report: dict[str, Any]) -> None:
         f"  대조군 거절   {_format_pct(summary['correctRefusalRate'])}"
         f"  ({summary['controlCount']}건 중 과소거절 {summary['underRefusalCount']}건, 목표 100%)"
     )
-    median = summary["anchorOverlapMedian"]
+    overlap_median = summary["anchorOverlapMedian"]
     print(
-        f"  질문-근거 겹침 중앙값 {'-' if median is None else f'{median:.3f}'}"
+        f"  질문-근거 겹침 중앙값 {'-' if overlap_median is None else f'{overlap_median:.3f}'}"
         f"  (문턱 {report['minLexicalOverlap']}"
         f" · 문턱 2배 미만 {summary['anchorOverlapNearFloor']}건)"
     )
@@ -344,11 +383,6 @@ def _print_report(report: dict[str, Any]) -> None:
             print(f"    {stage:18s} {count:2d}건  <- {STAGE_OWNER.get(stage, '?')}")
     if not summary["diagnosisAgreesAll"]:
         print("  ⚠️ 단계 진단이 실제 호출과 어긋난 케이스가 있습니다 — 보고서를 확인하세요")
-    if report["thresholdDrift"]:
-        print(
-            f"  ⚠️ 임계값 드리프트: 하네스 {report['supportThreshold']}"
-            f" != 엔진 {report['engineSupportThreshold']}"
-        )
     if report["skippedNoAnchor"]:
         print(f"  이 코퍼스에 앵커 없음 (분모 밖): {', '.join(report['skippedNoAnchor'])}")
 
@@ -363,12 +397,6 @@ def main() -> int:
         default="both",
         help="real = flood_action_manual.csv, dummy = 엔진 기본값인 [더미] 픽스처",
     )
-    parser.add_argument(
-        "--threshold",
-        type=float,
-        default=SUPPORT_THRESHOLD,
-        help="support threshold used by the stage diagnosis (engine default)",
-    )
     args = parser.parse_args()
 
     cases = load_cases(args.probe_dir)
@@ -377,16 +405,13 @@ def main() -> int:
         return 1
 
     corpora = [REAL_CORPUS, DUMMY_CORPUS] if args.corpus == "both" else [args.corpus]
-    reports = [
-        evaluate(cases, corpus=corpus, generator=StubGenerator(), threshold=args.threshold)
-        for corpus in corpora
-    ]
+    reports = [evaluate(cases, corpus=corpus, generator=StubGenerator()) for corpus in corpora]
 
     out = args.out or DEFAULT_OUT / f"false-refusal-{datetime.now(UTC):%Y%m%dT%H%M%SZ}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"runs": reports}, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    print(f"프로브 {len(cases)}건 · 임계값 {args.threshold}")
+    print(f"프로브 {len(cases)}건 · 임계값 {SUPPORT_THRESHOLD} (엔진 상수)")
     for report in reports:
         _print_report(report)
     print(f"\n보고서: {out}")

@@ -113,8 +113,13 @@
 | 단계 | 조건 | 실측 | 소관 |
 |---|---|---|---|
 | `retrieval_empty` | 회수 0건 → 생성·가드레일 미실행 | **2건** (양쪽 코퍼스의 `fr-006`) | 검색 |
-| `generator_refusal` | 모델이 `NO_EVIDENCE` 출력 | 0건 | 프롬프트 7번 규칙 |
-| `guardrail_block` | `verify()` 차단 | **0건** | `SUPPORT_THRESHOLD` |
+| `generator_refusal` | 모델이 `NO_EVIDENCE` 센티널 출력 | 0건 | 프롬프트 7번 규칙 |
+| `guardrail_block` | `verify()` 차단 (빈 출력 포함) | **0건** | `SUPPORT_THRESHOLD` |
+
+빈 출력은 `generator_refusal`이 아니라 `guardrail_block`(`empty_output`)입니다.
+프롬프트가 거절한 것은 `NO_EVIDENCE` 센티널뿐이고,
+빈 문자열은 `answer_question`이 그렇게 하듯 `verify`가 잡습니다 —
+실제 모델이 빈 응답을 내기 시작할 때 원인을 엉뚱한 소관으로 돌리지 않기 위한 구분입니다.
 
 **임계값이 0건인 것을 「임계값이 안전하다」로 읽으면 안 됩니다.**
 `StubGenerator`가 근거 문장을 **그대로 복사**하므로
@@ -247,9 +252,18 @@ python apps/ai-engine/eval/run_false_refusal_probe.py --corpus real
 **이 문서의 표는 8/28 실행분의 사본이며, 코드나 코퍼스가 바뀌면 거짓말이 됩니다.**
 7절 1·2번 중 하나라도 해소되면 표를 갱신하거나 문서를 폐기하십시오.
 
+**임계값을 바꿔 돌리는 옵션은 일부러 두지 않았습니다.**
+`verify`가 `SUPPORT_THRESHOLD`를 모듈 수준에서 읽으므로
+하네스가 받은 값은 **화면에 찍힐 뿐 판정에 반영되지 않습니다.**
+쓰지도 않은 임계값을 보고하는 손잡이는 임계값 판정에 쓰이는 실행에서 특히 위험해서,
+없는 편이 낫습니다. 임계값 스윕은 값을 실제로 읽는 자리에서 바꾸는 #23의 하네스가 합니다.
+
 가드레일은 이 측정에서 **우회하거나 목으로 갈아끼우지 않았습니다.**
 단계 진단은 `guardrail.verify`를 엔진의 임계값 그대로 호출하고,
-진단 결과가 실제 호출의 판정과 어긋나면 보고서의 `diagnosisAgrees`가 알립니다
+진단 결과가 실제 호출과 어긋나면 보고서의 `diagnosisAgrees`가 알립니다.
+판정뿐 아니라 **근거까지** 대조합니다 — 전달된 케이스는 재생이 회수한 근거와
+실제 호출의 `sources` 인용문이 같아야 하고, 어긋나면 `TOP_K` 드리프트처럼
+회수 자체가 달라진 경우이므로 `anchorRank`·`retrievedCount`가 이미 다른 검색을 서술하게 됩니다
 (8/28 실행분은 34건 전건 일치).
 외부 API 호출은 없습니다 — 검색기·생성기 모두 오프라인 구현입니다.
 

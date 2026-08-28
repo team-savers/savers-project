@@ -12,6 +12,8 @@ number nobody reruns.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from false_refusal_set import (
     DUMMY_CORPUS,
@@ -22,8 +24,10 @@ from false_refusal_set import (
     parse_case,
     real_corpus_passages,
 )
+from run_false_refusal_probe import _gate_bigrams
 
 from ai_engine.models import AnswerRequest
+from ai_engine.retrieval import FixtureRetriever
 
 
 def test_probe_set_is_not_empty() -> None:
@@ -110,3 +114,56 @@ def test_unknown_key_is_rejected() -> None:
     # `anchorss` would load fine and leave an answerable case looking uncovered.
     with pytest.raises(ProbeCaseError, match="unknown key"):
         parse_case({"id": "x", "question": "q", "note": "n", "shouldAnswer": True, "anchorss": {}})
+
+
+def test_non_object_line_is_rejected_with_its_location(tmp_path: Path) -> None:
+    """A malformed line names the file and line instead of dying inside `parse_case`."""
+    path = tmp_path / "broken.jsonl"
+    path.write_text('{"id": "ok", "question": "q", "note": "n", "shouldAnswer": false}\n["x"]\n')
+    with pytest.raises(ProbeCaseError, match=r"broken\.jsonl:2"):
+        load_cases(tmp_path)
+
+
+def test_malformed_case_names_its_line(tmp_path: Path) -> None:
+    """A case whose own `id` is malformed has no id to name, so the location has to."""
+    path = tmp_path / "broken.jsonl"
+    path.write_text('{"question": "q", "note": "n", "shouldAnswer": false}\n')
+    with pytest.raises(ProbeCaseError, match=r"broken\.jsonl:1"):
+        load_cases(tmp_path)
+
+
+def test_invalid_recipient_override_is_rejected_at_load() -> None:
+    """Left to run time this is a bare pydantic error naming no case."""
+    with pytest.raises(ProbeCaseError, match="recipient"):
+        parse_case(
+            {
+                "id": "x",
+                "question": "q",
+                "note": "n",
+                "shouldAnswer": False,
+                "recipient": {"housing": "치즈"},
+            }
+        )
+
+
+def test_gate_bigram_mirror_still_matches_the_retriever() -> None:
+    """`run_false_refusal_probe._gate_bigrams` restates `FixtureRetriever`'s tokenization.
+
+    Restating it is deliberate — the diagnostic has to report in the units
+    `MIN_LEXICAL_OVERLAP` is expressed in — but a restatement drifts silently. This pins
+    the copy to the original's *behaviour* rather than its code: the overlap this helper
+    computes must decide retrieval the same way the retriever does.
+    """
+    retriever = build_retriever(REAL_CORPUS)
+    question = "지하 주차장에 차를 세워 뒀는데 지금 빼러 가도 되나요?"
+    query_grams = _gate_bigrams(question)
+    above_floor = [
+        passage
+        for passage in retriever.passages
+        if len(query_grams & _gate_bigrams(passage.text)) / len(query_grams)
+        >= FixtureRetriever.MIN_LEXICAL_OVERLAP
+    ]
+    retrieved = retriever.search(
+        question, disaster_type="flood", tags=[], top_k=len(retriever.passages)
+    )
+    assert {p.id for p in retrieved} == {p.id for p in above_floor}
