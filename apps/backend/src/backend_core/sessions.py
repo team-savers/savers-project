@@ -15,6 +15,7 @@ Session records and events are persisted in SQLite and restored across process r
 from __future__ import annotations
 
 import json
+import re
 import secrets
 import sqlite3
 import threading
@@ -121,7 +122,6 @@ class SessionStore:
         self._load()
 
     def _create_schema(self) -> None:
-        once_types = ", ".join(f"'{event_type}'" for event_type in sorted(ONCE_PER_SESSION))
         schema = """
             CREATE TABLE IF NOT EXISTS sessions (
                 token TEXT PRIMARY KEY,
@@ -148,10 +148,6 @@ class SessionStore:
                 UNIQUE (session_token, id)
             );
 
-            CREATE UNIQUE INDEX IF NOT EXISTS ux_once_per_session
-                ON session_events(session_token, event_type)
-                WHERE event_type IN (__ONCE_TYPES__);
-
             CREATE TABLE IF NOT EXISTS session_idempotency (
                 session_token TEXT NOT NULL REFERENCES sessions(token) ON DELETE CASCADE,
                 idempotency_key TEXT NOT NULL,
@@ -176,7 +172,47 @@ class SessionStore:
                 SELECT RAISE(ABORT, 'exclusive followup event already exists');
             END;
             """
-        self._connection.executescript(schema.replace("__ONCE_TYPES__", once_types))
+        self._connection.executescript(schema)
+        self._ensure_once_per_session_index()
+
+    @staticmethod
+    def _once_index_types(sql: str | None) -> set[str] | None:
+        if sql is None:
+            return None
+        match = re.search(
+            r"WHERE\s+event_type\s+IN\s*\((.*?)\)",
+            sql,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if match is None:
+            return None
+        return set(re.findall(r"'([^']+)'", match.group(1)))
+
+    def _ensure_once_per_session_index(self) -> None:
+        row = self._connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?",
+            ("ux_once_per_session",),
+        ).fetchone()
+        current_sql = None if row is None else row[0]
+        if self._once_index_types(current_sql) == set(ONCE_PER_SESSION):
+            return
+
+        once_types = ", ".join(f"'{event_type}'" for event_type in sorted(ONCE_PER_SESSION))
+        index_sql = """
+            CREATE UNIQUE INDEX ux_once_per_session
+                ON session_events(session_token, event_type)
+                WHERE event_type IN (__ONCE_TYPES__)
+            """.replace("__ONCE_TYPES__", once_types)
+        self._connection.execute("BEGIN IMMEDIATE")
+        try:
+            if row is not None:
+                self._connection.execute("DROP INDEX ux_once_per_session")
+            self._connection.execute(index_sql)
+        except BaseException:
+            self._connection.rollback()
+            raise
+        else:
+            self._connection.commit()
 
     @staticmethod
     def _dump_datetime(value: datetime | None) -> str | None:

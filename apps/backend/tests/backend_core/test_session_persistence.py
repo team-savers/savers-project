@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from backend_core.events import (
+    ONCE_PER_SESSION,
     ExclusiveSystemEventError,
     IdempotencyKeyConflictError,
     UserActionEventCreate,
@@ -190,6 +191,68 @@ def test_once_per_session_unique_index_is_db_defence(tmp_path: Path) -> None:
             """,
             (record.token, datetime.now(UTC).isoformat()),
         )
+
+
+def test_stale_once_per_session_index_is_updated_from_current_taxonomy(tmp_path: Path) -> None:
+    path = tmp_path / "sessions.sqlite3"
+    store = _store(path)
+    stale_types = sorted(ONCE_PER_SESSION)[:-1]
+    stale_sql = ", ".join(f"'{event_type}'" for event_type in stale_types)
+    with store._connection:
+        store._connection.execute("DROP INDEX ux_once_per_session")
+        store._connection.execute(
+            f"""
+            CREATE UNIQUE INDEX ux_once_per_session
+            ON session_events(session_token, event_type)
+            WHERE event_type IN ({stale_sql})
+            """
+        )
+    store._connection.close()
+
+    reopened = _store(path)
+    index_sql = reopened._connection.execute(
+        "SELECT sql FROM sqlite_master WHERE name = 'ux_once_per_session'"
+    ).fetchone()[0]
+
+    assert reopened._once_index_types(index_sql) == set(ONCE_PER_SESSION)
+
+
+def test_failed_once_index_update_rolls_back_to_the_stale_index(tmp_path: Path) -> None:
+    path = tmp_path / "sessions.sqlite3"
+    store = _store(path)
+    record = _create(store)
+    duplicate_type = sorted(ONCE_PER_SESSION)[-1]
+    stale_types = sorted(ONCE_PER_SESSION - {duplicate_type})
+    stale_sql = ", ".join(f"'{event_type}'" for event_type in stale_types)
+    with store._connection:
+        store._connection.execute("DROP INDEX ux_once_per_session")
+        store._connection.execute(
+            f"""
+            CREATE UNIQUE INDEX ux_once_per_session
+            ON session_events(session_token, event_type)
+            WHERE event_type IN ({stale_sql})
+            """
+        )
+        store._connection.executemany(
+            """
+            INSERT INTO session_events(session_token, event_type, at, payload_json)
+            VALUES (?, ?, ?, '{}')
+            """,
+            [
+                (record.token, duplicate_type, datetime.now(UTC).isoformat()),
+                (record.token, duplicate_type, datetime.now(UTC).isoformat()),
+            ],
+        )
+    store._connection.close()
+
+    with pytest.raises(sqlite3.IntegrityError):
+        _store(path)
+
+    with sqlite3.connect(path) as connection:
+        preserved_sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE name = 'ux_once_per_session'"
+        ).fetchone()[0]
+    assert SessionStore._once_index_types(preserved_sql) == set(stale_types)
 
 
 def test_idempotency_event_must_belong_to_the_same_session(tmp_path: Path) -> None:
