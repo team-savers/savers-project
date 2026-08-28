@@ -337,6 +337,34 @@ def test_missing_device_is_unreachable_once_then_waits_for_next_anchor(
     assert dispatcher.sent == []
 
 
+def test_empty_guardian_devices_skip_late_retry_without_new_events(
+    sessions: SessionStore,
+    registry: ResidentRegistry,
+    dispatcher: RecordingDispatcher,
+    event: DisasterEvent,
+) -> None:
+    record = _record(sessions, event)
+    unreachable_at = START + timedelta(seconds=AFTER_S)
+    sessions.append_system_event(record, "followup_unreachable", now=unreachable_at)
+    resident = registry.get(record.user_id)
+    assert resident is not None
+    resident.devices["guardian"].clear()
+    ai = GuardianAi(_generated_answer("호출되면 안 됩니다."))
+
+    summary = _tick(
+        sessions,
+        registry,
+        dispatcher,
+        now=unreachable_at + timedelta(seconds=AFTER_S),
+        ai=ai,
+    )
+
+    assert summary.notified == 0
+    assert ai.calls == []
+    assert dispatcher.sent == []
+    assert _types(sessions, record) == ["alert_dispatched", "followup_unreachable"]
+
+
 def test_late_subscription_sends_without_followup_due(
     sessions: SessionStore,
     registry: ResidentRegistry,
