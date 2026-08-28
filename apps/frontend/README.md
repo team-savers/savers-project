@@ -27,7 +27,7 @@ src/
     types.ts        — 팀 계약(openapi.yaml) 스키마 변환 (프론트 전용 필드는 별도 표시)
     client.ts       — 컴포넌트가 import 하는 유일한 API 진입점 (mock/http 전환)
     mock.ts         — mock 어댑터 (200–600ms 지연, fixture 데이터)
-    http.ts         — 실제 HTTP 어댑터 자리. 지금은 모든 메서드가 예외를 던진다(백엔드 엔드포인트 미구현). VITE_USE_MOCK=false 일 때 활성화되지만, 배선되기 전에는 호출 즉시 실패한다.
+    http.ts         — OpenAPI 계약의 실제 HTTP 어댑터. VITE_USE_MOCK=false일 때 활성화되지만, Guardian FCM/Q&A와 Evacuation 화면 연결은 후속 범위다.
     firestore.ts    — /ops↔/join 크로스디바이스 브리지 (임시, env 4종 모두 있어야 활성)
   lib/
     i18n.ts         — 다국어 UI 사전 (ko/vi), 방향·거리·제외 사유 등 표시 헬퍼

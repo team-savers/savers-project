@@ -9,13 +9,16 @@
 // the old GET /v1/shelters) is visible at the API boundary without
 // consumers reaching past this module.
 //
-// The browser-facing v0.3 ApiClient methods (mirroring operationIds in
+// The browser-facing v0.10 ApiClient methods (mirroring operationIds in
 // packages/contracts/openapi.yaml 1:1):
-//   getSession · postSessionResponse · getRegistrationTarget ·
-//   searchShelters · postChat · registerDevice · unregisterDevice ·
-//   getGuardianStatus · postGuardianAcknowledge
-// (The internal `postGenerate` operationId is backend↔ai-engine only and is
-// intentionally not on this client.)
+//   getSession · postSessionResponse · postSessionEvent ·
+//   getRegistrationTarget · searchShelters · postChat · registerDevice ·
+//   unregisterDevice · getGuardianStatus · postGuardianAcknowledge ·
+//   registerGuardianDevice · unregisterGuardianDevice · postGuardianAsk
+// (The internal `postGenerate` / `postAnswer` / `postGuardianAnswer`
+// operationIds and the backend-internal `getSessionEvents` are
+// backend↔ai-engine / internal-only and are intentionally not on this
+// client.)
 
 import type { ApiClient, Ack, Profile } from './types'
 import { mockAdapter } from './mock'
