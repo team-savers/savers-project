@@ -1,11 +1,14 @@
 # ADR-0015: 보호자 기기는 사전등록에서 등록하고 보호자 페이지에서 갱신한다
 
-- **상태**: 제안 (Proposed) - 2026-08-24 팀 메신저에서 Backend 가 A안으로 제기하고 AI/RAG 가 확인, 계약과 함께 작성.
-  김도혁 (Backend) 확인 완료
+- **상태**: 승인 (Accepted) - 2026-08-28 김소원 (AI/RAG/프론트엔드) 확인 완료
+  ([PR __N__](https://github.com/team-savers/savers-project/pull/__N__) 리뷰에 확인이 남아 있다).
+  2026-08-24 팀 메신저에서 Backend 가 A안으로 제기하고 AI/RAG 가 확인, 계약과 함께 작성.
+  김도혁 (Backend) 확인은 2026-08-25에 끝나 있었다
   ([PR 122](https://github.com/team-savers/savers-project/pull/122) 승인).
-  **김소원 (AI/RAG/프론트엔드) 확인 대기** - 사전등록 화면과 보호자 페이지가 그쪽 소관이고
+  사전등록 화면과 보호자 페이지가 AI/RAG/프론트엔드 소관인데
   [PR 122](https://github.com/team-savers/savers-project/pull/122),
-  [PR 147](https://github.com/team-savers/savers-project/pull/147) 어디에도 리뷰가 없다.
+  [PR 147](https://github.com/team-savers/savers-project/pull/147) 어디에도 그쪽 리뷰가 없어
+  그 확인만 기다리고 있었다.
   결과 절의 리허설 잔여 등록 정리 절차는
   [이슈 151](https://github.com/team-savers/savers-project/issues/151) 판정으로 정해졌다 -
   이슈가 낸 A, B, C 가 아니라 갱신을 교체로 바꾸는 넷째 안이며, 아래 2026-08-26 개정이 그것이다

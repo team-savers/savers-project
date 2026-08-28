@@ -1,9 +1,19 @@
 # ADR-0019: 2026-08-11 재편 이후 Tech Lead는 코드를 쓰지 않고 인프라는 PM이 갖는다
 
-- **상태**: 제안 (Proposed) - 재편이 2026-08-11에 있었으나 ADR 번호가 없어
-  승격 요청을 받았다([AGENTS.md](../../AGENTS.md) 검토 중 표 4행). 결정자 확인 대기
+- **상태**: 승인 (Accepted) - 2026-08-28 안은남 (PM), 김도혁 (Backend) 확인 완료
+  ([PR __N__](https://github.com/team-savers/savers-project/pull/__N__) 리뷰에 두 확인이 다 남아 있다).
+  재편이 2026-08-11에 있었으나 ADR 번호가 없어
+  승격 요청을 받았고([AGENTS.md](../../AGENTS.md) 검토 중 표 4행),
+  2026-08-26에 이 문서로 옮겼다
+- **개정**: 2026-08-28, 제안 상태에서 확인자에 김도혁 (Backend) 을 넣었다.
+  승인 전이므로 사후편집 금지에 해당하지 않는다.
+  이 문서가 본선 당일 현장 인프라 대응을 Backend 몫으로 고정하는데
+  확인자 명단에는 PM 만 있어,
+  [ADR-0018](0018-three-layers-three-core-technologies.md) 이 세운
+  "내용이 누군가의 일을 정하면 그 일을 할 사람의 확인도 함께 받는다" 는 기준과 어긋난다는
+  지적을 받았다([PR 157](https://github.com/team-savers/savers-project/pull/157) PM 리뷰)
 - **날짜**: 2026-08-26 (기록) / 2026-08-11 (재편)
-- **결정자**: 신호정 (Tech Lead) 작성 / 안은남 (PM) 확인 대기
+- **결정자**: 신호정 (Tech Lead) 작성 / 안은남 (PM), 김도혁 (Backend) 확인
 - **대체 관계**: [ADR-0002](0002-frontloaded-tech-lead.md)의 **"초반 집중 - Tech Lead 전담" 2번, 4번**
   (워킹 스켈레톤, 레포 스캐폴딩과 CI와 docker-compose와 평가 하네스 골격)과
   **"이후 - 리뷰, 자문 중심"의 이관 표**를 대체한다.
