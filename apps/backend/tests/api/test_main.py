@@ -7,14 +7,28 @@ that must exist even when null, `Cache-Control: no-store` on sensitive responses
 Convention: tests/ mirrors src/ (src/api/main.py -> tests/api/test_main.py).
 """
 
+import json
+
 from conftest import FakeAiEngine
 from fastapi.testclient import TestClient
+
+from backend_core.sessions import SessionStore
 
 
 def _dispatch(client: TestClient) -> dict:
     response = client.post("/internal/alerts/dispatch")
     assert response.status_code == 200
     return response.json()
+
+
+def _token_for(client: TestClient, *, stairs_ok: bool) -> str:
+    """세션 토큰을 프로필의 stairsOk로 고른다 — 시드 페르소나 순서에 의존하지 않는다."""
+    for delivery in _dispatch(client)["deliveries"]:
+        token = delivery["sessionToken"]
+        profile = client.get(f"/v1/session/{token}").json()["profile"]
+        if profile["stairsOk"] == stairs_ok:
+            return token
+    raise AssertionError(f"no seeded delivery with stairsOk={stairs_ok}")
 
 
 def test_health(client: TestClient) -> None:
@@ -97,6 +111,70 @@ def test_shelter_search_requires_a_live_session(client: TestClient) -> None:
         "/v1/shelters/search", json={"sessionToken": "s_nope", "dongCode": "1162064500"}
     )
     assert response.status_code == 404
+
+
+def test_shelter_items_always_carry_cautions_and_rank_no_caution_first(
+    client: TestClient,
+) -> None:
+    """계약상 required인 cautions가 항목마다 실리고, 주의 없는 항목이 앞선다.
+
+    계단 불가 프로필(p001)이라 계단 시설에는 stairs 주의가 붙는다 — 서버가 세션 토큰 뒤
+    프로필로 판정한다는 뜻이다(본문은 stairsOk를 싣지 않는다).
+    """
+    token = _token_for(client, stairs_ok=False)  # p001: stairsOk=False
+    body = client.post(
+        "/v1/shelters/search",
+        json={
+            "sessionToken": token,
+            "dongCode": "1162064500",
+            "lat": 37.4842,
+            "lng": 126.9295,
+            "limit": 10,
+        },
+    ).json()
+
+    items = body["items"]
+    assert items
+    assert all(isinstance(item["cautions"], list) for item in items)
+    stepped = [item for item in items if item["hasStairs"]]
+    assert stepped and all("stairs" in item["cautions"] for item in stepped)
+    flags = [bool(item["cautions"]) for item in items]
+    assert flags == sorted(flags), "주의 없는 항목이 주의 붙은 항목보다 앞서야 한다"
+
+
+def test_shelter_cautions_come_from_the_profile_not_the_request(client: TestClient) -> None:
+    """계단을 쓸 수 있는 프로필(p002)에는 계단 시설이어도 stairs 주의가 붙지 않는다."""
+    token = _token_for(client, stairs_ok=True)  # p002: stairsOk=True
+    body = client.post(
+        "/v1/shelters/search",
+        json={
+            "sessionToken": token,
+            "dongCode": "1162064500",
+            "lat": 37.4842,
+            "lng": 126.9295,
+            "limit": 10,
+        },
+    ).json()
+    stepped = [item for item in body["items"] if item["hasStairs"]]
+    assert stepped and all("stairs" not in item["cautions"] for item in stepped)
+
+
+def test_shelter_search_persists_no_coordinate(client: TestClient, sessions: SessionStore) -> None:
+    """cautions는 응답 전용 — 검색이 좌표를 세션·이벤트에 남기지 않는다(M3 무저장·무로깅)."""
+    token = _token_for(client, stairs_ok=False)
+    client.post(
+        "/v1/shelters/search",
+        json={
+            "sessionToken": token,
+            "dongCode": "1162064500",
+            "lat": 37.4842,
+            "lng": 126.9295,
+        },
+    )
+    record = sessions.get(token)
+    dumped = json.dumps([event.model_dump(mode="json") for event in sessions.events_of(record)])
+    assert "37.4842" not in dumped
+    assert "126.9295" not in dumped
 
 
 def test_chat_keeps_the_null_answer_key(client: TestClient, ai: FakeAiEngine) -> None:
