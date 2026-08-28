@@ -902,7 +902,7 @@ def test_worker_tick_error_preserves_observation_state_and_cadence(caplog) -> No
 
 @pytest.mark.parametrize(
     ("finished_at", "expected"),
-    [(8.0, 10.0), (13.0, 15.0), (17.0, 20.0)],
+    [(8.0, 10.0), (10.0, 10.0), (13.0, 15.0), (17.0, 20.0)],
 )
 def test_worker_deadline_stays_on_five_second_grid(finished_at: float, expected: float) -> None:
     assert _next_deadline(5.0, finished_at, 5) == expected

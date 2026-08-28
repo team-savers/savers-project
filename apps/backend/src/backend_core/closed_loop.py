@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from collections.abc import Callable
@@ -80,8 +81,8 @@ def _unreachable_due(
 def _next_deadline(deadline: float, finished_at: float, interval_s: int) -> float:
     """Advance on the original cadence grid, skipping deadlines already missed."""
     next_deadline = deadline + interval_s
-    if next_deadline <= finished_at:
-        missed = int((finished_at - next_deadline) // interval_s) + 1
+    if next_deadline < finished_at:
+        missed = math.ceil((finished_at - next_deadline) / interval_s)
         next_deadline += missed * interval_s
     return next_deadline
 
