@@ -892,3 +892,14 @@ def test_verifier_preserves_adr_violation_codes() -> None:
         "malformed_evidence",
         "forbidden_phrase",
     }
+
+
+def test_guardian_informed_is_accepted_but_not_cited() -> None:
+    events = [
+        event("guardian_informed", "2026-08-24T01:10:00Z"),
+    ]
+
+    response = answer_guardian_question("arrival_status", events)
+
+    assert response.answer is not None
+    assert all(source.type != "guardian_informed" for source in response.sources)

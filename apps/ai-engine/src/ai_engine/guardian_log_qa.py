@@ -80,6 +80,7 @@ GuardianEvidenceType = Literal[
     "followup_due",
     "followup_unreachable",
     "guardian_notified",
+    "guardian_informed",
 ]
 
 
