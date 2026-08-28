@@ -35,7 +35,7 @@
 
 import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
-import fcmIllustration from '../assets/fcm.png'
+import fcmIllustration from '../assets/fcm.webp'
 import { api, BackendApiError } from '../api/client'
 import type { RegistrationTarget } from '../api/types'
 import { requestPushPermissionForGuardianRegistration } from '../lib/push'
@@ -268,7 +268,7 @@ export function GuardianRegister({ registrationToken }: Props) {
           // paddingTop/paddingBottom 비대칭도 idle과 동일한 값을 그대로
           // 맞췄다. 제목/본문은 새 스타일을 만들지 않고 idle에서 쓰는
           // titleStyle/bodyStyle을 그대로 재사용해 두 화면의 타이포 무게를
-          // 맞춘다(요청 §4). fcm.png와 버튼은 추가하지 않는다(요청 §3) —
+          // 맞춘다(요청 §4). fcm.webp와 버튼은 추가하지 않는다(요청 §3) —
           // 완료 후에는 추가 행동이 없는 심플한 화면으로 유지.
           <div
             style={{
