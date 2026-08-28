@@ -508,5 +508,15 @@ class SessionStore:
             snapshot = list(record.events)
         return sorted(snapshot, key=lambda event: event.at)
 
+    def records(self) -> list[SessionRecord]:
+        """Snapshot of all records for read-only domain scans.
+
+        The list is copied under the store lock; its records retain the existing identity-
+        based API and must be mutated only through ``SessionStore`` methods. Expired records
+        are included so callers can apply one explicit observation time consistently.
+        """
+        with self._lock:
+            return list(self._by_token.values())
+
     def __len__(self) -> int:
         return len(self._by_token)
