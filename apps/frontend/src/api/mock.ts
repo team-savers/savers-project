@@ -35,6 +35,7 @@ import type {
   UserActionEventCreate,
   UserActionEventType,
 } from './types'
+import { ApiRequestError } from './http'
 import { PROFILES } from '../mocks/profiles'
 import {
   SHELTERS_ALL_EXCLUDED_VERTICAL,
@@ -70,7 +71,7 @@ export const DEMO_AREA_COORDS: ReadonlyArray<{ lat: number; lng: number }> = [
 // The 12 user-action SessionEvent types, in the order openapi.yaml lists
 // them. Used by the guardian-ask mock to cite "not found" evidence for every
 // type when a session has no recorded history (see postGuardianAsk below).
-const USER_ACTION_EVENT_TYPES: readonly UserActionEventType[] = [
+const USER_ACTION_EVENT_TYPES = [
   'situation_check_selected',
   'profile_review_started',
   'profile_review_completed',
@@ -83,7 +84,7 @@ const USER_ACTION_EVENT_TYPES: readonly UserActionEventType[] = [
   'next_guidance_requested',
   'emergency_call_119_selected',
   'arrival_confirmed_by_user',
-]
+] as const satisfies readonly [UserActionEventType, ...UserActionEventType[]]
 
 // Minimal mock server-side state for POST/DELETE /v1/guardian/{token}/device.
 // Maps a guardian token to the set of GuardianDeviceRegisterRequest.fcmToken
@@ -507,6 +508,8 @@ export const mockAdapter: ApiClient = {
       openedAt: null,
       respondedAt: null,
       lastResponse: 'none',
+      // This mock does not simulate either guardian notice being sent.
+      lastNotice: 'none',
       // v0.3: safetyStatus is always 'unknown' for now (no inference).
       safetyStatus: 'unknown',
       // v0.7: required. Mock server-side state — true when this guardian
@@ -617,16 +620,26 @@ export const mockAdapter: ApiClient = {
           refusalReason: null,
         }
       case 'evacuation_progress':
-      default:
+        const [firstUserActionEventType, ...remainingUserActionEventTypes] =
+          USER_ACTION_EVENT_TYPES
         return {
           questionId: 'evacuation_progress',
           answer: '현재 세션의 사용자 행동은 기록에서 확인되지 않습니다.',
-          sources: USER_ACTION_EVENT_TYPES.map((type) => ({
-            type,
-            present: false as const,
-          })),
+          sources: [
+            { type: firstUserActionEventType, present: false },
+            ...remainingUserActionEventTypes.map((type) => ({
+              type,
+              present: false as const,
+            })),
+          ],
           refusalReason: null,
         }
+      default:
+        throw new ApiRequestError(
+          `unsupported guardian questionId: ${String(req.questionId)}`,
+          422,
+          'INVALID_REQUEST',
+        )
     }
   },
 }

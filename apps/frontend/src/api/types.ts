@@ -69,6 +69,8 @@ export type DeviceRole = 'ward' | 'guardian'
 // property of this type.
 export type GuardianLastResponse = 'home' | 'outside' | 'none'
 
+export type GuardianNotice = 'first' | 'followup' | 'none'
+
 // v0.3: where the request location sits relative to the current hazard zone.
 export type HazardMatch = 'inside' | 'outside' | 'unknown'
 
@@ -384,6 +386,9 @@ export interface GuardianStatus {
   // lastResponse by the response POST. Required + nullable.
   respondedAt: string | null
   lastResponse: GuardianLastResponse
+  // Which guardian notice was most recently accepted for this disaster.
+  // Required; `none` means neither the first nor follow-up notice was sent.
+  lastNotice: GuardianNotice
   // v0.3: required. Currently always `unknown` — no inference is made from
   // opens/taps.
   safetyStatus: SafetyStatus
@@ -417,7 +422,7 @@ export interface GuardianAskRequest {
   locale?: 'ko'
 }
 
-// Union of all 17 SessionEvent discriminator keys (12 user actions + 5
+// Union of all 18 SessionEvent discriminator keys (12 user actions + 6
 // system events) — the citable-evidence universe. Mirrors
 // openapi.yaml GuardianEvidenceType 1:1; kept in lockstep with
 // UserActionEventType if that list ever changes.
@@ -425,6 +430,7 @@ export type GuardianEvidenceType =
   | UserActionEventType
   | 'alert_dispatched'
   | 'push_accepted'
+  | 'guardian_informed'
   | 'followup_due'
   | 'followup_unreachable'
   | 'guardian_notified'
@@ -471,24 +477,26 @@ export type ArrivalStatusEvidence = GuardianEvidence<ArrivalStatusEvidenceType>
 // the log shows, never asserts safety (openapi.yaml GuardianAnswerBody).
 export type GuardianAnswerBody = string
 
+export type NonEmptyArray<T> = [T, ...T[]]
+
 export interface GuardianAnswerEvacuationProgress {
   questionId: 'evacuation_progress'
   answer: GuardianAnswerBody
-  sources: EvacuationProgressEvidence[]
+  sources: NonEmptyArray<EvacuationProgressEvidence>
   refusalReason: null
 }
 
 export interface GuardianAnswerHelpRequest {
   questionId: 'help_request'
   answer: GuardianAnswerBody
-  sources: HelpRequestEvidence[]
+  sources: NonEmptyArray<HelpRequestEvidence>
   refusalReason: null
 }
 
 export interface GuardianAnswerArrivalStatus {
   questionId: 'arrival_status'
   answer: GuardianAnswerBody
-  sources: ArrivalStatusEvidence[]
+  sources: NonEmptyArray<ArrivalStatusEvidence>
   refusalReason: null
 }
 

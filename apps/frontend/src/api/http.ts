@@ -62,7 +62,7 @@ export const PATH_SHELTERS_SEARCH = '/v1/shelters/search'
 
 // Reads from env only — never hardcoded. Empty until the backend ships (a
 // relative path then resolves against the frontend's own origin).
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
+const BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/+$/, '')
 
 // ---- shared request/error plumbing -------------------------------------
 
@@ -81,6 +81,20 @@ export class ApiRequestError extends Error {
     this.status = status
     this.code = code
   }
+}
+
+const ERROR_CODES: readonly ErrorCode[] = [
+  'SESSION_NOT_FOUND',
+  'SESSION_EXPIRED',
+  'INVALID_REQUEST',
+  'IDEMPOTENCY_KEY_CONFLICT',
+  'RATE_LIMITED',
+  'INTERNAL',
+  'UPSTREAM_UNAVAILABLE',
+]
+
+function isErrorCode(value: string): value is ErrorCode {
+  return ERROR_CODES.includes(value as ErrorCode)
 }
 
 interface RequestOptions {
@@ -106,7 +120,10 @@ async function tryReadErrorBody(res: Response): Promise<ApiErrorBody | null> {
       typeof parsed === 'object' &&
       parsed !== null &&
       'code' in parsed &&
-      'message' in parsed
+      typeof parsed.code === 'string' &&
+      isErrorCode(parsed.code) &&
+      'message' in parsed &&
+      typeof parsed.message === 'string'
     ) {
       return parsed as ApiErrorBody
     }
@@ -179,6 +196,13 @@ export const httpAdapter: ApiClient = {
     // (openapi.yaml POST /v1/session/{token}/events, parameters). The caller
     // supplies it — this adapter never invents or randomizes one, since only
     // the caller knows whether this is a fresh user action or a retry.
+    if (
+      typeof idempotencyKey !== 'string' ||
+      idempotencyKey.length < 16 ||
+      idempotencyKey.length > 128
+    ) {
+      throw new Error('Idempotency-Key must be a string of 16 to 128 characters')
+    }
     return request<RecordedUserActionEvent>({
       method: 'POST',
       path: `${PATH_SESSION}${encodeURIComponent(token)}${PATH_SESSION_EVENTS_SUFFIX}`,
