@@ -23,8 +23,8 @@ BASE_URL = "http://localhost:3000"
 
 def _ward_sends(dispatcher: RecordingDispatcher) -> list[PushPayload]:
     """Ward-channel pushes only (deep link `/a?t=`), excluding the guardian first-notice
-    (`/g?t=`, ADR-0015 결정 2). These ward-flow assertions predate the guardian notice and
-    stay ward-scoped; guardian behaviour is covered in test_guardian_notice.py."""
+    (`/g/{guardian_token}`, ADR-0015 결정 2). These ward-flow assertions predate the guardian
+    notice and stay ward-scoped; guardian behaviour is covered in test_guardian_notice.py."""
     return [p for p in dispatcher.sent if "/a?t=" in p.link]
 
 

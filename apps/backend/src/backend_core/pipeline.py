@@ -112,10 +112,12 @@ class AlertRun:
     send_errors: int = 0
     # 보호자 1차 정보성 통지 계상(ADR-0015 결정 2, 이슈 #218). ward 4종과 대칭이되 별개 축이다 —
     # 보호자 접수는 M1 도달률/속도 어디에도 섞이지 않는다. 전건 거부에는 전용 필드를 두지 않고
-    # `guardian_dispatched - guardian_accepted` 로 읽는다(#218).
-    guardian_dispatched: int = 0  # guardian 기기가 1대 이상이라 통지를 시도한 세션 수
+    # `guardian_dispatched - guardian_accepted` 로 읽는다(#218). 계상 모집단은 **ward 로 한 대
+    # 이상 접수된 세션**(= `accepted`)뿐이라, ward 기기 없음·ward 전건 실패 세션은 네 필드 어디에도
+    # 들지 않고 항상 `guardian_dispatched + guardian_skipped_no_device == accepted` 다.
+    guardian_dispatched: int = 0  # 그 모집단 중 guardian 기기가 있어 통지를 시도한 세션 수
     guardian_accepted: int = 0  # 그중 1대 이상 접수된 세션 수 = 남은 guardian_informed 이벤트 수
-    guardian_skipped_no_device: int = 0  # 보호자 없음 또는 guardian 버킷이 빈 세션 수(실패 아님)
+    guardian_skipped_no_device: int = 0  # 그 모집단 중 보호자 없음/guardian 버킷 빔(실패 아님)
     guardian_send_errors: int = 0  # 어댑터가 예외를 던진 보호자 발송 '건수'(세션 수 아님)
 
     @property
@@ -238,8 +240,9 @@ def run_alert(
     )
     # 보호자 통지는 ward 루프 안에서 보내지 않고 여기 모아 2차 패스로 미룬다 — 앞 resident 의
     # 보호자 발송 시간이 뒤 resident 의 ward `latency_ms`(run-level clock 기준)에 얹히는 교차
-    # 오염을 막는다. ward Delivery 를 남긴(=ward 기기가 있던) 세션만 담는다: ward 기기가 없어
-    # 조기 continue 한 세션은 담기지 않으므로 여기서도 보호자 통지가 나가지 않는다.
+    # 오염을 막는다. ward 로 한 대 이상 접수된(=push_accepted 가 남은) 세션만 담는다: ward 기기가
+    # 없어 조기 continue 한 세션과, ward 전 기기가 False/예외로 끝난 세션은 담기지 않으므로
+    # 여기서도 보호자 통지가 나가지 않는다.
     guardian_targets: list[tuple[Resident, SessionRecord]] = []
 
     for resident in residents:
@@ -336,8 +339,14 @@ def run_alert(
             )
         )
 
-        # 이 세션은 ward 기기가 있어 Delivery 를 남겼다 — 2차 패스에서 보호자 통지를 시도한다.
-        guardian_targets.append((resident, session))
+        # 이 세션이 ward 로 한 대 이상 접수된 경우에만 2차 패스에서 보호자 통지를 시도한다
+        # (확정 정책, 이슈 #218). run 전체 `accepted` 가 아니라 이 세션의 `notified` 로 판단해,
+        # 앞 resident 의 접수가 뒤 resident 를 적격 처리하는 교차 resident 오염을 막는다. ward 전
+        # 기기가 False/예외로 끝난(notified=0) 세션은 담기지 않아 guardian 4종 계상 어디에도 들지
+        # 않고 guardian_skipped_no_device 도 여기서 세지 않는다 — ward 기기가 없어 조기 continue 한
+        # 세션과 함께 보호자 통지의 정상 제외 경로다.
+        if notified > 0:
+            guardian_targets.append((resident, session))
 
     # ── 2차 패스: 보호자 1차 정보성 통지(ADR-0015 결정 2, 이슈 #218) ──────────────
     # 모든 ward 발송·Delivery 기록·ward latency 확정이 끝난 뒤 실행한다. 보호자 발송에 걸린
@@ -407,10 +416,12 @@ def _notify_guardian(
         )
         try:
             accepted = dispatcher.send(payload)
-        except Exception:
-            # 한 기기 예외가 다음 기기를 막지 않는다. 식별자 없는 고정 문구로만 남기고 traceback은
-            # 유지한다 — device/session/guardian/registration 토큰은 로그에 싣지 않는다.
-            logger.exception("guardian first-notice dispatch failed")
+        except Exception as exc:
+            # 한 기기 예외가 다음 기기를 막지 않는다. 예외 메시지도 traceback 도 남기지 않는다 —
+            # 실FCM 어댑터의 예외 문자열이 device/session/guardian/registration 토큰이나 링크를
+            # 담을 수 있어서다. 고정 문구와, 민감정보가 될 수 없는 예외 클래스명만 분류로 남긴다
+            # (`logger.exception` 이 아니라 `logger.error`, `exc_info` 없음).
+            logger.error("guardian first-notice dispatch failed (%s)", type(exc).__name__)
             run.guardian_send_errors += 1
             continue
         if accepted and not accepted_this_session:

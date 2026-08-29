@@ -80,10 +80,14 @@ class AlertRunSummary(ContractModel):
     skipped_no_device: list[str]
     # 보호자 1차 정보성 통지 계상(ADR-0015 결정 2, 이슈 #218). ward 4종에 `guardian_` 접두를
     # 붙인 대칭이며 응답 JSON 은 `ContractModel` 의 카멜 별칭(guardianDispatched 등)을 탄다.
-    # `guardian_dispatched`: guardian 기기가 있어 통지를 시도한 세션 수. `guardian_accepted`:
-    # 그중 1대 이상 접수된 세션 수. `guardian_skipped_no_device`: 보호자 없음/버킷 빔(실패 아님,
-    # 정수만). `guardian_send_errors`: 어댑터가 예외를 던진 보호자 발송 건수. 전건 거부 전용
-    # 필드는 두지 않고 `guardian_dispatched - guardian_accepted` 로 읽는다. M1·M4 는 무관하다.
+    # 계상 모집단은 **ward 로 한 대 이상 접수된 세션**(= `accepted`)뿐이다 — ward 기기 없음과
+    # ward 전건 실패(False/예외) 세션은 네 필드 어디에도 들지 않는 정상 제외 경로다. 그래서
+    # 항상 `guardian_dispatched + guardian_skipped_no_device == accepted` 다.
+    # `guardian_dispatched`: 그 모집단 중 guardian 기기가 있어 통지를 시도한 세션 수.
+    # `guardian_accepted`: 그중 1대 이상 접수된 세션 수. `guardian_skipped_no_device`: 그 모집단 중
+    # 보호자 없음/버킷 빔(실패 아님, 정수만). `guardian_send_errors`: 어댑터가 예외를 던진 보호자
+    # 발송 건수. 전건 거부 전용 필드는 두지 않고 `guardian_dispatched - guardian_accepted` 로
+    # 읽는다. M1·M4 는 무관하다.
     guardian_dispatched: int
     guardian_accepted: int
     guardian_skipped_no_device: int

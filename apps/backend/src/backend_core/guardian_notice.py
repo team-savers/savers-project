@@ -5,7 +5,8 @@ ADR-0015 결정 2: 1차 재난 알림은 `ward` 행동 지시와 `guardian` 정�
 달리 생성 계약(ADR-0006)을 타지 않는다 — 그래서 `AlertMessage`·`message_mode`를 재사용하지
 않는다. `message_mode`를 달고 다니면 생성물이 아닌 문장이 생성 지표 쪽 어휘를 물고 들어간다.
 
-⚠️ 문안·필드·링크 형식은 이슈 #218(PM 확정) 원문 그대로다. 임의로 바꾸지 않는다:
+⚠️ 문안·필드는 이슈 #218(PM 확정) 원문 그대로다. 임의로 바꾸지 않는다(링크 경로만 아래
+함수에서 최신 Frontend·OpenAPI 계약 형식에 맞춘다):
 
 - 한국어 고정. `Guardian` 스키마에 로케일 필드가 없고, 방향은 ADR-0021(보호자 Q&A 한국어 전용)과 같다.
 - 30분/30초 같은 숫자를 넣지 않는다 — 시연 플래그가 30분을 30초로 줄이므로 본문에 박으면 어긋난다.
@@ -37,16 +38,17 @@ def guardian_notice_body(dong_name: str, ward_name: str, alert_label: str) -> st
 
 
 def guardian_notice_link(public_base_url: str, guardian_token: str) -> str:
-    """보호자 딥링크. 이슈 #218 확정 형식 `{public_base_url}/g?t={guardian_token}` 그대로다.
+    """보호자 딥링크. 최신 Frontend·OpenAPI 계약의 경로 형식 `{public_base_url}/g/{guardian_token}` 이다.
 
-    프론트에 `/g` 라우트가 아직 없어 홈으로 떨어지지만, 목업 `/guardian` 으로 바꾸지 않는다 —
-    계약이 지향하는 형식을 심고, 이번 시연 범위는 보호자 폰에 알림이 뜨는 것까지다(#218).
+    이전 초안의 쿼리 형식 `/g?t=` 를 대체한다 — 프론트 `/g/:token` 라우트와 OpenAPI 계약이
+    보호자 토큰을 경로 파라미터로 확정했고, 폐루프 2차 발송(`closed_loop`)도 이미 같은 `/g/` 를
+    쓴다. 제목·본문(문안)은 이슈 #218 확정 그대로이며, 여기서 바꾸는 것은 링크 경로뿐이다.
 
     `rstrip("/")` 는 ward 딥링크(`deep_link`)와 같은 정규화다 — trailing slash 가 붙은
-    `public_base_url` 에서 `//g?t=` (protocol-relative URL 로 오독될 수 있는 형태)가 나오는 것을
-    막는다. 기본 설정값(`http://localhost:3000`)에는 슬래시가 없어 결과는 #218 형식 그대로다.
+    `public_base_url` 에서 `//g/` (protocol-relative URL 로 오독될 수 있는 형태)가 나오는 것을
+    막는다. 경로가 붙은 base URL(`http://x/app`)이면 그 경로 뒤에 `/g/{guardian_token}` 이 붙는다.
     """
-    return f"{public_base_url.rstrip('/')}/g?t={guardian_token}"
+    return f"{public_base_url.rstrip('/')}/g/{guardian_token}"
 
 
 def guardian_notice_payload(

@@ -2,7 +2,7 @@
 
 sleep·확률적 타이밍을 쓰지 않는다 — 가짜 dispatcher와 주입 clock(`now`, monkeypatched
 `perf_counter`)으로만 시간을 만든다. 라우팅은 링크로 한다: ward 는 `/a?t=`, guardian 은
-`/g?t=`(#218 확정 형식)라 한 dispatcher가 두 채널을 갈라 줄 수 있다.
+`/g/`(최신 Frontend·OpenAPI 계약 경로 형식)라 한 dispatcher가 두 채널을 갈라 줄 수 있다.
 """
 
 import logging
@@ -72,7 +72,7 @@ class _RoutingDispatcher:
 
     def send(self, payload: PushPayload) -> bool:
         self.sent.append(payload)
-        if "/g?t=" in payload.link:
+        if "/g/" in payload.link:
             outcome = self.guardian_outcomes.pop(0)
             if isinstance(outcome, Exception):
                 raise outcome
@@ -81,7 +81,7 @@ class _RoutingDispatcher:
 
     @property
     def guardian_sends(self) -> list[PushPayload]:
-        return [p for p in self.sent if "/g?t=" in p.link]
+        return [p for p in self.sent if "/g/" in p.link]
 
 
 def _run(
@@ -134,8 +134,11 @@ def test_body_carries_no_forbidden_content() -> None:
         assert banned not in body
 
 
-def test_link_matches_issue_218_format() -> None:
-    assert guardian_notice_link(BASE_URL, "g_abc123") == f"{BASE_URL}/g?t=g_abc123"
+def test_link_uses_latest_path_format() -> None:
+    """링크는 최신 계약 경로 형식 `/g/{token}` 이다. 구형 쿼리 `/g?t=` 는 나오지 않는다."""
+    link = guardian_notice_link(BASE_URL, "g_abc123")
+    assert link == f"{BASE_URL}/g/g_abc123"
+    assert "/g?t=" not in link
 
 
 def test_delivered_guardian_push_uses_the_fixed_text(
@@ -154,7 +157,7 @@ def test_delivered_guardian_push_uses_the_fixed_text(
         "서원동에 호우경보가 발효되어 김순자님께 안내 메시지를 보냈습니다. "
         "이 알림은 상황 공유이며 보호자님에 대한 대피 지시가 아닙니다."
     )
-    assert guardian_push.link == f"{BASE_URL}/g?t={token}"
+    assert guardian_push.link == f"{BASE_URL}/g/{token}"
 
 
 # ── 접수 성공/실패 조합 ──────────────────────────────────────────────────────
@@ -281,6 +284,158 @@ def test_guardian_relation_but_no_device_is_skipped(
     assert dispatcher.guardian_sends == []
 
 
+# ── ward 접수 게이팅: ward 도달이 없으면 보호자 통지도 계상도 없다(확정 정책, #218) ────────
+
+
+class _WardScriptedDispatcher:
+    """양 채널을 send 순서대로 스크립트로 재생한다 — ward 는 `/a?t=`, guardian 은 `/g/` 로 라우팅.
+
+    True/False/Exception 을 그대로 돌려주거나 던져 ward 기기별 부분 실패·전건 실패·예외를 실제
+    dispatcher 결과로 만든다(`_RoutingDispatcher` 는 ward 를 단일 bool 로만 다뤄 이걸 못 만든다).
+    """
+
+    def __init__(self, ward: list[object], guardian: list[object]) -> None:
+        self.ward = list(ward)
+        self.guardian = list(guardian)
+        self.sent: list[PushPayload] = []
+
+    def send(self, payload: PushPayload) -> bool:
+        self.sent.append(payload)
+        queue = self.guardian if "/g/" in payload.link else self.ward
+        outcome = queue.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return bool(outcome)
+
+    @property
+    def guardian_sends(self) -> list[PushPayload]:
+        return [p for p in self.sent if "/g/" in p.link]
+
+
+def _assert_no_guardian_counts(run) -> None:
+    assert (
+        run.guardian_dispatched,
+        run.guardian_accepted,
+        run.guardian_skipped_no_device,
+        run.guardian_send_errors,
+    ) == (0, 0, 0, 0)
+
+
+def _assert_registration_preserved(resident: Resident, expected_guardian: list[str]) -> None:
+    """보호자 등록 토큰과 guardian 기기 토큰이 파이프라인 실행으로 삭제·무효화되지 않았음을 확인한다.
+
+    파이프라인은 registry/토큰 저장소를 수정하지 않으므로 실행 후에도 값이 그대로여야 한다."""
+    assert resident.devices["guardian"] == expected_guardian
+    assert resident.registration_token == f"r_{resident.profile.user_id}"
+
+
+def test_ward_no_device_but_guardian_device_sends_no_guardian_notice(
+    sessions: SessionStore, ai: FakeAiEngine, shelter_repository: ShelterRepository, event
+) -> None:
+    """ward 기기 없음 + guardian 기기 있음: 보호자 통지 0, 4종 계상 0, Delivery 없음, 토큰 유지.
+
+    ward 채널로 도달할 수 없는 세션이라 보호자 통지의 정상 제외 경로다 — guardian 기기가 있어도
+    ward 접수가 없으면 통지하지 않는다."""
+    resident = _guardian_resident("p001", ward_tokens=[], guardian_tokens=["g1"])
+    registry = ResidentRegistry([resident])
+    dispatcher = _WardScriptedDispatcher(ward=[], guardian=[])
+    run = _run(registry, sessions, ai, dispatcher, shelter_repository, event)
+
+    assert dispatcher.guardian_sends == []
+    _assert_no_guardian_counts(run)
+    assert run.deliveries == []  # ward 기기 없음 → 조기 continue, Delivery 없음
+    assert run.skipped_no_device == ["p001"]
+    # 보호자 등록/기기 토큰은 삭제·무효화되지 않는다.
+    _assert_registration_preserved(resident, ["g1"])
+
+
+def test_ward_all_devices_false_sends_no_guardian_notice(
+    sessions: SessionStore, ai: FakeAiEngine, shelter_repository: ShelterRepository, event
+) -> None:
+    """ward 전건 False: ward 기기는 있으나 한 대도 접수 안 됨 → 보호자 통지 0, 4종 계상 0,
+    guardian_informed 0, 토큰 유지. Delivery 는 남되 devices_notified=0 이다."""
+    resident = _guardian_resident("p001", ward_tokens=["w1", "w2"], guardian_tokens=["g1"])
+    registry = ResidentRegistry([resident])
+    dispatcher = _WardScriptedDispatcher(ward=[False, False], guardian=[])
+    run = _run(registry, sessions, ai, dispatcher, shelter_repository, event)
+
+    assert dispatcher.guardian_sends == []
+    _assert_no_guardian_counts(run)
+    assert run.deliveries[0].devices_notified == 0
+    assert run.accepted == 0
+    assert _guardian_informed_count(sessions, run.deliveries[0].session_token) == 0
+    _assert_registration_preserved(resident, ["g1"])
+
+
+def test_ward_all_devices_raise_sends_no_guardian_notice_and_keeps_ward_errors(
+    sessions: SessionStore, ai: FakeAiEngine, shelter_repository: ShelterRepository, event
+) -> None:
+    """ward 전건 예외: 보호자 통지 0, 4종 계상 0, guardian_informed 0, 토큰 유지.
+    기존 ward 오류 계상(`send_errors`)은 예외 건수만큼 그대로 남는다."""
+    resident = _guardian_resident("p001", ward_tokens=["w1", "w2"], guardian_tokens=["g1"])
+    registry = ResidentRegistry([resident])
+    dispatcher = _WardScriptedDispatcher(
+        ward=[RuntimeError("w1 down"), RuntimeError("w2 down")], guardian=[]
+    )
+    run = _run(registry, sessions, ai, dispatcher, shelter_repository, event)
+
+    assert dispatcher.guardian_sends == []
+    _assert_no_guardian_counts(run)
+    assert run.send_errors == 2  # ward 오류 계상 의미 유지
+    assert run.deliveries[0].devices_notified == 0
+    assert _guardian_informed_count(sessions, run.deliveries[0].session_token) == 0
+    _assert_registration_preserved(resident, ["g1"])
+
+
+def test_ward_partial_failure_then_acceptance_sends_guardian_notice(
+    sessions: SessionStore, ai: FakeAiEngine, shelter_repository: ShelterRepository, event
+) -> None:
+    """ward 일부 실패(예외) 후 한 기기 접수: 보호자 통지 수행, 계상 정상, guardian_informed 1."""
+    resident = _guardian_resident("p001", ward_tokens=["w1", "w2"], guardian_tokens=["g1"])
+    registry = ResidentRegistry([resident])
+    dispatcher = _WardScriptedDispatcher(ward=[RuntimeError("w1 down"), True], guardian=[True])
+    run = _run(registry, sessions, ai, dispatcher, shelter_repository, event)
+
+    assert run.send_errors == 1  # ward 첫 기기 예외
+    assert run.accepted == 1  # ward 둘째 기기 접수
+    assert len(dispatcher.guardian_sends) == 1  # 접수됐으므로 보호자 통지 나감
+    assert run.guardian_dispatched == 1
+    assert run.guardian_accepted == 1
+    assert run.guardian_skipped_no_device == 0
+    assert _guardian_informed_count(sessions, run.deliveries[0].session_token) == 1
+
+
+def test_ward_acceptance_gate_does_not_leak_across_residents(
+    sessions: SessionStore, ai: FakeAiEngine, shelter_repository: ShelterRepository, event
+) -> None:
+    """교차 resident 오염 회귀: 앞 resident 의 ward 접수가 뒤 resident 의 guardian 적격을
+    만들지 않는다. run 전체 accepted 가 아니라 세션별 접수(`notified`)로 판단하기 때문이다.
+
+    A(ward 접수, guardian 있음) → dispatched. C(ward 접수, guardian 기기 없음) → skipped.
+    B(ward 전건 False, guardian 있음) → 어느 계상에도 안 듦. 모집단 불변식
+    `guardian_dispatched + guardian_skipped_no_device == accepted` 를 함께 검증한다."""
+    registry = ResidentRegistry(
+        [
+            _guardian_resident("A", ward_tokens=["w"], guardian_tokens=["g"]),
+            _guardian_resident("C", ward_tokens=["w"], guardian_tokens=[]),
+            _guardian_resident("B", ward_tokens=["w"], guardian_tokens=["g"]),
+        ]
+    )
+    # ward send 순서 = resident 순서 [A, C, B]; guardian 2차 패스 대상은 접수된 A·C 뿐(B 제외).
+    # C 는 guardian 기기가 없어 발송이 없으므로 guardian 큐는 A 한 건이면 충분하다.
+    dispatcher = _WardScriptedDispatcher(ward=[True, True, False], guardian=[True])
+    run = _run(registry, sessions, ai, dispatcher, shelter_repository, event)
+
+    assert run.accepted == 2  # A, C (B 는 ward 전건 실패)
+    assert run.guardian_dispatched == 1  # A 만(B 는 적격 아님)
+    assert run.guardian_accepted == 1
+    assert run.guardian_skipped_no_device == 1  # C
+    assert run.guardian_send_errors == 0
+    assert len(dispatcher.guardian_sends) == 1
+    # 모집단 불변식.
+    assert run.guardian_dispatched + run.guardian_skipped_no_device == run.accepted
+
+
 # ── 계상 단위(세션 vs 발송 건수) ─────────────────────────────────────────────
 
 
@@ -377,7 +532,7 @@ class _ClockRoutingDispatcher:
 
     def send(self, payload: PushPayload) -> bool:
         self.sent.append(payload)
-        at, outcome = next(self.guardian if "/g?t=" in payload.link else self.ward)
+        at, outcome = next(self.guardian if "/g/" in payload.link else self.ward)
         self.clock[0] = at
         if isinstance(outcome, Exception):
             raise outcome
@@ -438,7 +593,7 @@ class _CostRoutingDispatcher:
 
     def send(self, payload: PushPayload) -> bool:
         self.sent.append(payload)
-        self.clock[0] += self.guardian_cost if "/g?t=" in payload.link else self.ward_cost
+        self.clock[0] += self.guardian_cost if "/g/" in payload.link else self.ward_cost
         return True
 
 
@@ -500,11 +655,21 @@ def test_guardian_delay_does_not_pollute_other_residents_ward_latency(
 def test_guardian_link_normalizes_trailing_slash(
     sessions: SessionStore, ai: FakeAiEngine, shelter_repository: ShelterRepository, event
 ) -> None:
-    """slash 유무가 같은 정상 링크(`/g?t=`)를 만든다 — `//g?t=` (protocol-relative 오독)가
-    나오지 않는다."""
-    assert guardian_notice_link("http://x.example", "g_x") == "http://x.example/g?t=g_x"
-    assert guardian_notice_link("http://x.example/", "g_x") == "http://x.example/g?t=g_x"
-    assert "//g?t=" not in guardian_notice_link("http://x.example/", "g_x")
+    """slash 유무가 같은 정상 링크(`/g/`)를 만든다 — `//g/` (protocol-relative 오독)가
+    나오지 않는다. 구형 쿼리 `/g?t=` 는 어느 경우에도 나오지 않는다."""
+    assert guardian_notice_link("http://x.example", "g_x") == "http://x.example/g/g_x"
+    assert guardian_notice_link("http://x.example/", "g_x") == "http://x.example/g/g_x"
+    assert "//g/" not in guardian_notice_link("http://x.example/", "g_x")
+    for base in ("http://x.example", "http://x.example/"):
+        assert "/g?t=" not in guardian_notice_link(base, "g_x")
+
+
+def test_guardian_link_preserves_base_url_path(
+    sessions: SessionStore, ai: FakeAiEngine, shelter_repository: ShelterRepository, event
+) -> None:
+    """경로가 붙은 base URL 은 그 경로를 보존하고 뒤에 `/g/{token}` 을 붙인다."""
+    assert guardian_notice_link("http://x.example/app", "g_x") == "http://x.example/app/g/g_x"
+    assert guardian_notice_link("http://x.example/app/", "g_x") == "http://x.example/app/g/g_x"
 
 
 def test_guardian_outcome_never_enters_delivery(
@@ -520,10 +685,13 @@ def test_guardian_outcome_never_enters_delivery(
     assert run.accepted == 1
 
 
-def test_ward_all_fail_with_guardian_success_keeps_ward_unreached(
+def test_ward_all_fail_suppresses_guardian_notice_and_keeps_ward_unreached(
     sessions: SessionStore, ai: FakeAiEngine, shelter_repository: ShelterRepository, event
 ) -> None:
-    """ward 전 기기 실패 + guardian 성공이 ward accepted 를 도달로 바꾸지 않는다."""
+    """ward 전 기기 실패: 보호자 통지가 나가지 않고(확정 정책, #218), ward 도 미도달로 남는다.
+
+    확정 정책 이전에는 ward 실패와 무관하게 보호자 통지를 보냈으나, 이제 ward 접수가 없으면
+    보호자 1차 통지를 보내지 않는다. guardian 큐의 True 는 소비되지 않는다."""
     registry = ResidentRegistry(
         [_guardian_resident("p001", ward_tokens=["w1"], guardian_tokens=["g1"])]
     )
@@ -532,7 +700,9 @@ def test_ward_all_fail_with_guardian_success_keeps_ward_unreached(
 
     assert run.deliveries[0].devices_notified == 0
     assert run.accepted == 0
-    assert run.guardian_accepted == 1
+    assert dispatcher.guardian_sends == []  # ward 미도달 → 보호자 통지 없음
+    assert run.guardian_dispatched == 0
+    assert run.guardian_accepted == 0
     assert run.latencies_ms == []
 
 
@@ -620,3 +790,77 @@ def test_guardian_dispatch_error_log_hides_tokens(
     assert "ward-secret-token" not in text
     assert run.deliveries[0].session_token not in text
     assert run.deliveries[0].guardian_token not in text
+
+
+class _TokenLeakingDispatcher:
+    """첫 guardian 발송에서 payload(기기 토큰·guardian 토큰이 든 링크)와 추가 민감값을 모두
+    담은 예외를 던진다 — 실FCM 어댑터가 오류 문자열에 토큰/URL 을 echo 하는 상황의 재현. 둘째
+    기기는 정상 접수해 '다음 기기 계속 처리' 동작도 함께 본다."""
+
+    def __init__(self, extra_secrets: list[str]) -> None:
+        self.extra_secrets = extra_secrets
+        self.sent: list[PushPayload] = []
+        self._guardian_calls = 0
+
+    def send(self, payload: PushPayload) -> bool:
+        self.sent.append(payload)
+        if "/g/" in payload.link:
+            self._guardian_calls += 1
+            if self._guardian_calls == 1:
+                raise RuntimeError(
+                    f"FCM adapter rejected device={payload.device_token} url={payload.link} "
+                    + " ".join(self.extra_secrets)
+                )
+            return True
+        return True
+
+
+def test_guardian_dispatch_error_log_suppresses_tokens_inside_exception_message(
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+    event,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """리뷰 회귀: 예외 '메시지' 안에 5종 토큰이 모두 들어 있어도 로그에 하나도 나오지 않는다.
+
+    logger.exception(메시지+traceback) 대신 logger.error(고정 문구 + 예외 클래스명)로 바꾼 뒤,
+    guardian device / ward device / session / guardian / registration 토큰을 예외 문자열에 실어도
+    caplog 전체에 그 값이 하나도 없음을 단정한다. guardian_send_errors 계상과 다음 기기 처리는
+    그대로 유지된다."""
+    # `*_marker` 이름은 S105(하드코딩 비밀번호) 오탐을 피하기 위한 것 — 값은 가짜 토큰 표식이다.
+    ward_marker = "WARD-DEVICE-SECRET"
+    guardian_device_marker = "GUARDIAN-DEVICE-SECRET"
+    registration_marker = "r_p001"  # _guardian_resident 가 r_{user_id} 로 만든 등록 토큰 값
+    session_marker = "SESSION-TOKEN-SECRET"  # 실 session 토큰은 payload 에 없어 표식으로 대체
+    registry = ResidentRegistry(
+        [
+            _guardian_resident(
+                "p001",
+                ward_tokens=[ward_marker],
+                guardian_tokens=[guardian_device_marker, "g2-ok"],
+            )
+        ]
+    )
+    dispatcher = _TokenLeakingDispatcher([ward_marker, registration_marker, session_marker])
+    with caplog.at_level(logging.ERROR):
+        run = _run(registry, sessions, ai, dispatcher, shelter_repository, event)
+
+    # 동작 유지: 첫 기기 예외는 발송 건수로 1 계상, 다음 기기가 접수돼 guardian_informed 1건.
+    assert run.guardian_send_errors == 1
+    assert run.guardian_accepted == 1
+    assert _guardian_informed_count(sessions, run.deliveries[0].session_token) == 1
+
+    text = caplog.text
+    assert "guardian first-notice dispatch failed" in text
+    assert "RuntimeError" in text  # 예외 클래스명은 민감정보가 될 수 없어 허용된다
+    # 예외 메시지에 실렸던 5종 토큰(실 guardian/session 토큰 포함) 중 하나도 로그에 없다.
+    for token_value in (
+        guardian_device_marker,
+        ward_marker,
+        registration_marker,
+        session_marker,
+        run.deliveries[0].guardian_token,
+        run.deliveries[0].session_token,
+    ):
+        assert token_value not in text
