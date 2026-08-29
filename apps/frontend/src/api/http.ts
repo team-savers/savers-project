@@ -111,6 +111,7 @@ interface RequestOptions {
   // sent in that case.
   body?: unknown
   headers?: Record<string, string>
+  keepalive?: boolean
 }
 
 // Attempts to read the response as the contract's `Error` shape. Returns
@@ -159,6 +160,7 @@ async function request<T>(opts: RequestOptions): Promise<T> {
     method: opts.method,
     headers,
     body: bodyInit,
+    keepalive: opts.keepalive,
   })
 
   if (!res.ok) {
@@ -218,6 +220,7 @@ export const httpAdapter: ApiClient = {
       path: `${PATH_SESSION}${encodeURIComponent(token)}${PATH_SESSION_EVENTS_SUFFIX}`,
       body: event,
       headers: { 'Idempotency-Key': idempotencyKey },
+      keepalive: true,
     })
   },
 
