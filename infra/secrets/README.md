@@ -8,10 +8,15 @@ FCM Admin SDK 서비스 계정 JSON을 배포 VM에서 여기 둡니다(ADR-0023
 
 1. 파일명은 `service-account.json`으로 고정합니다(`.gitignore`의
    `service-account*.json` 패턴과 일치시켜, 실수로 커밋되는 걸 한 겹 더 막습니다).
-2. **파일 권한을 확인합니다.** 컨테이너는 `appuser`(uid 10001)로 돌지만 이 마운트는
-   bind mount라 호스트 쪽 소유권을 그대로 가져옵니다 — VM에 올린 계정(uid가 보통
-   10001이 아닙니다)의 기본 umask로는 다른 사용자가 못 읽는 경우가 많습니다.
-   `chmod 644 infra/secrets/service-account.json`으로 다른 사용자도 읽을 수 있게 만드세요.
+2. **소유권/권한을 맞춥니다.** 컨테이너는 `appuser`(uid 10001)로 돌지만 이 마운트는
+   bind mount라 호스트 쪽 소유권을 그대로 가져옵니다. 이 파일은 FCM 발송 권한을 가진
+   개인키이므로 다른 사용자도 읽을 수 있게 여는 `chmod 644`는 쓰지 않습니다 — uid를
+   컨테이너와 맞추고 소유자만 읽게 잠급니다(ADR-0022가 세션 저장소 평문 예외의
+   통제로 삼은 것과 같은 0600 기준):
+   ```
+   sudo chown 10001:10001 infra/secrets/service-account.json
+   sudo chmod 600 infra/secrets/service-account.json
+   ```
    권한이 막혀 있으면 `fcm` 채널에서 기동이 "FCM service account file is not readable"로
    즉시 실패합니다(설계 — 조용히 `recording`으로 떨어지지 않습니다).
 3. `infra/.env`에서:

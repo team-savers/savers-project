@@ -77,6 +77,23 @@ def test_settings_read_explicit_recording_without_credentials(
     assert result.channel == "recording"
 
 
+def test_settings_treat_blank_service_account_path_as_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # compose's `${SAVERS_FCM_SERVICE_ACCOUNT_PATH:-}` always sets the variable, so an
+    # unfilled deploy VM .env produces "" rather than an absent variable. Pydantic reads
+    # "" as Path(".") unless we normalize it, which would misroute the startup failure to
+    # "not a file: ." instead of the actionable "is required" message.
+    monkeypatch.setenv("SAVERS_PUSH_CHANNEL", "fcm")
+    monkeypatch.setenv("SAVERS_FCM_SERVICE_ACCOUNT_PATH", "")
+
+    settings = Settings()
+
+    assert settings.fcm_service_account_path is None
+    with pytest.raises(DispatcherConfigurationError, match="is required"):
+        create_dispatcher(settings.push_channel, settings.fcm_service_account_path)
+
+
 def test_settings_reject_invalid_push_channel(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SAVERS_PUSH_CHANNEL", "automatic")
 
