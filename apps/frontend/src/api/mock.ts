@@ -478,7 +478,11 @@ export const mockAdapter: ApiClient = {
 
   async registerDevice(req: DeviceRegisterRequest): Promise<Ack> {
     await randomDelay()
-    void req
+    if (req.role === 'guardian') {
+      const devices = guardianDeviceRegistrations.get(req.registrationToken) ?? new Set<string>()
+      devices.add(req.fcmToken)
+      guardianDeviceRegistrations.set(req.registrationToken, devices)
+    }
     return { ok: true }
   },
 
@@ -515,8 +519,8 @@ export const mockAdapter: ApiClient = {
       safetyStatus: 'unknown',
       // v0.7: required. Mock server-side state — true when this guardian
       // token has at least one registered fcmToken in
-      // `guardianDeviceRegistrations`, set/cleared by
-      // registerGuardianDevice/unregisterGuardianDevice below. This is
+      // `guardianDeviceRegistrations`, set by initial registerDevice or
+      // registerGuardianDevice and cleared by unregisterGuardianDevice. This is
       // deliberately NOT derived from Profile.guardian (that field is contact
       // info, not device-registration state) and NOT read from this
       // browser's Notification.permission or localStorage.
@@ -590,12 +594,9 @@ export const mockAdapter: ApiClient = {
     if (profile === undefined) {
       throw new Error(`unknown guardian token: ${token}`)
     }
-    // No mock SessionEvent log exists yet (see postSessionEvent above), so
-    // every question truthfully answers from the "not found in this
-    // session's log" branch — the same shape a real ward who has not acted
-    // yet would produce. Per openapi.yaml GuardianEvidence, an absence
-    // entry IS evidence, so this is the DELIVERED branch, not a refusal —
-    // nothing here infers or asserts a real-world state.
+    // Exercise delivered answers backed by explicit `present:false`
+    // evidence without inventing a real event log. Unsupported ids remain
+    // a 422.
     switch (req.questionId) {
       case 'arrival_status':
         return {
