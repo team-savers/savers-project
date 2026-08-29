@@ -13,6 +13,15 @@
   [이슈 218](https://github.com/team-savers/savers-project/issues/218) 의 문안을
   바꾸지 않기로 했으므로, 이 문서가 나오기 전까지 그 작업은 멈춰 있다.
   **채팅에서 답한 판단은 이 저장소에서 확정이 아니므로 여기에 옮긴다**
+- **개정**: 2026-08-29, 제안 상태에서 결정 5번을 더하고 결과 절의 폐루프 서술을 고쳤다.
+  승인 전이므로 사후편집 금지에 해당하지 않는다.
+  [PR 222](https://github.com/team-savers/savers-project/pull/222) 리뷰에서
+  김도혁 (Backend) 이 두 가지를 지적했다.
+  종전 결과 절이 "폐루프가 2차 발송을 낸다" 로만 적어
+  모든 세션에서 실제로 발송되는 것처럼 읽혔고
+  (보호자 관계, 기기 유무, 종료 이벤트 조건이 빠져 있었다),
+  1차 통지를 보류할 때 보호자 등록을 어떻게 하는지가 어디에도 없었다.
+  뒤쪽은 적지 않으면 구현이 갈리는 자리라 결정 5번으로 올린다
 - **날짜**: 2026-08-29
 - **결정자**: 신호정 (Tech Lead) 작성 / 안은남 (PM, QA/보안) 확인 대기.
   발송 조건은 계약이 서술하는 동작이라 Tech Lead 소관이고,
@@ -106,6 +115,19 @@ Backend 가 물은 두 조합은 이 문장이 참인지가 갈리는 자리다.
    v0.10 변경 이력 블록은 그 시점의 기록이므로 고치지 않고 새 블록을 얹는다.
    계상 4종은 `/internal/alerts/dispatch` 응답 전용이라 계약 밖에 있고,
    스키마 변경은 없다.
+5. **통지를 보내지 않아도 보호자 기기 등록은 손대지 않는다.**
+   `ward` 접수 0 은 이번 발송을 보낼지의 판정이지 등록이 유효한지의 판정이 아니다.
+   그 세션에서 보호자 FCM 토큰, 등록 토큰, `Profile.guardian` 어느 것도
+   지우거나 무효로 만들지 않는다.
+   guardian 버킷을 바꾸는 경로는
+   [ADR-0015](0015-guardian-device-registration.md) 결정 4번의 교체 하나뿐이고,
+   이 결정은 그것을 건드리지 않는다.
+   막는 사고는 둘이다.
+   1차를 보류한 세션이야말로 30분 뒤 2차 발송이 유일한 통로가 되는 세션인데
+   (결과 절), 등록을 지우면 그 통로까지 함께 닫힌다.
+   그리고 `GuardianStatus.pushEnabled` 는 등록 여부를 그대로 비추므로,
+   미발송을 이유로 등록을 지우면 보호자 화면이 "기기 미등록" 으로 바뀌고
+   `lastNotice` 의 두 갈래 판독도 함께 무너진다.
 
 ### 검토하고 기각한 대안
 
@@ -139,13 +161,24 @@ Backend 가 물은 두 조합은 이 문장이 참인지가 갈리는 자리다.
   이슈 218 이 `guardian_accepted` 에 기대한 조기 발견이 그 세션에서만 사라진다.
   감수한다. 그 경우 피보호자 도달 0 이라는 더 큰 신호가 먼저 뜨고,
   리허설(8/31 ~ 9/1)에서 두 기기를 함께 붙이면 덮인다.
-- **보호자가 침묵당하지는 않는다.**
-  세션은 `ward` 기기가 없어도 만들어지고 `alert_dispatched` 가 남으므로,
-  폐루프가 `followup_after_s` 뒤에 `followup_due` 로 2차 발송을 낸다
-  (기본 30분, 시연에서는 30초).
-  그 본문은 세션 로그에서 만들어지므로
-  "확인할 수 있는 기록이 없습니다" 쪽으로 나가고 사실과 어긋나지 않는다.
-  다만 그런 세션에서는 **폐루프가 보호자 연계의 유일한 경로** 가 된다.
+- **보호자 연계가 끊기지는 않는다. 다만 모든 세션에 자동으로 닿는 것도 아니다.**
+  세션은 `ward` 기기가 없어도 만들어지고 `alert_dispatched` 가 남으므로
+  폐루프의 관측 대상에는 그대로 들어간다.
+  거기서부터는 조건이 갈린다
+  (`확실한 사실`, `closed_loop.py` 의 `reconcile_once` 를 확인했다.
+  규칙은 [ADR-0012](0012-verifier-rules-and-closed-loop.md) 7절, 7-a절).
+  - `Profile.guardian` 이 `null` 인 세션은 관측에서 끝난다.
+    도착 확인(`arrival_confirmed_by_user`) 같은 종료 이벤트가 이미 있는 세션과
+    TTL 이 지난 세션도 대상에서 빠진다.
+  - 보호자가 있고 `guardian` 기기가 있으면
+    `followup_after_s`(기본 30분, 시연에서는 30초) 뒤에
+    `followup_due` 를 남기고 2차 발송을 **시도한다.**
+    본문은 세션 로그에서 만들어지므로
+    "확인할 수 있는 기록이 없습니다" 쪽으로 나가고 사실과 어긋나지 않는다.
+    접수되면 `guardian_notified` 가 남고, 그것이 M4 의 분자다.
+  - 보호자는 있으나 `guardian` 기기가 없으면 발송이 아니라
+    `followup_unreachable` 이 남고, 그 간격의 배수마다 다시 관측한다.
+  **1차를 보류한 세션에서는 이 경로가 보호자 연계의 유일한 통로다.**
 - **`GuardianStatus.lastNotice` 의 `none` 두 갈래 판독은 그대로다**
   ([ADR-0015](0015-guardian-device-registration.md) 결정 2번).
   오히려 `pushEnabled` 가 참인데 `none` 인 경우의 뜻에
@@ -165,7 +198,8 @@ Backend 가 물은 두 조합은 이 문장이 참인지가 갈리는 자리다.
 | **발송 조건 구현.** 2차 패스 대상에서 `ward` 접수 0 인 세션을 뺀다. 계상 주석 세 곳(`AlertRun`, `AlertRunSummary`, `_notify_guardian`)에 모수 한정을 적고, 테스트 셋을 더한다 - 보호자 있음과 `ward` 기기 없음, `ward` 전건 실패 시 미발송, 결정 3번의 불변식 | Backend | 대기 ([PR 221](https://github.com/team-savers/savers-project/pull/221)) |
 | 계약 v0.11. 서문 변경 이력, `device` 태그 설명, `POST /v1/devices` 설명, `GuardianInformedEvent`, `DeviceRegisterRequest.role`, `GuardianStatus.lastNotice` 판독표 | Tech Lead | 완료, 이 PR |
 | [packages/contracts/README.md](../../packages/contracts/README.md) 의 "계약에만 있고 구현 전" 표기 | Tech Lead | 완료, 이 PR |
-| [ADR-0015](0015-guardian-device-registration.md) 후속 조치 표에 이 전제를 적고 관련 세 행의 상태를 옮긴다 | Tech Lead | 완료, 이 PR |
+| [ADR-0015](0015-guardian-device-registration.md) 후속 조치 표에 이 전제를 적는다. **관련 세 행은 완료로 옮기지 않는다** - [PR 221](https://github.com/team-savers/savers-project/pull/221) 에 이 전제가 아직 들어가지 않았고, 머지도 되지 않았다 | Tech Lead | 완료, 이 PR |
+| [PR 221](https://github.com/team-savers/savers-project/pull/221) 머지 뒤 [ADR-0015](0015-guardian-device-registration.md) 후속 조치 표의 세 행(1차 dispatch 확장, `devices_notified` 역할 무구분, 계상 4종)을 완료로 옮긴다 | Tech Lead | 대기, PR 221 뒤 |
 | **머지 순서: 이 PR 은 [PR 221](https://github.com/team-savers/savers-project/pull/221) 뒤에 선다.** 뒤집히면 계약이 구현보다 앞서 "전제를 만족할 때 보낸다" 를 적어 두는데, 그 시점의 코드는 전건 실패에도 보내고 있다 | Tech Lead | 대기 |
 | [후속_과제.md](../공통_가이드/후속_과제.md) 17번(워킹_스켈레톤_설명.md 161행 등 세 곳)을 닫는다. 이 결정의 전제도 함께 적는다 | Tech Lead | 대기, PR 221 뒤 |
 | **실패 전용 보호자 통지 문안**(위 대안 D). 피보호자에게 안내가 닿지 않은 것을 보호자에게 즉시 알리는 별도 문안이며, 사전 승인 문안이므로 QA/보안이 확정한다 | PM | 본선 후 |
