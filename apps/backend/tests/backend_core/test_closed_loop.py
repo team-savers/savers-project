@@ -438,6 +438,37 @@ class OutcomeDispatcher(RejectingDispatcher):
         return next(self._outcomes)
 
 
+def test_dispatch_exception_logs_no_credentials_and_keeps_reconcile_alive(
+    sessions: SessionStore,
+    registry: ResidentRegistry,
+    event: DisasterEvent,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    record = _record(sessions, event)
+    dispatcher = RaisingDispatcher()
+
+    summary = reconcile_once(
+        sessions,
+        registry,
+        dispatcher,
+        ai=GuardianAi(),
+        followup_after_s=AFTER_S,
+        reconcile_interval_s=5,
+        public_base_url=BASE_URL,
+        now=START + timedelta(seconds=AFTER_S),
+    )
+
+    assert summary.due == 1
+    assert summary.notified == 0
+    assert _types(sessions, record) == ["alert_dispatched", "followup_due"]
+    assert len(dispatcher.sent) == 1
+    assert "guardian follow-up dispatch failed" in caplog.text
+    assert "Traceback" in caplog.text
+    assert record.token not in caplog.text
+    assert record.guardian_token not in caplog.text
+    assert dispatcher.sent[0].device_token not in caplog.text
+
+
 @pytest.mark.parametrize("dispatcher_type", [RejectingDispatcher, RaisingDispatcher])
 def test_normal_dispatch_failure_is_not_retried(
     sessions: SessionStore,

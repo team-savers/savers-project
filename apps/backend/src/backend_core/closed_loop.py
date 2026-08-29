@@ -50,7 +50,7 @@ def _send_followup(
                 )
             )
         except Exception:
-            logger.exception("guardian follow-up dispatch failed for session %s", record.token)
+            logger.exception("guardian follow-up dispatch failed")
             continue
         if device_accepted and accepted_at is None:
             accepted_at = clock()
