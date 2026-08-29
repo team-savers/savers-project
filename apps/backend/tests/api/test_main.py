@@ -7,14 +7,29 @@ that must exist even when null, `Cache-Control: no-store` on sensitive responses
 Convention: tests/ mirrors src/ (src/api/main.py -> tests/api/test_main.py).
 """
 
+import json
+
+import pytest
 from conftest import FakeAiEngine
 from fastapi.testclient import TestClient
+
+from backend_core.sessions import SessionStore
 
 
 def _dispatch(client: TestClient) -> dict:
     response = client.post("/internal/alerts/dispatch")
     assert response.status_code == 200
     return response.json()
+
+
+def _token_for(client: TestClient, *, stairs_ok: bool) -> str:
+    """세션 토큰을 프로필의 stairsOk로 고른다 — 시드 페르소나 순서에 의존하지 않는다."""
+    for delivery in _dispatch(client)["deliveries"]:
+        token = delivery["sessionToken"]
+        profile = client.get(f"/v1/session/{token}").json()["profile"]
+        if profile["stairsOk"] == stairs_ok:
+            return token
+    raise AssertionError(f"no seeded delivery with stairsOk={stairs_ok}")
 
 
 def test_health(client: TestClient) -> None:
@@ -25,6 +40,7 @@ def test_health(client: TestClient) -> None:
 
 def test_dispatch_reports_the_kpi_fields(client: TestClient) -> None:
     body = _dispatch(client)
+    assert body["channel"] == "recording"
     assert body["matched"] == 2
     assert body["dispatched"] == 2
     assert body["meanLatencyMs"] >= 0
@@ -99,6 +115,70 @@ def test_shelter_search_requires_a_live_session(client: TestClient) -> None:
     assert response.status_code == 404
 
 
+def test_shelter_items_always_carry_cautions_and_rank_no_caution_first(
+    client: TestClient,
+) -> None:
+    """계약상 required인 cautions가 항목마다 실리고, 주의 없는 항목이 앞선다.
+
+    계단 불가 프로필(p001)이라 계단 시설에는 stairs 주의가 붙는다 — 서버가 세션 토큰 뒤
+    프로필로 판정한다는 뜻이다(본문은 stairsOk를 싣지 않는다).
+    """
+    token = _token_for(client, stairs_ok=False)  # p001: stairsOk=False
+    body = client.post(
+        "/v1/shelters/search",
+        json={
+            "sessionToken": token,
+            "dongCode": "1162064500",
+            "lat": 37.4842,
+            "lng": 126.9295,
+            "limit": 10,
+        },
+    ).json()
+
+    items = body["items"]
+    assert items
+    assert all(isinstance(item["cautions"], list) for item in items)
+    stepped = [item for item in items if item["hasStairs"]]
+    assert stepped and all("stairs" in item["cautions"] for item in stepped)
+    flags = [bool(item["cautions"]) for item in items]
+    assert flags == sorted(flags), "주의 없는 항목이 주의 붙은 항목보다 앞서야 한다"
+
+
+def test_shelter_cautions_come_from_the_profile_not_the_request(client: TestClient) -> None:
+    """계단을 쓸 수 있는 프로필(p002)에는 계단 시설이어도 stairs 주의가 붙지 않는다."""
+    token = _token_for(client, stairs_ok=True)  # p002: stairsOk=True
+    body = client.post(
+        "/v1/shelters/search",
+        json={
+            "sessionToken": token,
+            "dongCode": "1162064500",
+            "lat": 37.4842,
+            "lng": 126.9295,
+            "limit": 10,
+        },
+    ).json()
+    stepped = [item for item in body["items"] if item["hasStairs"]]
+    assert stepped and all("stairs" not in item["cautions"] for item in stepped)
+
+
+def test_shelter_search_persists_no_coordinate(client: TestClient, sessions: SessionStore) -> None:
+    """cautions는 응답 전용 — 검색이 좌표를 세션·이벤트에 남기지 않는다(M3 무저장·무로깅)."""
+    token = _token_for(client, stairs_ok=False)
+    client.post(
+        "/v1/shelters/search",
+        json={
+            "sessionToken": token,
+            "dongCode": "1162064500",
+            "lat": 37.4842,
+            "lng": 126.9295,
+        },
+    )
+    record = sessions.get(token)
+    dumped = json.dumps([event.model_dump(mode="json") for event in sessions.events_of(record)])
+    assert "37.4842" not in dumped
+    assert "126.9295" not in dumped
+
+
 def test_chat_keeps_the_null_answer_key(client: TestClient, ai: FakeAiEngine) -> None:
     """근거 없음은 오류가 아니라 정상 200 + `answer: null`이다."""
     token = _dispatch(client)["deliveries"][0]["sessionToken"]
@@ -119,11 +199,60 @@ def test_chat_returns_sources_when_grounded(client: TestClient) -> None:
 
 
 def test_device_register_and_unregister(client: TestClient) -> None:
-    payload = {"registrationToken": "r_demo_resident_p002", "fcmToken": "fcm_new_device"}
-    assert client.post("/v1/devices", json=payload).json() == {"ok": True}
-    assert client.request("DELETE", "/v1/devices", json=payload).json() == {"ok": True}
+    register = {
+        "registrationToken": "r_demo_resident_p002",
+        "fcmToken": "fcm_new_device",
+        "role": "ward",
+    }
+    # 해제 본문에는 role이 없다(DeviceUnregisterRequest).
+    unregister = {"registrationToken": "r_demo_resident_p002", "fcmToken": "fcm_new_device"}
+    assert client.post("/v1/devices", json=register).json() == {"ok": True}
+    assert client.request("DELETE", "/v1/devices", json=unregister).json() == {"ok": True}
     # 이미 없는 토큰의 해제도 200 — 재시도 루프를 만들지 않는다.
-    assert client.request("DELETE", "/v1/devices", json=payload).status_code == 200
+    assert client.request("DELETE", "/v1/devices", json=unregister).status_code == 200
+
+
+@pytest.mark.parametrize("fcm_token", ["", "   "])
+def test_device_register_rejects_invalid_fcm_token(client: TestClient, fcm_token: str) -> None:
+    payload = {
+        "registrationToken": "r_demo_resident_p002",
+        "fcmToken": fcm_token,
+        "role": "ward",
+    }
+    assert client.post("/v1/devices", json=payload).status_code == 422
+
+
+@pytest.mark.parametrize("fcm_token", ["", "   "])
+def test_device_unregister_rejects_invalid_fcm_token(client: TestClient, fcm_token: str) -> None:
+    payload = {
+        "registrationToken": "r_demo_resident_p002",
+        "fcmToken": fcm_token,
+    }
+    assert client.request("DELETE", "/v1/devices", json=payload).status_code == 422
+
+
+def test_device_register_guardian_without_guardian_is_rejected(client: TestClient) -> None:
+    """보호자 없는 대상(p002)에 guardian 기기 등록은 400 — 도달 불가 기기가 쌓이는 걸 막는다(ADR-0015 결정 3)."""
+    payload = {
+        "registrationToken": "r_demo_resident_p002",
+        "fcmToken": "fcm_guardian",
+        "role": "guardian",
+    }
+    response = client.post("/v1/devices", json=payload)
+    assert response.status_code == 400
+    assert response.json()["code"] == "INVALID_REQUEST"
+
+
+def test_device_register_requires_role(client: TestClient) -> None:
+    """role은 기본값 없는 필수 — 생략하면 보호자 폰에 1차 알림이 조용히 갈 수 있어 422로 막는다."""
+    payload = {"registrationToken": "r_demo_resident_p002", "fcmToken": "fcm_x"}
+    assert client.post("/v1/devices", json=payload).status_code == 422
+
+
+def test_device_unregister_forbids_role(client: TestClient) -> None:
+    """해제 본문은 role을 받지 않는다 — 실으면 아무것도 못 뗀 채 성공을 받는 함정을 422로 막는다."""
+    payload = {"registrationToken": "r_demo_resident_p002", "fcmToken": "fcm_x", "role": "ward"}
+    assert client.request("DELETE", "/v1/devices", json=payload).status_code == 422
 
 
 def test_registration_lookup_exposes_only_identification(client: TestClient) -> None:

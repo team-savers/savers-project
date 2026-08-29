@@ -15,10 +15,12 @@ health fields; `RecipientContext` deliberately holds neither, and
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
-from typing import Literal
+from types import MappingProxyType
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 from pydantic.alias_generators import to_camel
 
 Stage = Literal[1, 2, 3]
@@ -34,14 +36,47 @@ ServiceMode = Literal["normal", "degraded", "cache_only"]
 HazardReason = Literal["flood_risk_underpass", "lowland", "riverside"]
 Bearing = Literal["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
 Locale = Literal["ko", "vi", "zh", "en"]
+GuardianLocale = Literal["ko"]
+GuardianQuestionId = Literal["evacuation_progress", "help_request", "arrival_status"]
+GuardianEvidenceType = Literal[
+    "situation_check_selected",
+    "profile_review_started",
+    "profile_review_completed",
+    "profile_review_skipped",
+    "choice_screen_viewed",
+    "help_request_selected",
+    "direct_evacuation_selected",
+    "evacuation_guidance_viewed",
+    "route_guidance_started",
+    "next_guidance_requested",
+    "emergency_call_119_selected",
+    "arrival_confirmed_by_user",
+    "alert_dispatched",
+    "push_accepted",
+    "guardian_informed",
+    "followup_due",
+    "followup_unreachable",
+    "guardian_notified",
+]
 MessageMode = Literal["grounded", "official_fallback"]
 RegisteredBy = Literal["self", "guardian", "welfare_center", "employer"]
+# 기기 역할. 1차는 ward 행동 지시와 guardian 정보성 통지로 갈리고, 30분 무응답 뒤 2차는
+# guardian에게만 나간다(ADR-0015 결정 1·2). 기본값을 두지 않고 필수로 받는다 — 생략을
+# ward로 해석하면 보호자 폰이 정보성 통지 대신 피보호자 행동 지시를 받는다.
+DeviceRole = Literal["ward", "guardian"]
 ResponseChoice = Literal["home", "outside"]
 Availability = Literal["ok", "all_excluded", "cache_only", "upstream_unavailable"]
 HazardMatch = Literal["inside", "outside", "unknown"]
 ExclusionReason = Literal["underground", "closed", "unreachable"]
+# 요청자 기준 주의. `excluded`(시설 속성)와 다른 축이며 후보를 지우지 않는다 (ADR-0016).
+Caution = Literal["stairs", "over_time"]
 ErrorCode = Literal[
-    "SESSION_NOT_FOUND", "SESSION_EXPIRED", "INVALID_REQUEST", "RATE_LIMITED", "INTERNAL"
+    "SESSION_NOT_FOUND",
+    "SESSION_EXPIRED",
+    "INVALID_REQUEST",
+    "IDEMPOTENCY_KEY_CONFLICT",
+    "RATE_LIMITED",
+    "INTERNAL",
 ]
 
 
@@ -204,6 +239,9 @@ class Shelter(ContractModel):
     is_underground: bool
     has_stairs: bool
     capacity: int | None = None
+    # 요청자 기준 주의(계약상 required, 기본 빈 배열). 서버가 판정해 항상 내려준다 —
+    # 비어 있으면 주의가 없다는 뜻이다. 값은 서버가 정하며 클라이언트가 유도할 수 없다.
+    cautions: list[Caution] = Field(default_factory=list)
 
 
 class Exclusion(ContractModel):
@@ -247,9 +285,126 @@ class ChatResponse(ContractModel):
     refusal_reason: Literal["no_evidence", "out_of_scope", "unsafe"] | None = None
 
 
+GUARDIAN_CITATION_SCOPE = MappingProxyType(
+    {
+        "evacuation_progress": frozenset(
+            {
+                "situation_check_selected",
+                "profile_review_started",
+                "profile_review_completed",
+                "profile_review_skipped",
+                "choice_screen_viewed",
+                "help_request_selected",
+                "direct_evacuation_selected",
+                "evacuation_guidance_viewed",
+                "route_guidance_started",
+                "next_guidance_requested",
+                "emergency_call_119_selected",
+                "arrival_confirmed_by_user",
+            }
+        ),
+        "help_request": frozenset({"help_request_selected", "emergency_call_119_selected"}),
+        "arrival_status": frozenset({"arrival_confirmed_by_user"}),
+    }
+)
+_RFC3339_DATE_TIME = re.compile(
+    r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$"
+)
+
+
+class GuardianAskRequest(RequestModel):
+    question_id: GuardianQuestionId
+    locale: GuardianLocale = "ko"
+
+
+class GuardianEvidence(RequestModel):
+    type: GuardianEvidenceType
+    present: StrictBool
+    at: str | None = None
+
+    @model_validator(mode="after")
+    def validate_evidence(self) -> Self:
+        if self.present and self.at is None:
+            raise ValueError("present=true requires at")
+        if not self.present and self.at is not None:
+            raise ValueError("present=false requires at=null")
+        if self.at is not None:
+            if _RFC3339_DATE_TIME.fullmatch(self.at) is None:
+                raise ValueError("at must be an RFC3339 date-time")
+            try:
+                parsed = datetime.fromisoformat(
+                    self.at.replace("Z", "+00:00").replace("z", "+00:00")
+                )
+            except ValueError as exc:
+                raise ValueError("at must be an RFC3339 date-time") from exc
+            if parsed.tzinfo is None:
+                raise ValueError("at must be timezone-aware")
+        return self
+
+
+class GuardianAnswer(RequestModel):
+    question_id: GuardianQuestionId
+    answer: str | None
+    sources: list[GuardianEvidence]
+    refusal_reason: Literal["no_evidence"] | None
+
+    @model_validator(mode="after")
+    def validate_answer_contract(self) -> Self:
+        if self.answer is not None:
+            if not self.answer:
+                raise ValueError("delivery answer must be non-empty")
+            if not self.sources:
+                raise ValueError("delivery requires at least one source")
+            if self.refusal_reason is not None:
+                raise ValueError("delivery refusalReason must be null")
+        elif self.sources or self.refusal_reason != "no_evidence":
+            raise ValueError("refusal requires answer=null, sources=[], refusalReason=no_evidence")
+
+        allowed = GUARDIAN_CITATION_SCOPE[self.question_id]
+        if any(source.type not in allowed for source in self.sources):
+            raise ValueError("source type is outside the question citation scope")
+        return self
+
+    @classmethod
+    def no_evidence(cls, question_id: GuardianQuestionId) -> GuardianAnswer:
+        return cls(
+            question_id=question_id,
+            answer=None,
+            sources=[],
+            refusal_reason="no_evidence",
+        )
+
+
 class DeviceRegisterRequest(RequestModel):
     registration_token: str
-    fcm_token: str
+    fcm_token: str = Field(min_length=1, pattern=r"^\S+$")
+    role: DeviceRole
+    user_agent: str | None = None
+
+
+class DeviceUnregisterRequest(RequestModel):
+    """`DELETE /v1/devices`의 본문 — `role`이 없다(ADR-0015 계약 리뷰).
+
+    FCM 토큰이 기기마다 유일해 역할 없이도 대상이 정해지고, 이 경로는 없는 토큰의 해제도
+    200이라 역할을 틀리게 실으면 아무것도 떼지 못한 채 성공을 받는다. 해제 뒤 그 토큰이
+    어느 역할로도 남아 있지 않으면 된다 — ward·guardian 양쪽에서 제거한다.
+    """
+
+    registration_token: str
+    fcm_token: str = Field(min_length=1, pattern=r"^\S+$")
+    user_agent: str | None = None
+
+
+class GuardianDeviceRegisterRequest(RequestModel):
+    """`POST`·`DELETE /v1/guardian/{token}/device`의 본문 — `role`도 `registrationToken`도 없다.
+
+    경로의 보호자 토큰이 둘 다 답한다: 역할은 경로가 `guardian`으로 고정하고, 대상자는
+    서버가 그 토큰으로 내부 조회한다. 보호자에게 등록 토큰도 세션 토큰도 건네지 않는
+    기존 분리를 그대로 유지하기 위한 것으로, `GET /v1/guardian/{token}`이 보호자 토큰
+    하나로 답하는 것과 같은 이유다(계약 `GuardianDeviceRegisterRequest`).
+    """
+
+    fcm_token: str = Field(min_length=1, pattern=r"^\S+$")
     user_agent: str | None = None
 
 
@@ -276,8 +431,13 @@ class GuardianStatus(ContractModel):
     opened_at: datetime | None = None
     responded_at: datetime | None = None
     last_response: Literal["home", "outside", "none"]
+    last_notice: Literal["first", "followup", "none"]
     safety_status: Literal["unknown"] = "unknown"
     acknowledged_by_guardian: bool = False
+    # 이 피보호자에게 붙은 guardian 기기가 하나 이상 있는가 — 단위는 피보호자이지 브라우저가
+    # 아니다. `false`면 30분 무응답 뒤 2차 발송이 나갈 기기가 없다. 계약상 required이므로
+    # 기본값을 두지 않는다(계약 `GuardianStatus.pushEnabled`).
+    push_enabled: bool
 
 
 class Ack(ContractModel):

@@ -4,12 +4,13 @@ Convention: tests/ mirrors src/ (src/backend_core/pipeline.py ->
 tests/backend_core/test_pipeline.py).
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import get_args
 
 from conftest import GROUNDED_BODY, FakeAiEngine
 
-from backend_core.dispatch import RecordingDispatcher
+from backend_core import pipeline
+from backend_core.dispatch import PushPayload, RecordingDispatcher
 from backend_core.fallback import OFFICIAL_FALLBACK_BODY
 from backend_core.models import Availability, DisasterEvent, ServiceMode, ShelterList
 from backend_core.pipeline import AlertRun, build_context, percentile, run_alert, severity_for
@@ -167,13 +168,38 @@ def test_resident_without_device_is_reported_not_hidden(
     """도달 불가는 운영 사실이므로 집계에 남는다 — 조용히 사라지면 도달률이 거짓이 된다."""
     resident = registry.get("p002")
     assert resident is not None
-    resident.devices.clear()
+    resident.devices["ward"].clear()
 
     run = _run(event, registry, sessions, ai, dispatcher, shelter_repository)
 
     assert run.matched == 2
     assert run.skipped_no_device == ["p002"]
     assert len(dispatcher.sent) == 1
+
+
+def test_guardian_only_resident_is_skipped_not_a_phantom_delivery(
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    dispatcher: RecordingDispatcher,
+    shelter_repository: ShelterRepository,
+) -> None:
+    """guardian 기기만 있으면 1차 발송 대상이 없다 — skipped_no_device로 남고, notified=0
+    Delivery라는 집계 구멍을 내지 않는다. guardian 토큰으로는 1차에서 아무것도 나가지 않는다."""
+    resident = registry.get("p001")
+    assert resident is not None
+    resident.devices["ward"].clear()  # ward만 비우고 guardian(fcm_demo_guardian_p001)은 남긴다
+    assert resident.devices["guardian"], "전제: guardian 기기는 남아 있어야 한다"
+
+    run = _run(event, registry, sessions, ai, dispatcher, shelter_repository)
+
+    assert "p001" in run.skipped_no_device
+    # 2차용 guardian 토큰은 1차 발송에 실리지 않는다.
+    guardian_token = "fcm_demo_guardian_p001"  # noqa: S105 - 가공 데모 값
+    assert all(p.device_token != guardian_token for p in dispatcher.sent)
+    # skipped 주민은 Delivery로 기록되지 않으므로 M1 지연 표본에도 delivered_count에도 안 든다.
+    assert all(d.user_id != "p001" for d in run.deliveries)
 
 
 def test_unmatched_dong_dispatches_nothing(
@@ -308,13 +334,214 @@ def test_multiple_devices_all_receive(
 ) -> None:
     resident: Resident | None = registry.get("p001")
     assert resident is not None
-    resident.devices.append("fcm_demo_device_p001_tablet")
+    resident.devices["ward"].append("fcm_demo_device_p001_tablet")
 
     run = _run(event, registry, sessions, ai, dispatcher, shelter_repository)
 
     delivery = next(d for d in run.deliveries if d.user_id == "p001")
     assert delivery.devices_notified == 2
     assert len(dispatcher.sent) == 3
+
+
+class _TimedOutcomeDispatcher:
+    def __init__(self, clock: list[float], outcomes: list[tuple[float, bool | Exception]]) -> None:
+        self.clock = clock
+        self.outcomes = iter(outcomes)
+
+    def send(self, payload: PushPayload) -> bool:
+        at, outcome = next(self.outcomes)
+        self.clock[0] = at
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+def _run_single_resident_with_timed_outcomes(
+    monkeypatch,
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+    outcomes: list[tuple[float, bool | Exception]],
+) -> AlertRun:
+    resident = registry.get("p001")
+    assert resident is not None
+    resident.devices["ward"][:] = ["ward-phone", "ward-tablet"]
+    clock = [0.0]
+    monkeypatch.setattr(pipeline, "perf_counter", lambda: clock[0])
+    return run_alert(
+        event,
+        registry=ResidentRegistry([resident]),
+        sessions=sessions,
+        ai=ai,
+        dispatcher=_TimedOutcomeDispatcher(clock, outcomes),
+        shelters=shelter_repository,
+        public_base_url=BASE_URL,
+    )
+
+
+def test_m1_uses_first_ward_acceptance_when_multiple_devices_accept(
+    monkeypatch,
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+) -> None:
+    run = _run_single_resident_with_timed_outcomes(
+        monkeypatch,
+        event,
+        registry,
+        sessions,
+        ai,
+        shelter_repository,
+        [(0.1, True), (0.9, True)],
+    )
+
+    delivery = run.deliveries[0]
+    assert delivery.devices_notified == 2
+    assert delivery.latency_ms == 100.0
+    assert [event.type for event in sessions.events_of(sessions.get(delivery.session_token))] == [
+        "alert_dispatched",
+        "push_accepted",
+    ]
+
+
+def test_m1_uses_later_device_when_first_is_not_accepted(
+    monkeypatch,
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+) -> None:
+    run = _run_single_resident_with_timed_outcomes(
+        monkeypatch,
+        event,
+        registry,
+        sessions,
+        ai,
+        shelter_repository,
+        [(0.1, False), (0.7, True)],
+    )
+
+    assert run.deliveries[0].devices_notified == 1
+    assert run.deliveries[0].latency_ms == 700.0
+
+
+def test_m1_first_acceptance_survives_later_send_exception(
+    monkeypatch,
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+) -> None:
+    run = _run_single_resident_with_timed_outcomes(
+        monkeypatch,
+        event,
+        registry,
+        sessions,
+        ai,
+        shelter_repository,
+        [(0.2, True), (0.8, RuntimeError("later send failed"))],
+    )
+
+    assert run.deliveries[0].devices_notified == 1
+    assert run.deliveries[0].latency_ms == 200.0
+    assert run.send_errors == 1
+
+
+def test_all_failed_delivery_keeps_float_but_is_excluded_from_m1(
+    monkeypatch,
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+) -> None:
+    run = _run_single_resident_with_timed_outcomes(
+        monkeypatch,
+        event,
+        registry,
+        sessions,
+        ai,
+        shelter_repository,
+        [(0.3, False), (0.6, False)],
+    )
+
+    assert run.deliveries[0].devices_notified == 0
+    assert run.deliveries[0].latency_ms == 600.0
+    assert run.latencies_ms == []
+    assert run.p95_latency_ms == 0.0
+
+
+def test_reached_recipient_gets_alert_dispatched_then_push_accepted(
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    dispatcher: RecordingDispatcher,
+    shelter_repository: ShelterRepository,
+) -> None:
+    """디바이스가 있는 수신자 세션은 alert_dispatched 다음 push_accepted를 남긴다."""
+    run = _run(event, registry, sessions, ai, dispatcher, shelter_repository)
+    record = sessions.get(run.deliveries[0].session_token)
+    types = [e.type for e in sessions.events_of(record)]
+    assert types == ["alert_dispatched", "push_accepted"]
+
+
+def test_system_event_times_follow_the_injected_clock(
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    dispatcher: RecordingDispatcher,
+    shelter_repository: ShelterRepository,
+) -> None:
+    """주입 시각을 과거로 줘도 push_accepted는 alert_dispatched 뒤이고 둘 다 주입 시각 근처다.
+
+    시스템 이벤트 시각을 벽시계로 찍으면 과거를 리플레이할 때 push_accepted가
+    alert_dispatched보다 앞서는 로그가 나온다 — finished_at과 같은 기준을 써야 한다.
+    """
+    injected = datetime(2026, 8, 5, 9, 0, tzinfo=UTC)
+    run = run_alert(
+        event,
+        registry=registry,
+        sessions=sessions,
+        ai=ai,
+        dispatcher=dispatcher,
+        shelters=shelter_repository,
+        public_base_url=BASE_URL,
+        now=injected,
+    )
+    record = sessions.get(run.deliveries[0].session_token, now=injected)
+    events = {e.type: e.at for e in sessions.events_of(record)}
+    # 순서: 주입 시각 <= alert_dispatched(수신자 처리 시점) <= push_accepted. 셋 다 주입
+    # 기준이라 벽시계였다면 벌어질 "과거 리플레이에서 push_accepted가 앞서는" 역전이 없다.
+    assert injected <= events["alert_dispatched"] <= events["push_accepted"]
+    assert events["push_accepted"] - injected < timedelta(seconds=10)
+
+
+def test_device_less_recipient_has_alert_dispatched_but_no_push_accepted(
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    dispatcher: RecordingDispatcher,
+    shelter_repository: ShelterRepository,
+) -> None:
+    """디바이스가 없으면 발송 시도만 있고 접수는 없다 — push_accepted의 부재가 곧 사실이다."""
+    resident = registry.get("p002")
+    assert resident is not None
+    resident.devices["ward"].clear()
+
+    _run(event, registry, sessions, ai, dispatcher, shelter_repository)
+
+    record = next(r for r in sessions._by_token.values() if r.user_id == "p002")
+    types = [e.type for e in sessions.events_of(record)]
+    assert types == ["alert_dispatched"]
 
 
 def test_availability_maps_to_service_mode(
@@ -353,3 +580,91 @@ def test_availability_maps_to_service_mode(
         )
         context = build_context(event, resident.profile, shelters)
         assert context.service_mode == mode, f"{availability} -> {mode} 여야 한다"
+
+
+class _RaiseOnFirstSendDispatcher:
+    """실어댑터가 계약(False 반환) 대신 예외를 던지는 상황의 재현용 — 첫 발송만 터진다."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def send(self, payload: PushPayload) -> bool:
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("simulated FCM adapter failure")
+        return True
+
+
+def test_one_raising_send_does_not_stop_the_run(
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+) -> None:
+    """발송 어댑터가 예외를 던져도 나머지 수신자는 계속 받는다 — 한 명의 실패가 전체를 멈추지 않는다.
+
+    터진 세션은 push_accepted 없이 alert_dispatched만 남고, 그 부재 자체가 기록된 사실이다.
+    """
+    flaky = _RaiseOnFirstSendDispatcher()
+    run = run_alert(
+        event,
+        registry=registry,
+        sessions=sessions,
+        ai=ai,
+        dispatcher=flaky,
+        shelters=shelter_repository,
+        public_base_url=BASE_URL,
+    )
+
+    assert flaky.calls == 2, "첫 발송이 터져도 두 번째 수신자 발송까지 진행돼야 한다"
+    assert len(run.deliveries) == 2
+    event_types = sorted(
+        tuple(e.type for e in sessions.events_of(sessions.get(d.session_token)))
+        for d in run.deliveries
+    )
+    assert event_types == [("alert_dispatched",), ("alert_dispatched", "push_accepted")]
+    # 집계 의미까지 고정한다: 터진 수신자는 0대, 성공한 수신자는 1대로 세어져야 하고,
+    # 어댑터 예외는 정직한 False와 구분돼 send_errors에 따로 남아야 한다.
+    assert sorted(d.devices_notified for d in run.deliveries) == [0, 1]
+    assert run.send_errors == 1
+    # M1: 접수된 세션만 도달 속도 표본에 든다. 터진 세션은 Delivery로 남지만 latency에서 빠진다.
+    assert run.accepted == 1
+    assert len(run.latencies_ms) == 1
+
+
+class _AllFailDispatcher:
+    """전 발송이 계약대로 False를 돌려주는 상황 — 예외가 아니라 정직한 미접수."""
+
+    def send(self, payload: PushPayload) -> bool:
+        return False
+
+
+def test_m1_latency_excludes_sessions_with_no_accepted_send(
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+) -> None:
+    """전 발송이 미접수면 도달이 0이므로 속도 KPI 표본이 비고 p95도 0이다.
+
+    실패 send는 실제 네트워크가 없어 빠르다. Delivery를 그대로 표본에 넣으면 도달하지 못한
+    세션이 p95를 낮춰 KPI가 실제보다 좋아 보인다 — 그 왜곡을 이 테스트가 막는다.
+    """
+    run = run_alert(
+        event,
+        registry=registry,
+        sessions=sessions,
+        ai=ai,
+        dispatcher=_AllFailDispatcher(),
+        shelters=shelter_repository,
+        public_base_url=BASE_URL,
+    )
+
+    assert len(run.deliveries) >= 1, "기기가 있는 수신자는 Delivery로 남아 도달률 보고에 든다"
+    assert all(d.devices_notified == 0 for d in run.deliveries)
+    assert run.accepted == 0
+    assert run.latencies_ms == []
+    assert run.p95_latency_ms == 0.0
+    assert run.mean_latency_ms == 0.0

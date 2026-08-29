@@ -26,9 +26,10 @@ from __future__ import annotations
 
 import math
 import re
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 
 # Character bigrams over Hangul + digits only. Whitespace, punctuation and particles carry
 # no claim, and dropping them keeps "지하차도는 통행하지 마세요" comparable to the source
@@ -285,6 +286,7 @@ def mean(values: Sequence[float | None]) -> float | None:
 # current names). Named here so a contract rename is one edit, not a grep across the file.
 FOLLOWUP_DUE = "followup_due"  # 재진입 확정 — M4의 분모
 GUARDIAN_NOTIFIED = "guardian_notified"  # 2차 발송 성공 — M4의 분자
+FOLLOWUP_UNREACHABLE = "followup_unreachable"  # 도달 불가 — M4 분모 밖 별도 집계
 
 # ADR-0012 3절 forbids three *categories*, not one list. 안전 단정 is the only one that is
 # a set of fixed sentences; the other two are grammatical and are matched as patterns
@@ -306,7 +308,7 @@ _COLLAPSED_SAFETY = tuple((p, _WHITESPACE.sub("", p)) for p in SAFETY_ASSERTIONS
 
 # 상태 추정 (ADR-0012 3절): "자고 있는 것 같습니다". The 추측 ending carries the category, so
 # matching the ending catches sentences no phrase list would anticipate.
-_SPECULATION = re.compile(r"것같")
+_SPECULATION = re.compile(r"것같|것으로보|듯합니다|추정됩니다|보입니다")
 
 # 행동 지시 (ADR-0012 3절): "지금 가 보세요", "119에 신고하세요". Any polite imperative is
 # out of scope for a guardian answer — 3절: "로그를 풀어 읽어 주는 자리이고, 무엇을 하라고
@@ -321,6 +323,80 @@ _SPECULATION = re.compile(r"것같")
 # and not a false positive here. `_CLAUSE_BREAK` excepts the same auxiliary because it is
 # counting facts, not judging wording; one construction, two questions.
 _INSTRUCTION = re.compile(r"(세요|십시오)")
+
+# Runtime guardian verifier hardening (3.5단계)과 허용/차단 판정을 맞추는 보조 방어선.
+# 의미 대응은 runtime의 canonical claim 검증이 맡고, 평가지표는 정규식으로 명백한
+# 비-삼중항 주장만 같은 방향으로 차단한다.
+_GUARDIAN_EXTRA_FORBIDDEN = re.compile(
+    r"(?:\d+|한|두|세|네)\s*(?:분|시간|일)(?:간|째|\s*동안)|지났습니다|계속|"
+    r"(?:\d+|한|두|세|네|몇)\s*(?:번(?:째)?|회)|여러\s*차례|반복해서|"
+    r"이후|그\s*뒤(?:로)?|그\s*후|가장\s*최근|마지막으로|"
+    r"기록(?:이|은)\s*(?:없습니다|없었습니다)|하지\s*않|누르지\s*않|"
+    r"선택하지\s*않|행동하지\s*않"
+)
+_UNSUPPORTED_STATE = re.compile(r"이동\s*중입니다|대피\s*중입니다|도착했습니다")
+_BRACKETED_LABEL = re.compile(r"\[[^]]+\]")
+_NON_HAPSYO_ENDING = re.compile(r"(?:해요|했어요|맞아요|이네요|그렇죠|예요|아요|어요)(?=[.!?]|$)")
+_DISPLAY_TIME = re.compile(r"(?<!\d)(\d{1,2})시 (\d{1,2})분(?!\d)")
+_SEOUL = timezone(timedelta(hours=9))
+
+_KNOWN_GUARDIAN_CLAIMS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"상황 확인(?:하기)?.*버튼을 누(?:르|른)"), "situation_check_selected"),
+    (re.compile(r"정보 확인 화면을 (?:여|연)"), "profile_review_started"),
+    (re.compile(r"정보 확인을 완료"), "profile_review_completed"),
+    (re.compile(r"정보 확인 단계를 건너"), "profile_review_skipped"),
+    (re.compile(r"(?:상황 )?선택 화면을 (?:보|본)"), "choice_screen_viewed"),
+    (re.compile(r"도움이 필요해요.*선택"), "help_request_selected"),
+    (re.compile(r"일단 대피할게요.*선택"), "direct_evacuation_selected"),
+    (re.compile(r"대피 행동 권고와 대피소 안내를 (?:보|본)"), "evacuation_guidance_viewed"),
+    (re.compile(r"경로 안내를 시작"), "route_guidance_started"),
+    (re.compile(r"다음 안내를 요청"), "next_guidance_requested"),
+    (re.compile(r"119 전화 버튼을 누(?:르|른)"), "emergency_call_119_selected"),
+    (
+        re.compile(r"(?:도착 완료는|도착 완료.*버튼을 누(?:르|른))"),
+        "arrival_confirmed_by_user",
+    ),
+)
+
+_EMPTY_PROGRESS_ANSWER = "현재 세션의 사용자 행동은 기록에서 확인되지 않습니다."
+
+
+def _recognized_guardian_claims(
+    answer: str,
+) -> list[tuple[str, bool, str | None]] | None:
+    """Independently normalize every claim unit to an event fact, or fail closed."""
+    recognized: list[tuple[str, bool, str | None]] = []
+    for unit in _claim_units(answer):
+        matches = [
+            event_type for pattern, event_type in _KNOWN_GUARDIAN_CLAIMS if pattern.search(unit)
+        ]
+        if len(matches) != 1:
+            return None
+        present = "기록에서 확인되지 않" not in unit
+        display_times = [
+            f"{int(hour):02d}시 {int(minute):02d}분" for hour, minute in _DISPLAY_TIME.findall(unit)
+        ]
+        if present and len(display_times) != 1:
+            return None
+        if not present and display_times:
+            return None
+        recognized.append((matches[0], present, display_times[0] if present else None))
+    return recognized
+
+
+def _known_claim_source_mismatch(answer: str, evidence: Sequence[Mapping[str, object]]) -> bool:
+    """Match independently recognized claim types/polarities and cited facts both ways."""
+    cited_types = Counter((item.get("type"), item.get("present")) for item in evidence)
+    if answer == _EMPTY_PROGRESS_ANSWER:
+        expected = Counter((event_type, False) for _pattern, event_type in _KNOWN_GUARDIAN_CLAIMS)
+        return cited_types != expected
+
+    claimed = _recognized_guardian_claims(answer)
+    if claimed is None:
+        return True
+    claimed_types = Counter((event_type, present) for event_type, present, _at in claimed)
+    return claimed_types != cited_types
+
 
 # 나열·대조 연결어미 — the joins that put two facts in one sentence. ADR-0012's claim unit
 # is the fact, not the sentence: 1절 normalizes 「각 문장이 말하는 사실」, plural, and 2절
@@ -368,24 +444,94 @@ def _facts_cited(evidence: Sequence[Mapping[str, object]]) -> int:
     invented claim ride in behind a duplicated citation: two sentences, the same source
     pasted twice, and the count check sees 2 <= 2 and passes.
 
-    Compared on the UTC minute, like every other time comparison here (2절), so the same
-    event cited once as `+09:00` and once as `Z` collapses to the one fact it is. Values
-    that cannot be normalized are keyed by `repr` rather than dropped: they are already
-    `malformed_evidence`, and letting two unreadable items pass as two facts would reopen
-    the same hole one step further down.
+    Compared on the exact UTC instant, so equivalent `+09:00` and `Z` forms collapse but
+    two events in the same minute remain two facts. Minute truncation belongs only to the
+    evidence-vs-log check in `_instant_minute`. Values that cannot be normalized are keyed
+    by `repr` rather than dropped: they are already `malformed_evidence`, and letting two
+    unreadable items pass as two facts would reopen the same hole one step further down.
     """
     keys = set()
     for item in evidence:
         kind = item.get("type")
         present = item.get("present")
+        at = item.get("at")
+        instant = _instant(at)
         keys.add(
             (
                 kind if isinstance(kind, str) else repr(kind),
                 present if isinstance(present, bool) else repr(present),
-                _instant_minute(item.get("at")),
+                instant if instant is not None else repr(at),
             )
         )
     return len(keys)
+
+
+def _event_backed_fact_capacity(
+    evidence: Sequence[Mapping[str, object]],
+    events: Sequence[Mapping[str, object]],
+) -> int:
+    """Count distinct cited facts that can consume distinct matching log rows.
+
+    Fact identity stays exact-instant based in `_facts_cited`, while ADR-0012 matches a
+    present citation to a log row by `(type, UTC minute)`. Applying both rules as a
+    capacity calculation prevents two different-second citations from borrowing the same
+    row, without collapsing two real same-minute occurrences into one fact.
+
+    A valid absence fact needs no row to support it; it contributes once when its type is
+    absent. Malformed and mismatching citations contribute no support capacity.
+    """
+    event_rows = Counter(
+        (event_type, minute)
+        for event in events
+        if isinstance((event_type := event.get("type")), str)
+        if (minute := _instant_minute(event.get("at"))) is not None
+    )
+    occurred = {
+        event_type for event in events if isinstance((event_type := event.get("type")), str)
+    }
+    present_facts: set[tuple[str, bool, datetime]] = set()
+    absent_types: set[str] = set()
+    for item in evidence:
+        item_type = item.get("type")
+        present = item.get("present")
+        if not isinstance(item_type, str) or not isinstance(present, bool):
+            continue
+        if not present:
+            if item.get("at") is None and item_type not in occurred:
+                absent_types.add(item_type)
+            continue
+        instant = _instant(item.get("at"))
+        if instant is not None:
+            present_facts.add((item_type, True, instant))
+
+    cited_rows = Counter(
+        (item_type, instant.strftime("%Y-%m-%dT%H:%M"))
+        for item_type, _present, instant in present_facts
+    )
+    matched_present = sum(
+        min(cited_count, event_rows[(item_type, minute)])
+        for (item_type, minute), cited_count in cited_rows.items()
+    )
+    return matched_present + len(absent_types)
+
+
+def _answer_display_time_mismatch(answer: str, evidence: Sequence[Mapping[str, object]]) -> bool:
+    """Whether a recognized event claim carries another event type's KST minute."""
+    claims = _recognized_guardian_claims(answer)
+    if claims is None:
+        return False
+    displayed = Counter(
+        (event_type, display_time)
+        for event_type, present, display_time in claims
+        if present and display_time is not None
+    )
+    expected = Counter(
+        (item.get("type"), instant.astimezone(_SEOUL).strftime("%H시 %M분"))
+        for item in evidence
+        if item.get("present") is True
+        if (instant := _instant(item.get("at"))) is not None
+    )
+    return any(count > expected[fact] for fact, count in displayed.items())
 
 
 def _distinct(codes: Sequence[str]) -> list[str]:
@@ -523,6 +669,9 @@ def forbidden_phrase_hits(answer: str, phrases: Sequence[str] = SAFETY_ASSERTION
     hits = [phrase for phrase, needle in pairs if needle in collapsed]
     hits += [found.group(0) for found in _SPECULATION.finditer(collapsed)]
     hits += [found.group(0) for found in _INSTRUCTION.finditer(collapsed)]
+    without_labels = _BRACKETED_LABEL.sub("", answer)
+    hits += [found.group(0) for found in _GUARDIAN_EXTRA_FORBIDDEN.finditer(answer)]
+    hits += [found.group(0) for found in _NON_HAPSYO_ENDING.finditer(without_labels)]
     return hits
 
 
@@ -595,12 +744,30 @@ def guardian_violations(
     # 대피소로 이동 중입니다」 is one sentence with one citation, so the invented half rides
     # in free. `_claim_units` splits at the 연결어미 for that reason.
     #
-    # The other side of the count is *facts*, not array entries — see `_facts_cited`.
-    # Pasting one citation twice would otherwise buy a second claim for free.
-    if len(claims) > _facts_cited(evidence):
+    # Fact identity and support capacity are deliberately different. `_facts_cited`
+    # rejects duplicate triplets; `_event_backed_fact_capacity` additionally prevents
+    # distinct-second citations from reusing one minute-matched event row.
+    mismatches = evidence_mismatches(evidence, events)
+    facts_cited = _facts_cited(evidence)
+    if len(evidence) != facts_cited:
+        reasons.append("unsupported_claim")
+    # Duplicate facts are rejected before Runtime compares display-time Counters. Keep
+    # that opposite-direction guard explicit so changing duplicate handling cannot add a
+    # spurious time reason as a side effect.
+    if len(evidence) == facts_cited and _answer_display_time_mismatch(answer, evidence):
+        reasons.append("time_mismatch")
+    support_capacity = _event_backed_fact_capacity(evidence, events)
+    present_sources = sum(item.get("present") is True for item in evidence)
+    if len(evidence) == facts_cited and present_sources > len(claims):
+        reasons.append("unsupported_claim")
+    if len(claims) > facts_cited or (not mismatches and len(claims) > support_capacity):
+        reasons.append("unsupported_claim")
+    if _known_claim_source_mismatch(answer, evidence):
+        reasons.append("unsupported_claim")
+    if _UNSUPPORTED_STATE.search(answer):
         reasons.append("unsupported_claim")
 
-    return _distinct(evidence_mismatches(evidence, events)) + reasons
+    return _distinct([*mismatches, *reasons])
 
 
 def guardian_accuracy(case_violations: Sequence[Sequence[str]]) -> float | None:
@@ -621,6 +788,10 @@ class FollowupSummary:
     but carry a `followup_due` or `guardian_notified` whose `at` cannot be ordered, so
     "did the send follow its own timer" has no answer for them.
 
+    `unreachable` counts sessions with at least one `followup_unreachable` event. These
+    sessions are outside the M4 denominator and are reported separately; they do not
+    contribute to `rate`, even if a log contains the event more than once.
+
     They are deliberately neither successes nor failures. Dropping them silently inflates
     M4 — a run with one clean success and one unreadable session would report 100%. But
     counting them as failures is just as wrong: it makes a timestamp bug indistinguishable
@@ -631,6 +802,7 @@ class FollowupSummary:
     due: int
     sent: int
     unscoreable: int
+    unreachable: int
     rate: float | None
 
 
@@ -683,22 +855,46 @@ def _score_session(events: Sequence[Mapping[str, object]]) -> _LoopOutcome:
 def followup_summary(
     session_logs: Sequence[Sequence[Mapping[str, object]]],
 ) -> FollowupSummary:
-    """M4 (ADR-0012 7절): 분모는 `followup_due`가 있는 세션, 분자는 `guardian_notified`까지 간 세션.
+    """M4 (ADR-0012 7절, 7-a절)와 분모 밖 `followup_unreachable` 세션 요약.
 
     A session with no `followup_due` at all never re-entered the loop and is out of both
-    counts — that is not a failure, it is a person who answered.
+    rate counts. A session with `followup_unreachable` is also outside the denominator,
+    but is counted separately for reporting.
     """
     scored = [_score_session(events) for events in session_logs]
     reentered = [outcome for outcome in scored if outcome.due]
     scoreable = [outcome for outcome in reentered if outcome.readable]
     sent_count = sum(1 for outcome in scoreable if outcome.sent)
+    unreachable_count = sum(
+        1
+        for events in session_logs
+        if any(event.get("type") == FOLLOWUP_UNREACHABLE for event in events)
+    )
 
     return FollowupSummary(
         due=len(scoreable),
         sent=sent_count,
         unscoreable=len(reentered) - len(scoreable),
+        unreachable=unreachable_count,
         rate=_share(sent_count, len(scoreable)),
     )
+
+
+def _is_followup_scoreable(summary: FollowupSummary) -> bool:
+    """Whether a summary can be reported as the run's M4 score."""
+    return summary.rate is not None and summary.unscoreable == 0
+
+
+def format_followup_summary(summary: FollowupSummary) -> str:
+    """Format the ADR-0012 7-a one-line M4 report without recalculating it."""
+    if not _is_followup_scoreable(summary):
+        return (
+            f"M4 측정 불가 (n={summary.due}, unreachable={summary.unreachable}, "
+            f"unscoreable={summary.unscoreable})"
+        )
+    assert summary.rate is not None
+    rate = f"{summary.rate * 100:.1f}".rstrip("0").rstrip(".") + "%"
+    return f"M4 {rate} (n={summary.due}, unreachable={summary.unreachable})"
 
 
 def followup_delivery_rate(
@@ -718,4 +914,4 @@ def followup_delivery_rate(
     this function is the convenience wrapper over it.
     """
     summary = followup_summary(session_logs)
-    return None if summary.unscoreable else summary.rate
+    return summary.rate if _is_followup_scoreable(summary) else None

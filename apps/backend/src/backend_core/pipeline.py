@@ -102,10 +102,22 @@ class AlertRun:
     matched: int
     deliveries: list[Delivery] = field(default_factory=list)
     skipped_no_device: list[str] = field(default_factory=list)
+    # Sends where the adapter *raised* instead of returning False. Kept separate so a broken
+    # adapter (auth misconfig, network fault) is distinguishable from an honest "not
+    # accepted" — folding the two together would hide a real FCM outage from the run report.
+    send_errors: int = 0
+
+    @property
+    def accepted(self) -> int:
+        """Sessions where at least one device was accepted by the push service (도달)."""
+        return sum(1 for d in self.deliveries if d.devices_notified > 0)
 
     @property
     def latencies_ms(self) -> list[float]:
-        return [d.latency_ms for d in self.deliveries]
+        # M1(알림 도달 속도)은 실제로 도달한 세션만 잰다. 전 기기 발송이 실패한 세션은
+        # `Delivery`로 남아 도달률 보고에는 들지만, 도달이 없었으므로 속도 표본에서는 뺀다 —
+        # 실패 send는 실제 네트워크가 없어 빠르므로 넣으면 p95를 좋아 보이는 쪽으로 왜곡한다.
+        return [d.latency_ms for d in self.deliveries if d.devices_notified > 0]
 
     @property
     def mean_latency_ms(self) -> float:
@@ -221,34 +233,81 @@ def run_alert(
             disaster_type=event.type,
             hazard="inside",  # matched on this district, so it is inside the alert area
             stairs_ok=profile.stairs_ok,
+            # Dispatch has no user coordinate, so basis is dongCode and over_time never
+            # attaches; mobility is passed for signature completeness (walk-speed only).
+            mobility=profile.mobility,
             limit=1,
         )
         message = _generate(ai, event, build_context(event, profile, shelter_list))
         session = sessions.create(
             user_id=profile.user_id, stage=stage, message=message, event=event, now=started
         )
+        # 발송을 시도한 시각. 전달 성공이 아니라 발송 요청이며, push_accepted와 구분한다.
+        # 수신자별 처리 시점으로 찍는다 — `started` 균일이면 배치 후반 수신자의 폐루프
+        # 30분 앵커가 실제 발송보다 이르게 고정된다. push_accepted와 같은 주입+단조 기준이라
+        # 리플레이에서 alert_dispatched < push_accepted 순서는 그대로 보장된다.
+        sessions.append_system_event(
+            session,
+            "alert_dispatched",
+            now=started + timedelta(seconds=perf_counter() - clock_start),
+        )
 
-        if not resident.devices:
-            # Registered but unreachable: no FCM token yet, or every device was detached.
-            # Counted, not hidden — an alert nobody can receive is an operational fact the
-            # 도달률 report has to show.
+        # 1차 재난 알림은 ward 기기에만 나간다(ADR-0015 결정 2). guardian 기기는 30분 무응답
+        # 뒤 2차 발송용이라 여기서 세지 않는다 — ward가 비면 이 주민은 1차 도달 불가다.
+        ward_devices = ResidentRegistry.devices_for(resident, "ward")
+        if not ward_devices:
+            # Registered but unreachable on the ward channel: no ward token yet, or every ward
+            # device was detached. Counted, not hidden — an alert nobody can receive is an
+            # operational fact the 도달률 report has to show. guardian 전용 주민이 여기서
+            # skipped_no_device에 들면 notified=0 Delivery라는 집계 구멍이 생기지 않는다.
             run.skipped_no_device.append(profile.user_id)
             continue
 
         link = deep_link(public_base_url, session.token, stage)
-        notified = sum(
-            dispatcher.send(
-                PushPayload(
-                    device_token=token,
-                    title=message.title,
-                    # Verbatim. No slot substitution layer exists (ADR-0005/0006).
-                    body=message.body,
-                    link=link,
-                )
+        notified = 0
+        first_ward_accept_latency_ms: float | None = None
+        for token in ward_devices:
+            payload = PushPayload(
+                device_token=token,
+                title=message.title,
+                # Verbatim. No slot substitution layer exists (ADR-0005/0006).
+                body=message.body,
+                link=link,
             )
-            for token in resident.devices
-        )
+            try:
+                accepted = dispatcher.send(payload)
+            except Exception:
+                # The Dispatcher contract signals failure with False; this guard is for an
+                # adapter that raises instead (real FCM: network error, bad token). One
+                # recipient's failure must never silence everyone still waiting — the same
+                # no-silent-stop principle as the offline fallbacks. Not accepted for the
+                # log (no `push_accepted`; the absence is the recorded fact), but counted in
+                # `send_errors` so an adapter fault stays distinguishable from an honest
+                # False in the run report.
+                run.send_errors += 1
+                accepted = False
+            if accepted:
+                if notified == 0:
+                    acceptance_elapsed_s = perf_counter() - clock_start
+                    first_ward_accept_latency_ms = acceptance_elapsed_s * 1000
+                    # First device the push service accepted. Recorded once — no device or an
+                    # all-failed send leaves this event absent, which is itself a fact.
+                    # Stamped on the same injected+monotonic basis as `started`/`finished_at`,
+                    # never the wall clock: mixing the two could order this before
+                    # `alert_dispatched` when `now` is a replayed past time.
+                    sessions.append_system_event(
+                        session,
+                        "push_accepted",
+                        now=started + timedelta(seconds=acceptance_elapsed_s),
+                    )
+                notified += 1
 
+        latency_ms = first_ward_accept_latency_ms
+        if latency_ms is None:
+            # No M1 endpoint exists for an all-failed delivery, but the API's required float
+            # remains the loop-end elapsed time for backward compatibility. AlertRun excludes
+            # this value from its KPI sample because devices_notified is zero.
+            latency_ms = (perf_counter() - clock_start) * 1000
         run.deliveries.append(
             Delivery(
                 user_id=profile.user_id,
@@ -257,7 +316,7 @@ def run_alert(
                 stage=stage,
                 message_mode=message.message_mode,
                 devices_notified=notified,
-                latency_ms=(perf_counter() - clock_start) * 1000,
+                latency_ms=latency_ms,
             )
         )
 

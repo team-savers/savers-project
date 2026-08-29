@@ -6,6 +6,25 @@
 //   - two with hasStairs: true (must sink below for stairsOk:false).
 //   - a mix of bearing: Bearing and bearing: null (the latter happens when
 //     only the dongCode basis is known — no coordinate).
+//   - v0.9 (ADR-0016): `cautions` per shelter id. `stairs` depends only on
+//     the facility (hasStairs) and the requester's stairsOk, not on
+//     `basis`, so it stays the same for a given shelter id across every
+//     fixture. `over_time` is different — ADR-0016 결정 5 permits it only
+//     when `basis: 'coordinate'`; a `dongCode`-basis origin is a
+//     placeholder (the ward's shelter centroid), so declaring a time
+//     overrun from it would assert a fact the fixture doesn't have. That
+//     makes the *coordinate*-basis pairing below the full one; the
+//     `dongCode`-basis fixtures drop `over_time` from the same shelter ids:
+//       sh01 (서원복지회관)     → []                    (no caution)
+//       sh02 (신림체육관)       → ['stairs']            (hasStairs:true)
+//       sh04 (난향초교)         → ['stairs','over_time'] on coordinate basis,
+//                                  ['stairs'] only on dongCode basis
+//       sh05 (관악민원센터)     → ['over_time'] on coordinate basis,
+//                                  [] on dongCode basis (가장 먼 거리)
+//       sh06 (관악노인복지센터) → []                    (no caution)
+//     SHELTERS_COORDINATE_INSIDE is where the FE's over_time-label
+//     rendering (and the stairs+over_time combined case) actually gets
+//     exercised; the dongCode fixtures below only exercise none/stairs.
 //
 // ShelterList fixtures cover these branches:
 //   - hazardMatch:    inside / outside / unknown — one fixture each.
@@ -51,39 +70,7 @@ export const SHELTERS_DONG_INSIDE: ShelterList = {
       bearing: null,
       isUnderground: false,
       hasStairs: false,
-    },
-    {
-      id: 'sh02',
-      name: '[데모] 신림체육관',
-      address: '서울 특별시 관악구 신림로 100',
-      lat: 37.4791,
-      lng: 126.9403,
-      distanceM: 480,
-      bearing: null,
-      isUnderground: false,
-      hasStairs: true,
-    },
-    {
-      id: 'sh04',
-      name: '[데모] 난향초교',
-      address: '서울 특별시 관악구 난향로 33',
-      lat: 37.4768,
-      lng: 126.9331,
-      distanceM: 720,
-      bearing: null,
-      isUnderground: false,
-      hasStairs: true,
-    },
-    {
-      id: 'sh05',
-      name: '[데모] 관악민원센터',
-      address: '서울 특별시 관악구 신림로 217',
-      // ⚠️ No lat/lng — this is the "좌표 누락" test fixture. Keeps its
-      // text-list entry but is skipped by ShelterMap's marker loop.
-      distanceM: 950,
-      bearing: null,
-      isUnderground: false,
-      hasStairs: false,
+      cautions: [],
     },
     {
       id: 'sh06',
@@ -95,6 +82,49 @@ export const SHELTERS_DONG_INSIDE: ShelterList = {
       bearing: null,
       isUnderground: false,
       hasStairs: false,
+      cautions: [],
+    },
+    {
+      id: 'sh02',
+      name: '[데모] 신림체육관',
+      address: '서울 특별시 관악구 신림로 100',
+      lat: 37.4791,
+      lng: 126.9403,
+      distanceM: 480,
+      bearing: null,
+      isUnderground: false,
+      hasStairs: true,
+      cautions: ['stairs'],
+    },
+    {
+      id: 'sh04',
+      name: '[데모] 난향초교',
+      address: '서울 특별시 관악구 난향로 33',
+      lat: 37.4768,
+      lng: 126.9331,
+      distanceM: 720,
+      bearing: null,
+      isUnderground: false,
+      hasStairs: true,
+      // basis: 'dongCode' — ADR-0016 결정 5 forbids `over_time` here (the
+      // origin is a placeholder ward centroid, not a real coordinate).
+      // `stairs` is unaffected: it comes from hasStairs/stairsOk, not basis.
+      cautions: ['stairs'],
+    },
+    {
+      id: 'sh05',
+      name: '[데모] 관악민원센터',
+      address: '서울 특별시 관악구 신림로 217',
+      // ⚠️ No lat/lng — this is the "좌표 누락" test fixture. Keeps its
+      // text-list entry but is skipped by ShelterMap's marker loop.
+      distanceM: 950,
+      bearing: null,
+      isUnderground: false,
+      hasStairs: false,
+      // basis: 'dongCode' — same ADR-0016 rule; no over_time on an
+      // estimated origin. See SHELTERS_COORDINATE_INSIDE for this
+      // shelter's over_time-only case.
+      cautions: [],
     },
   ],
 }
@@ -117,6 +147,7 @@ export const SHELTERS_DONG_OUTSIDE: ShelterList = {
       bearing: null,
       isUnderground: false,
       hasStairs: false,
+      cautions: [],
     },
     {
       id: 'sh06',
@@ -128,6 +159,7 @@ export const SHELTERS_DONG_OUTSIDE: ShelterList = {
       bearing: null,
       isUnderground: false,
       hasStairs: false,
+      cautions: [],
     },
   ],
 }
@@ -151,6 +183,7 @@ export const SHELTERS_DONG_UNKNOWN: ShelterList = {
       bearing: null,
       isUnderground: false,
       hasStairs: false,
+      cautions: [],
     },
     {
       id: 'sh02',
@@ -162,6 +195,7 @@ export const SHELTERS_DONG_UNKNOWN: ShelterList = {
       bearing: null,
       isUnderground: false,
       hasStairs: true,
+      cautions: ['stairs'],
     },
   ],
 }
@@ -186,6 +220,19 @@ export const SHELTERS_COORDINATE_INSIDE: ShelterList = {
       bearing: 'NE' as Bearing,
       isUnderground: false,
       hasStairs: false,
+      cautions: [],
+    },
+    {
+      id: 'sh06',
+      name: '[데모] 관악노인복지센터',
+      address: '서울 특별시 관악구 청룡로 50',
+      lat: 37.4742,
+      lng: 126.9278,
+      distanceM: 550,
+      bearing: 'S' as Bearing,
+      isUnderground: false,
+      hasStairs: false,
+      cautions: [],
     },
     {
       id: 'sh02',
@@ -197,6 +244,7 @@ export const SHELTERS_COORDINATE_INSIDE: ShelterList = {
       bearing: 'SE' as Bearing,
       isUnderground: false,
       hasStairs: true,
+      cautions: ['stairs'],
     },
     {
       id: 'sh04',
@@ -208,6 +256,7 @@ export const SHELTERS_COORDINATE_INSIDE: ShelterList = {
       bearing: 'NW' as Bearing,
       isUnderground: false,
       hasStairs: true,
+      cautions: ['stairs', 'over_time'],
     },
     {
       id: 'sh05',
@@ -220,17 +269,7 @@ export const SHELTERS_COORDINATE_INSIDE: ShelterList = {
       bearing: 'N' as Bearing,
       isUnderground: false,
       hasStairs: false,
-    },
-    {
-      id: 'sh06',
-      name: '[데모] 관악노인복지센터',
-      address: '서울 특별시 관악구 청룡로 50',
-      lat: 37.4742,
-      lng: 126.9278,
-      distanceM: 550,
-      bearing: 'S' as Bearing,
-      isUnderground: false,
-      hasStairs: false,
+      cautions: ['over_time'],
     },
   ],
 }
@@ -255,6 +294,7 @@ export const SHELTERS_DONG_CACHE: ShelterList = {
       bearing: null,
       isUnderground: false,
       hasStairs: false,
+      cautions: [],
     },
     {
       id: 'sh06',
@@ -266,6 +306,7 @@ export const SHELTERS_DONG_CACHE: ShelterList = {
       bearing: null,
       isUnderground: false,
       hasStairs: false,
+      cautions: [],
     },
   ],
 }

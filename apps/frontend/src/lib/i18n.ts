@@ -55,6 +55,29 @@ export type StringKey =
   | 'alert.retry'
   | 'alert.retrying'
   | 'alert.preparing'
+  // EvacuationActions — resident action choice, help, route, arrival, and
+  // event-write failure recovery. These controls gate the shelter guidance,
+  // so Korean and Vietnamese must both remain complete.
+  | 'evacuation.choice.title'
+  | 'evacuation.choice.body'
+  | 'evacuation.choice.help'
+  | 'evacuation.choice.direct'
+  | 'evacuation.help.title'
+  | 'evacuation.help.body'
+  | 'evacuation.help.call119'
+  | 'evacuation.help.callGuardian'
+  | 'evacuation.help.back'
+  | 'evacuation.route.start'
+  | 'evacuation.route.title'
+  | 'evacuation.route.body'
+  | 'evacuation.arrival.confirm'
+  | 'evacuation.arrival.title'
+  | 'evacuation.arrival.body'
+  | 'evacuation.event.failure'
+  | 'evacuation.event.retry'
+  | 'evacuation.event.retrying'
+  | 'evacuation.event.continueGuidance'
+  | 'evacuation.event.continueHelp'
   // Landing — address fallback
   | 'landing.addressUnknown'
   // Landing — 위치 카드의 등록 주소 라벨. 히어로 위치 카드에서 사용자가
@@ -89,6 +112,11 @@ export type StringKey =
   | 'shelter.distance'
   | 'shelter.direction'
   | 'shelter.hasStairs'
+  // v0.9 (ADR-0016) — 요청자 기준 주의(Shelter.cautions) 라벨. hasStairs
+  // (시설 속성)와는 다른 축이다 — 위 shelter.hasStairs는 그대로 두고
+  // 새 키로 추가한다.
+  | 'shelter.caution.stairs'
+  | 'shelter.caution.overTime'
   | 'shelter.expand.map.open'
   | 'shelter.expand.map.close'
   | 'shelter.expand.detail.open'
@@ -252,6 +280,86 @@ const DICTIONARY: Dictionary = {
     ko: '개인 안내를 준비하고 있습니다…',
     vi: 'Đang chuẩn bị hướng dẫn cá nhân…',
   },
+  'evacuation.choice.title': {
+    ko: '지금 어떻게 하시겠어요?',
+    vi: 'Bây giờ bạn muốn làm gì?',
+  },
+  'evacuation.choice.body': {
+    ko: '필요한 행동을 선택해 주세요.',
+    vi: 'Hãy chọn hành động bạn cần.',
+  },
+  'evacuation.choice.help': {
+    ko: '도움이 필요해요',
+    vi: 'Tôi cần giúp đỡ',
+  },
+  'evacuation.choice.direct': {
+    ko: '혼자서 대피할게요',
+    vi: 'Tôi sẽ tự sơ tán',
+  },
+  'evacuation.help.title': {
+    ko: '아래 번호로 직접 전화하세요',
+    vi: 'Hãy gọi trực tiếp đến số bên dưới',
+  },
+  'evacuation.help.body': {
+    ko: '자동으로 신고되거나 위치가 공유되지 않습니다.',
+    vi: 'Hệ thống không tự động báo tin hoặc chia sẻ vị trí của bạn.',
+  },
+  'evacuation.help.call119': {
+    ko: '119 전화하기',
+    vi: 'Gọi 119',
+  },
+  'evacuation.help.callGuardian': {
+    ko: '보호자에게 전화하기',
+    vi: 'Gọi người giám hộ',
+  },
+  'evacuation.help.back': {
+    ko: '이전으로',
+    vi: 'Quay lại',
+  },
+  'evacuation.route.start': {
+    ko: '경로 확인하기',
+    vi: 'Xem đường đi',
+  },
+  'evacuation.route.title': {
+    ko: '경로 안내',
+    vi: 'Hướng dẫn đường đi',
+  },
+  'evacuation.route.body': {
+    ko: '현재는 대피소 위치와 거리 안내만 제공합니다. 이동 중 공식 재난 안내를 함께 확인하세요.',
+    vi: 'Hiện tại chỉ cung cấp vị trí và khoảng cách đến nơi trú ẩn. Hãy kiểm tra cả thông báo thiên tai chính thức khi di chuyển.',
+  },
+  'evacuation.arrival.confirm': {
+    ko: '도착했어요',
+    vi: 'Tôi đã đến nơi',
+  },
+  'evacuation.arrival.title': {
+    ko: '도착을 기록했습니다',
+    vi: 'Đã ghi nhận bạn đến nơi',
+  },
+  'evacuation.arrival.body': {
+    ko: '보호자가 현재 세션의 도착 기록을 확인할 수 있습니다.',
+    vi: 'Người giám hộ có thể kiểm tra ghi nhận đến nơi trong phiên hiện tại.',
+  },
+  'evacuation.event.failure': {
+    ko: '행동 기록을 저장하지 못했습니다. 다시 시도해 주세요.',
+    vi: 'Không thể lưu hành động. Vui lòng thử lại.',
+  },
+  'evacuation.event.retry': {
+    ko: '다시 시도',
+    vi: 'Thử lại',
+  },
+  'evacuation.event.retrying': {
+    ko: '다시 시도하는 중…',
+    vi: 'Đang thử lại…',
+  },
+  'evacuation.event.continueGuidance': {
+    ko: '기록 없이 대피소 보기',
+    vi: 'Xem nơi trú ẩn mà không lưu hành động',
+  },
+  'evacuation.event.continueHelp': {
+    ko: '기록 없이 도움 요청 계속하기',
+    vi: 'Tiếp tục yêu cầu trợ giúp mà không lưu hành động',
+  },
   'landing.addressUnknown': {
     ko: '주소 미확인',
     vi: 'Chưa xác định địa chỉ',
@@ -333,6 +441,16 @@ const DICTIONARY: Dictionary = {
   'shelter.hasStairs': {
     ko: '계단 있음',
     vi: 'Có bậc thang',
+  },
+  // v0.9 (ADR-0016). vi 번역은 팀 검수 전 초안(추정) — ko가 baseline이라
+  // 화면이 깨지진 않지만, 병합 전 원어민 검수를 권장한다.
+  'shelter.caution.stairs': {
+    ko: '계단 이용 주의',
+    vi: 'Lưu ý bậc thang',
+  },
+  'shelter.caution.overTime': {
+    ko: '이동 시간 주의',
+    vi: 'Lưu ý thời gian di chuyển',
   },
   'shelter.expand.map.open': {
     ko: '▼ 지도 보기',

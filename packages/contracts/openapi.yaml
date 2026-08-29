@@ -22,9 +22,101 @@ openapi: 3.1.0
 
 info:
   title: SAVERS API
-  version: 0.5.0-draft
+  version: 0.10.0-draft
   description: |
     재난 취약계층 대상 무설치 대피 안내 서비스의 모듈 간 계약 초안입니다.
+
+    > **변경 이력(v0.10)**: **1차 재난 알림이 `ward`와 `guardian` 양쪽으로 나갑니다**
+    > ([ADR-0015](../../docs/adr/0015-guardian-device-registration.md) 결정 2번,
+    > 2026-08-27 개정. 상태는 **제안**입니다).
+    > v0.7이 「1차는 `ward` 기기에만」으로 적은 것을 뒤집는 변경이며, 그 시점 기록인
+    > v0.7 이력은 고치지 않습니다. 피보호자가 30분 안에 정상적으로 대피를 마친 성공
+    > 경로에서 보호자에게 아무 알림도 가지 않아, 보호자 연계가 **실패 경로에서만
+    > 발화하던** 구조를 고칩니다.
+    > **두 사람이 받는 문안은 다릅니다** — 피보호자는 행동 지시를, 보호자는 재난
+    > 1건당 1회의 정보성 통지를 받습니다. 보호자 통지문은 생성물이 아니라 고정
+    > 문구이며 생성 계약을 타지 않습니다 - [ADR-0005](../../docs/adr/0005-webpush-primary-channel.md)가
+    > 폐기한 렌더링 어댑터를 되살리는 것이 아닙니다.
+    > 그 발송을 남기는 **`guardian_informed` 이벤트를 신설**해 시스템 이벤트가 5종에서
+    > 6종, 판별 유니온과 `GuardianEvidenceType`이 17종에서 18종이 됩니다.
+    > `guardian_notified`(2차)와 별개인 이유는 그쪽이 M4 분자의 예약어이고, 이쪽은
+    > 개입 요청이 아니라 정보 전달이기 때문입니다.
+    > 함께 **`GuardianStatus.lastNotice`**(`first`·`followup`·`none`)를 신설하고,
+    > `pushEnabled` 설명에 「용도는 2차 도달 설정이되 1차 통지도 같은 버킷을 읽는다」를
+    > 명시했습니다.
+    > ⚠️ **`guardian_informed`는 M1의 끝점이 아닙니다** — M1 끝점은 `ward` 기기 중
+    > 최초 접수이고([ADR-0013](../../docs/adr/0013-m1-measures-push-acceptance.md),
+    > 승인 - 2026-08-26),
+    > 이 변경이 그 정의를 바꾸지 않습니다. 다만 계측이 정의를 따라와야 하며 그 항목은
+    > ADR-0015 후속 조치 표에 있습니다.
+
+    > **변경 이력(v0.9)**: 대피소 주의 표시(`Shelter.cautions`)를 신설했습니다
+    > ([ADR-0016](../../docs/adr/0016-shelter-cautions-not-exclusion.md), 승인 - 2026-08-26).
+    > **개인 적합성은 대피소를 제외하지 않고 주의로 표시합니다** — 계단과 도달 시간은
+    > 사람마다 답이 달라지는 축이라, 제외로 올리면 계단 있는 곳밖에 없는 지역에서
+    > 후보가 전부 사라져 `all_excluded` 수직 대피로 떨어집니다. 그런데 계단을 못 쓰는
+    > 사람에게 수직 대피만 남은 조합은 이 계약이 이미 `unsafe`로 규정한 자리입니다.
+    > **호우·침수의 지하 제외는 이 규칙의 대상이 아니며** 사람과 무관한 안전 판단으로
+    > `excluded`에 남습니다 - 두 축을 섞지 않습니다.
+    > `stairs`는 `mobility`가 아니라 `stairsOk`로 판정하고, `over_time`은 `basis`가
+    > `coordinate`일 때만 붙입니다(동 중심 원점은 추정값이라 시간 초과를 선언할 수
+    > 없습니다). 군 구분 필드와 거리 추정 표시 필드는 두지 않습니다 — **군 구분은**
+    > `cautions`가 비었는지의 함수라 두 값이 어긋난 응답이 만들어질 수 있고,
+    > **거리 추정 표시는** `basis`와 같은 사실이라 목록의 모든 항목에서 같은 값이 됩니다.
+    > 같은 판에서 `/v1/shelters/search`의 「가까운 순 정렬」을 정렬 정본으로 고쳤습니다.
+
+    > **변경 이력(v0.8)**: 웹푸시 발송 페이로드(`WebPushPayload`)를 명문화했습니다
+    > ([#15](https://github.com/team-savers/savers-project/issues/15) 1번).
+    > **발송은 data-only 고정이고 `notification` 블록은 금지**입니다 - SDK가 자체 표시해
+    > 알림이 2건 뜨고, 그중 하나는 `data.url`이 없어 딥링크가 죽습니다.
+    > 백엔드와 서비스워커 양쪽 주석에만 있던 규칙을 계약으로 올린 것입니다.
+    > 금지는 설명이 아니라 스키마가 강제합니다 - 최상위·`data` 양쪽이
+    > `additionalProperties: false`라 `notification`은 검증에서 걸립니다.
+    > v0.7이 1차·2차 발송을 `role`로 갈라 놓았지만 **페이로드의 모양은 하나**이고,
+    > 이 스키마가 그 하나를 정합니다.
+
+    > **변경 이력(v0.6)**: 보호자 Q&A 신설(`POST /v1/guardian/{token}/ask`).
+    > **v0.7보다 늦게 들어옵니다** — 합의한 머지 순서가 PR 122 다음이 PR 104였고,
+    > 이유는 아래 v0.7 항목에 적혀 있습니다. 그래서 버전 번호는 0.7이 유지됩니다.
+    > 검색 대상은 **그 세션의 이벤트 로그 전량이며 세션을 넘지 않습니다**(벡터 검색 없음).
+    > 응답은 **전달 아니면 거절 두 갈래뿐이고 그 사이가 없다는 것을 `oneOf`로
+    > 강제합니다** — 근거 없는 문안도, 근거를 달고 침묵하는 응답도 만들 수 없습니다.
+    > 질문별로 인용 가능한 이벤트도 같은 방식으로 좁힙니다.
+    > 근거는 확인됨과 확인되지 않음을 같은 모양으로 담고(`GuardianEvidence`),
+    > **`present: false`는 「없었다」가 아니라 「이 세션 로그에서 확인되지 않는다」**
+    > 입니다 — 로그의 부재를 사실로 승격시키지 않는 것이 M2의 전제입니다.
+    > 지원 범위는 추천 3질문(`evacuation_progress` · `help_request` ·
+    > `arrival_status`)으로 닫혀 있고, 목록 밖 입력은 200 폴백이 아니라 422입니다.
+    > 백엔드가 이 답변을 만드는 내부 뒷단 `POST /v1/guardian/answer`
+    > (backend → ai-engine, `GuardianAnswerRequest`)도 같은 PR에서 함께
+    > 계약에 실렸어야 했던 경로이며, 뒤늦게 이 항목에 추가합니다.
+
+    > **변경 이력(v0.7)**: 보호자 기기 등록 신설
+    > (`DeviceRegisterRequest.role`, `POST`·`DELETE /v1/guardian/{token}/device`,
+    > `GuardianStatus.pushEnabled`).
+    > 2차 발송 채널이 1차와 같은 웹푸시 하나뿐이므로(ADR-0014 — 승인, 2026-08-25),
+    > **보호자 기기가 먼저 구독돼 있지 않으면 2차 발송이 닿을 자리가 없습니다.**
+    > 그런데 기존 `POST /v1/devices`에는 피보호자 기기와 보호자 기기를 구분할 칸이
+    > 없어, 보호자 기기를 붙이는 순간 1차 알림까지 보호자에게 나갔습니다.
+    > 등록 경로를 수명이 다른 둘로 나눕니다 — **최초 구독은 사전등록 시점의 등록
+    > 토큰**(`POST /v1/devices` + `role: guardian`), **갱신은 `/g/` 진입 시의 보호자
+    > 토큰**(`POST /v1/guardian/{token}/device`)입니다. 보호자 토큰은 세션마다 새로
+    > 발급되므로 그것만 두면 첫 재난에서 링크를 받을 방법이 없습니다.
+    > **1차 발송은 `role: ward` 기기에만, 2차 발송은 `role: guardian` 기기에만**
+    > 나갑니다.
+    >
+    > 함께 **`followup_unreachable` 이벤트를 신설**해 시스템 이벤트가 4종에서 5종이
+    > 됩니다(v0.5의 표현은 그 시점 기록이므로 고치지 않습니다). 보낼 보호자 기기가
+    > 없어 2차 발송을 건너뛴 경우로, `followup_due`와 배타이고 세션당 1회입니다.
+    > 재진입 사실은 로그에 남기되 `followup_due`를 분모로 세는 집계는 그 세션을
+    > 비켜 가게 하려는 것이며, 분모·분자 규칙의 정본은 ADR-0012(승인 - 2026-08-26) 7절·7-a절입니다
+    > — 7-a절은 PR 120 개정분입니다.
+    >
+    > **v0.6은 보호자 Q&A 계약(`POST /v1/guardian/{token}/ask`, PR 104)이 쓰고 있어
+    > 이 변경을 v0.7로 잡습니다.** ⚠️ **머지는 이 계약이 먼저입니다** — 보호자 Q&A 쪽이
+    > `GuardianEvidenceType`을 여기서 늘어난 이벤트 17종에 맞췄기 때문입니다. 순서가
+    > 뒤집히면 존재하지 않는 이벤트를 가리키는 근거 타입이 잠시 남습니다. 이 계약이
+    > 먼저 들어가면 버전은 0.5에서 0.7로 건너뜁니다.
 
     > **변경 이력(v0.5)**: 사용자 행동 기반 보호자 상태 확인을 위한
     > 기존 세션의 `events` 배열과 `SessionEvent` 계약, 사용자 행동 기록용
@@ -84,9 +176,18 @@ tags:
   - name: chat
     description: Interactive Care 챗봇 (1·2단계 전용)
   - name: device
-    description: 웹푸시 토큰 등록·해제
+    description: |
+      웹푸시 토큰 등록·해제. 피보호자 기기와 보호자 기기를 `role`로 구분하며,
+      1차 발송은 양쪽에 나가되 문안이 다르고(`ward`는 행동 지시,
+      `guardian`은 재난 1건당 1회의 정보성 통지), 2차 발송은 `guardian`에게만 갑니다
+      ([ADR-0015](../../docs/adr/0015-guardian-device-registration.md) 결정 2번,
+      2026-08-27 개정. 상태는 **제안**입니다).
+
+      **어느 쪽으로 나가든 발송 페이로드의 모양은 하나이고, `WebPushPayload`
+      스키마가 정합니다** — 서비스하는 경로는 없지만 백엔드와 서비스워커가
+      맞춰야 하는 계약이라 이 파일에 둡니다.
   - name: guardian
-    description: 보호자 상태 페이지
+    description: 보호자 상태 페이지와 보호자 기기 갱신
   - name: session-log
     description: |
       사용자 브라우저의 행동 기록과 Backend·Guardian Q&A·Verifier의 내부 조회 계약.
@@ -231,7 +332,7 @@ paths:
       security: []
       description: |
         사용자 브라우저 FE가 현재 세션에서 관측한 화면 진입·버튼 선택 1건을 기록합니다.
-        시스템 이벤트 4종은 Backend·푸시 시스템이 직접 생성하므로 이 기록 요청으로
+        시스템 이벤트 6종은 Backend·푸시 시스템이 직접 생성하므로 이 기록 요청으로
         받지 않습니다. 기존 `/v1/session/{token}`과 같은 세션 토큰 모델을 사용합니다.
         브라우저 호출에 필요한 CORS와 실제 Backend 구현은 이 계약의 범위 밖입니다.
 
@@ -477,8 +578,9 @@ paths:
         `Cache-Control: no-store`로 전송된다.
 
         **왜 `sessionToken`이 필수인가** — 서버는 이 토큰으로 프로필과 재난 맥락을
-        조회한다. 계약은 "`stairsOk: false`면 계단 있는 대피소를 상위에 두지 않는다"고
-        약속하고 있는데, 좌표·`dongCode`만 오면 서버가 `stairsOk`를 알 수 없다.
+        조회한다. 계약은 "요청자가 계단을 쓸 수 없으면 그 대피소에 주의를 붙이고 뒤로
+        보낸다"고 약속하고 있는데(`Shelter.cautions`), 좌표·`dongCode`만 오면 서버가
+        `stairsOk`를 알 수 없다.
         ⚠️ **건강·장애 필드는 본문이나 쿼리로 되돌려 보내지 않는다** — 민감정보를
         클라이언트가 재전송하게 만들면 전송 구간마다 추가 노출이 생긴다. 프로필은
         서버가 `sessionToken`으로 내부 조회한다.
@@ -486,8 +588,12 @@ paths:
         `isUnderground: true`인 시설(지하 민방위대피소 등)은 침수 시 위험하므로
         **호우·침수 재난에서는 서버가 목록에서 제외한다.** 안전 판단을 클라이언트에
         두지 않는다 — 프론트는 서버가 내려준 `items`와 `excluded` 집계만 렌더한다.
-        프로필의 `stairsOk: false`인 사용자에게는 `hasStairs: true`인 대피소를 상위에
-        두지 않습니다.
+
+        **개인 적합성은 제외가 아니라 주의로 표시한다.** 요청자가 계단을 쓸 수 없는
+        경우(`stairsOk: false`)와 도보 환산 도달 시간이 기준을 넘는 경우, 그 대피소는
+        목록에서 빠지지 않고 `cautions`가 붙은 채 뒤로 간다. 순서는 서버가 정하며
+        **프론트는 `items` 순서를 그대로 렌더하고 다시 정렬하지 않는다** - 클라이언트가
+        `hasStairs`만 보고 재정렬하면 `over_time`이 붙은 대피소가 앞으로 돌아온다.
 
         **빈 목록과 장애 상태의 구분** — `items: []`가 "안전한 대피소가 없다"인지
         "API 장애"인지 "캐시 부재"인지 프론트가 알 수 없으면 "대피소 없음"으로만
@@ -506,7 +612,12 @@ paths:
         '200':
           description: |
             대피소 검색 결과. `hazardMatch`로 현재 위치의 위험구역 포함 여부를,
-            `availability`로 목록의 가용성 상태를 알려준다. 가까운 순 정렬.
+            `availability`로 목록의 가용성 상태를 알려준다.
+
+            **정렬은 주의 없는 것 먼저, 그 안에서 가까운 순이다.** `cautions`가 빈
+            항목이 앞에 오고, 주의가 붙은 항목은 목록에서 빠지지 않고 뒤로 간다.
+            이전 판의 「가까운 순 정렬」은 이미 구현과 어긋나 있었다 - `stairsOk`가
+            거짓일 때 계단 있는 대피소를 상위에 두지 않는 규칙이 그때도 있었다.
           headers:
             Cache-Control:
               description: |
@@ -609,6 +720,29 @@ paths:
         알림 권한은 사용자 제스처에서만 요청하므로, 이 호출도 그 흐름에서만 발생합니다.
         위치 정보는 포함하지 않습니다.
 
+        **피보호자 기기와 보호자 기기를 `role`로 구분한다.** 둘은 같은 등록 토큰을
+        쓰지만 받는 문안이 다르다 — 1차 재난 알림에서 `ward`는 행동 지시를,
+        `guardian`은 재난 1건당 1회의 정보성 통지(`guardian_informed`)를 받고,
+        30분 무응답 뒤의 2차 발송은 `guardian`에게만 간다. 이 칸이 없으면 보호자
+        기기를 붙이는 순간 **같은 문안이** 그대로 나가고, 그것은 「보호자에게
+        알린다」가 아니라 「같은 알림을 두 사람이 받는다」이다.
+
+        ⚠️ **1차의 `guardian` 발송은 서버에 아직 없습니다.** v0.10 이 계약을 넓혔고
+        (2026-08-27), 구현은 아직 배정 전입니다 - 배정안이
+        [PR #171](https://github.com/team-savers/savers-project/pull/171)에 있습니다.
+        반영되면 이 문단은 지웁니다.
+
+        **보호자 기기의 최초 구독 자리가 여기다.** 보호자는 대리등록 화면에서 이미
+        자기 기기를 쓰고 있고 등록 토큰을 손에 들고 있다. 2차 발송 채널이 웹푸시
+        하나뿐이므로(ADR-0014 — 승인, 2026-08-25), 보호자가 그 전에
+        구독해 두지 않으면 2차 발송을 받을
+        링크 자체를 받을 방법이 없다 — `POST /v1/guardian/{token}/device`는 이미
+        구독한 보호자의 **갱신** 경로이지 최초 진입로가 아니다.
+
+        `role: guardian`은 그 등록 토큰의 프로필에 보호자가 있을 때만 받는다.
+        `Profile.guardian`이 `null`인 사람에게 보호자 기기가 붙으면 그 기기가 누구
+        대신 받는 것인지 계약이 답할 수 없다 — 400 `INVALID_REQUEST`.
+
         **순환 의존 해소**: 이전 초안에서 FCM 토큰 등록에 세션 토큰을 요구했으나,
         세션 토큰은 발송 시점에 발급되므로 "첫 푸시를 받으려면 이미 푸시를 받았어야
         하는" 순환이 생겼다. 이에 토큰을 두 종류로 분리한다:
@@ -664,15 +798,26 @@ paths:
         - **보호자 변경**: 기존 보호자 단말에 남은 토큰을 무효화한다.
 
         이 해제가 일어나지 않으면 분실·폐기된 기기로 재난 알림이 계속 도달하여
-        대상자·보호자 모두에게 혼란을 준다. `POST /v1/devices`와 같은 본문 키를 쓴다
-        (`registrationToken`, `fcmToken`) — 등록과 해제가 같은 좌표 공간에서 일어난다.
+        대상자·보호자 모두에게 혼란을 준다.
+
+        **본문은 `registrationToken`과 `fcmToken` 둘뿐이고 `role`을 받지 않는다.**
+        등록은 어느 목록에 넣을지 정해야 하므로 역할이 필요하지만, 해제는 그렇지 않다 —
+        FCM 토큰이 기기마다 유일하므로 역할 없이도 대상이 정해진다. 요구하면 틀릴 수
+        있는 자리만 하나 늘고, 그 자리는 **조용히 실패한다**: 이 경로는 「이미 없는
+        토큰의 해제도 200」이므로 역할을 잘못 실은 요청은 아무것도 떼지 못한 채 200을
+        받는다. 위 목록의 「보호자 변경」이 그렇게 실패하면 기존 보호자 단말로 알림이
+        계속 간다. **해제는 역할과 무관하게 그 토큰을 지운 결과가 되면 된다** — 어떻게
+        찾을지는 구현의 몫이고 계약이 지시하지 않는다.
+
+        보호자 기기가 없어지면 그 세션은 2차 발송 대상에서 빠진다
+        (`GuardianStatus.pushEnabled: false`).
       operationId: unregisterDevice
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/DeviceRegisterRequest'
+              $ref: '#/components/schemas/DeviceUnregisterRequest'
       responses:
         '200':
           description: 해제 완료(토큰이 이미 없었어도 200)
@@ -788,6 +933,316 @@ paths:
                 $ref: '#/components/schemas/Error'
         '410':
           description: 토큰 만료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/guardian/{token}/device:
+    post:
+      tags: [guardian, device]
+      summary: 보호자 기기 웹푸시 토큰 갱신
+      description: |
+        보호자가 `/g/{token}`에 처음 들어와 푸시 권한을 허용했을 때, 그 기기의 FCM
+        토큰을 올립니다. 위치 정보는 포함하지 않습니다.
+
+        ⚠️ **최초 구독 경로가 아니라 갱신 경로입니다.** 최초 구독은 사전등록 시점의
+        `POST /v1/devices`(`role: guardian`)이고, 이 경로는 그 뒤에 기기를 바꿨거나
+        FCM 토큰이 로테이션된 보호자가 상태 페이지를 연 김에 다시 붙이는 자리입니다.
+        다만 이것은 **어느 자리가 정상 경로인지에 대한 설명이지 거부 조건이 아닙니다** —
+        이 경로로 그 보호자의 첫 구독이 들어와도 거부하지 않습니다. 복지관·지자체가
+        대리등록한 경우 보호자에게는 등록 토큰이 없어 이 경로밖에 없습니다.
+
+        둘로 나눈 이유는 인증에 쓰는 토큰의 수명이 다르기 때문입니다.
+        보호자 토큰(`g_…`)은 **세션마다 새로 발급되고 세션 TTL로 만료됩니다.**
+        그래서 이 경로만 두면 첫 재난에서 보호자는 `/g/` 링크를 받을 방법이 없습니다 —
+        보호자에게 닿는 채널이 웹푸시 하나뿐인데(ADR-0014 — 승인, 2026-08-25) 그 웹푸시를 받으려면 이미
+        구독돼 있어야 하기 때문입니다. `POST /v1/devices`가 세션 토큰 대신 등록 토큰을
+        쓰기로 한 것과 같은 순환이고, 같은 방식으로 끊습니다.
+
+        **등록은 세션이 아니라 피보호자의 보호자 레코드에 붙습니다.** 인증에 쓴 보호자
+        토큰이 만료돼도 등록은 남아 다음 재난의 2차 발송에 그대로 쓰입니다. 반대로
+        만료된 토큰으로는 인증할 수 없으므로 410입니다.
+
+        **이 등록은 추가가 아니라 교체입니다.** 이 피보호자의 guardian 기기 목록을
+        본문의 토큰 하나로 바꾸고 있던 토큰은 남기지 않습니다
+        (ADR-0015 결정 4번 — 제안, 2026-08-26 개정분). 보호자가 한 명이라는 전제
+        (`Profile.guardian`은 단수이고 없으면 위 400)에서 나옵니다. 추가로 두면 FCM 토큰이
+        회전할 때마다 닿지 않는 토큰이 쌓이는데, 지우려면 `DELETE`에 그 값을 실어야 하고
+        값을 아는 브라우저가 사라진 상황이 바로 지워야 하는 상황이라 정리할 방법이 없습니다
+        (이슈 151).
+
+        같은 FCM 토큰을 다시 올려도 200입니다(멱등 — 교체 결과가 같습니다).
+      operationId: registerGuardianDevice
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: 보호자 페이지 토큰.
+          schema:
+            type: string
+            example: g_4e8b1c7d2a9f5036e8b1c7d2a9f5036e8b1c7d2a
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuardianDeviceRegisterRequest'
+      responses:
+        '200':
+          description: 등록 완료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ack'
+        '400':
+          description: |
+            본문 검증 실패, 또는 이 세션의 피보호자에게 보호자가 없는 경우
+            (`Profile.guardian: null`). 뒤쪽은 잘못된 호출이 아니라 **보호자 없이
+            등록된 사람**이며, 프론트는 `/g/` 화면에서 구독 버튼 자체를 렌더하지
+            않는 것으로 이 응답을 만나지 않게 합니다.
+
+            **이 분기는 폐루프와 무관합니다.** 보호자 토큰은 보호자 유무와 관계없이
+            세션마다 발급되므로 `/g/` 화면 자체는 열립니다. 반면 폐루프는 보호자가
+            없으면 2단계에 들어가지 않습니다(`FollowupUnreachableEvent` 참고).
+            앞은 화면 접근, 뒤는 루프 진입이라 서로 다른 층이며, 이 400은 그 화면에
+            누군가 도달했을 때를 위한 방어입니다.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 토큰 부재
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: 토큰 만료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: 요청 한도 초과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags: [guardian, device]
+      summary: 보호자 기기 웹푸시 토큰 해제
+      description: |
+        보호자가 상태 페이지에서 알림 수신을 중단할 때 호출합니다.
+        `DELETE /v1/devices`와 같은 시나리오(기기 교체·공용 단말·동의 철회)를 다루되,
+        **등록 토큰을 손에 들고 있지 않은 보호자**를 위한 경로입니다 — 복지관·지자체가
+        대리등록한 경우 보호자가 가진 자격 증명은 `/g/` 링크뿐이고, 그 경우 이 경로가
+        없으면 보호자가 스스로 수신을 끌 방법이 없습니다.
+
+        해제된 뒤 그 세션은 2차 발송 대상에서 빠집니다
+        (`GuardianStatus.pushEnabled: false`).
+
+        ⚠️ **이 경로는 수신 거부용이고 잔여 등록 정리용이 아닙니다.** 본문이 지울 FCM
+        토큰 값을 요구하는데 그 값은 등록한 브라우저 안에만 있어, 브라우저가 사라진
+        뒤에는 아무도 실을 값을 모릅니다. 남은 등록을 걷어내는 일은 `POST` 쪽 교체가
+        맡습니다(위 경로, ADR-0015 결정 4번 — 제안, 2026-08-26 개정분. 이슈 151).
+      operationId: unregisterGuardianDevice
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: 보호자 페이지 토큰.
+          schema:
+            type: string
+            example: g_4e8b1c7d2a9f5036e8b1c7d2a9f5036e8b1c7d2a
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuardianDeviceRegisterRequest'
+      responses:
+        '200':
+          description: 해제 완료(토큰이 이미 없었어도 200)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ack'
+        '400':
+          description: 잘못된 요청(본문 검증 실패)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: 토큰 부재
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: 토큰 만료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: 요청 한도 초과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/guardian/{token}/ask:
+    post:
+      tags: [guardian]
+      summary: 보호자 질문에 세션 로그로 답변
+      description: |
+        보호자가 상태 페이지에서 추천 질문을 눌렀을 때 호출합니다.
+        `ChatResponse`와 같은 모양(`answer` · `sources` · `refusalReason`)이지만
+        **근거의 출처가 다릅니다** — 챗봇은 국민행동요령 원문을 인용하고, 이 답변은
+        **그 세션에서 실제로 일어난 일**을 인용합니다.
+
+        **검색 대상은 그 세션의 이벤트 로그 전량이며, 세션을 넘지 않습니다.**
+        읽는 것은 `GET /internal/sessions/{token}/events`가 돌려주는 `SessionEvent`
+        배열 하나뿐이고 벡터 검색은 없습니다. 이 선이 계약에 없으면 범위가 흔들리고,
+        흔들린 범위는 M2(보호자 응답 정확도 — 로그에 없는 사실 0건)를 직접 깎습니다.
+
+        **이번 구간의 지원 범위는 추천 3질문으로 닫혀 있습니다.** 「평소에도
+        이랬나요」처럼 세션을 가로지르는 질문은 애초에 **요청으로 만들 수 없습니다** —
+        요청 본문이 `questionId` 하나뿐이고 값이 3종으로 제한되므로, 목록 밖 입력은
+        200 폴백이 아니라 422입니다. 자유 텍스트 질문은 본선 이후에 입력 필드와
+        폴백 규약을 함께 정의합니다.
+
+        **`token`은 보호자 토큰입니다.** 서버가 내부적으로 세션을 찾습니다 —
+        보호자에게 세션 토큰을 주지 않는 기존 분리를 그대로 유지합니다.
+
+        ⚠️ **안전 여부를 판단하지 않습니다.** 답변은 「무엇이 언제 눌렸다 /
+        눌리지 않았다」까지만 말합니다. 「안전합니다」·「괜찮습니다」는 금지 표현이며,
+        이는 `GuardianStatus.lastResponse`·`safetyStatus`에 붙은 경고와 같은 규칙입니다.
+        `SessionEvent`가 실제 이동·경로 추종·실제 도착을 표현하지 않는다고 못박은 것과
+        같은 이유이고, 그 제약은 답변 문장에서도 그대로 유지됩니다.
+
+        ⚠️ **이벤트 로그에 없는 개념은 이 경로가 답하지 않습니다.** 「알림을 열어
+        봤는가」(열람)와 「집이에요 / 밖이에요」는 `SessionEvent` 목록에 없습니다.
+        보호자 화면은 그 둘을 `GuardianStatus.openedAt`·`lastResponse`로 따로 받고
+        있으므로 화면에서 사라지지는 않지만, **이 답변이 인용할 수 있는 근거는
+        아닙니다.** 로그에 없는 것을 말하는 순간 M2가 깨집니다.
+
+        ⚠️ **`push_accepted`는 접수이지 전달도 열람도 아닙니다.** 이 이벤트를 근거로
+        「알림을 받으셨습니다」라고 말할 수 없고, 말할 수 있는 것은 「발송 요청이
+        접수됐습니다」까지입니다.
+
+        **문장에 쓰는 시각은 KST 기준이고, `at`은 UTC 그대로 내려갑니다.**
+        기계가 읽는 값(`GuardianEvidence.at`)은 로그에 적힌 RFC3339 시각이고,
+        사람이 읽는 문장은 그것을 KST로 환산한 **분 단위 · 24시간제** 값을 씁니다.
+        초는 쓰지 않고(대조 규칙이 분 단위 절삭입니다), 오전·오후도 붙이지 않습니다
+        — 정오와 자정에서 「오후 12시」와 「낮 12시」가 갈려 생성부와 골든셋 채점
+        기준이 함께 흔들립니다. 자정 직후는 「00시 13분」입니다.
+        둘은 같은 순간을 가리키므로 검증기는 표기가 아니라 인스턴트로 비교합니다.
+        로그가 `03:13:41Z`인데 문장이 「3시 13분」이라 적으면 UTC 값을 그대로 옮긴
+        것이므로 차단됩니다([ADR-0012](../../docs/adr/0012-verifier-rules-and-closed-loop.md) 2절).
+      operationId: postGuardianAsk
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: 보호자 페이지 토큰.
+          schema:
+            type: string
+            example: g_4e8b1c7d2a9f5036e8b1c7d2a9f5036e8b1c7d2a
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuardianAskRequest'
+      responses:
+        '200':
+          description: |
+            답변 또는 거절. **거절도 200입니다** — 「확인할 수 없습니다」는 오류가
+            아니라 설계된 정상 경로이고, 그 비율이 제출 지표의 일부입니다.
+          headers:
+            Cache-Control:
+              description: 상호작용 이력이 섞이므로 저장을 금지한다.
+              schema:
+                type: string
+                example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GuardianAnswer'
+              examples:
+                진행_상태_최근_행동:
+                  summary: |
+                    가장 최근에 확인된 사용자 행동 하나를 인용하고, 도착 확인이 세션
+                    로그 어디에도 없으므로 **그 부재를 두 번째 근거로 답니다** — 두
+                    사실을 「그 뒤로」로 잇지 않고 문장을 끊습니다.
+                  value:
+                    questionId: evacuation_progress
+                    answer: 12시 05분에 상황 선택 화면을 보셨습니다. [도착 완료] 버튼을 누른 사실은 기록에서 확인되지 않습니다.
+                    sources:
+                      - type: choice_screen_viewed
+                        present: true
+                        at: '2026-08-24T03:05:00Z'
+                      - type: arrival_confirmed_by_user
+                        present: false
+                    refusalReason: null
+                도착_확인까지_끝난_상태:
+                  summary: |
+                    마지막 기록이 도착 확인인 세션. `evacuation_progress`가 사용자 행동
+                    12종을 다 보기 때문에 이 이벤트를 근거로 쓸 수 있습니다 — 그 앞
+                    단계(경로 안내 시작 등)는 더 최근 기록이 아니므로 답에 실리지
+                    않습니다. 도착 확인이 로그에 있으므로 **부재 근거는 달지 않습니다** —
+                    있는 이벤트를 없다고 말하면 `absent_claim_mismatch`입니다.
+                  value:
+                    questionId: evacuation_progress
+                    answer: 12시 31분에 [도착 완료] 버튼을 누르셨습니다.
+                    sources:
+                      - type: arrival_confirmed_by_user
+                        present: true
+                        at: '2026-08-24T03:31:02Z'
+                    refusalReason: null
+                확인되지_않음:
+                  summary: |
+                    확인되지 않음만으로 답하는 경우 — 근거가 있으므로 **거절이 아닙니다.**
+                    문안이 「누르지 않으셨습니다」가 아닌 이유는 `GuardianEvidence` 참고.
+                    `arrival_status`는 근거가 이 한 종으로 스키마에서 제한됩니다.
+                  value:
+                    questionId: arrival_status
+                    answer: '[도착 완료] 버튼을 누른 사실은 기록에서 확인되지 않습니다.'
+                    sources:
+                      - type: arrival_confirmed_by_user
+                        present: false
+                    refusalReason: null
+                거절:
+                  summary: |
+                    대조할 근거가 없거나 검증기가 차단한 경우 — 유일한 거절 모양.
+                    `questionId`가 실리므로 거절률을 질문별로 집계할 수 있습니다.
+                  value:
+                    questionId: help_request
+                    answer: null
+                    sources: []
+                    refusalReason: no_evidence
+        '404':
+          description: 토큰 부재
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '410':
+          description: 토큰 만료
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: |
+            `questionId`가 없거나 목록 밖이거나, 본문에 정의되지 않은 키가 있습니다
+            (`GuardianAskRequest`는 `additionalProperties: false`입니다).
+            **자유 텍스트 질문도 여기로 옵니다** — 이번 구간에 200 폴백 경로는
+            없습니다.
           content:
             application/json:
               schema:
@@ -923,6 +1378,63 @@ paths:
           description: |
             생성 백엔드 또는 벡터 DB 장애. 백엔드는 챗봇 경로에서 이를 무응답으로
             표시합니다(폴백 문구를 지어내지 않습니다).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/guardian/answer:
+    servers:
+      - url: http://localhost:8100
+        description: 로컬 개발 (ai-engine) — backend와 별도 배포 단위입니다
+    post:
+      tags: [guardian]
+      summary: 세션 이벤트 로그로 보호자 질문 1건에 답변 (내부)
+      security: []   # 세션 토큰 없음 — 브라우저가 아니라 백엔드가 호출합니다
+      description: |
+        `POST /v1/guardian/{token}/ask`의 뒷단입니다. 백엔드가 보호자 토큰으로
+        해석한 사용자 세션의 `questionId`와 `SessionEvent` 로그 전량을 그대로
+        실어 이 경로를 호출합니다 — 벡터 검색은 없고, 근거는 그 세션의 이벤트
+        로그뿐입니다.
+
+        `POST /v1/answer`와 같은 이유로 폴백 문안을 만들지 않습니다. 문안을
+        만들었더라도 검증기가 문장 하나라도 차단하면 응답 전체가 `no_evidence`
+        거절로 닫힙니다 — 부분 전달은 없습니다
+        ([ADR-0012](../../docs/adr/0012-verifier-rules-and-closed-loop.md) 5절).
+        백엔드는 이 경로가 타임아웃·5xx·연결 실패로 응답하지 않거나 응답
+        `questionId`가 요청과 다를 때도 같은 `no_evidence` 거절로 치환해
+        보호자에게 내려보냅니다.
+
+        응답 모양은 사용자 대면 `GuardianAnswer`와 같습니다 — 소비자가
+        브라우저에서 백엔드로, 백엔드에서 ai-engine으로 바뀌었을 뿐 이
+        경로만의 응답 스키마를 새로 만들지 않습니다.
+      operationId: postGuardianAnswer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuardianAnswerRequest'
+      responses:
+        '200':
+          description: |
+            답변 또는 거절. 모양은 `GuardianAnswer`
+            (`POST /v1/guardian/{token}/ask` 참고)와 같습니다.
+          headers:
+            Cache-Control:
+              description: 세션 행동 이력이 포함되므로 저장을 금지한다.
+              schema:
+                type: string
+                example: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GuardianAnswer'
+        '422':
+          description: |
+            `questionId`가 3종 목록 밖이거나, `events` 원소가 `SessionEvent`의
+            판별 유니온(18종) 밖이거나, 본문에 정의되지 않은 키가 있습니다
+            (`GuardianAnswerRequest`는 `additionalProperties: false`입니다).
           content:
             application/json:
               schema:
@@ -1261,7 +1773,9 @@ components:
         - $ref: '#/components/schemas/ArrivalConfirmedByUserEvent'
         - $ref: '#/components/schemas/AlertDispatchedEvent'
         - $ref: '#/components/schemas/PushAcceptedEvent'
+        - $ref: '#/components/schemas/GuardianInformedEvent'
         - $ref: '#/components/schemas/FollowupDueEvent'
+        - $ref: '#/components/schemas/FollowupUnreachableEvent'
         - $ref: '#/components/schemas/GuardianNotifiedEvent'
       discriminator:
         propertyName: type
@@ -1280,12 +1794,14 @@ components:
           arrival_confirmed_by_user: '#/components/schemas/ArrivalConfirmedByUserEvent'
           alert_dispatched: '#/components/schemas/AlertDispatchedEvent'
           push_accepted: '#/components/schemas/PushAcceptedEvent'
+          guardian_informed: '#/components/schemas/GuardianInformedEvent'
           followup_due: '#/components/schemas/FollowupDueEvent'
+          followup_unreachable: '#/components/schemas/FollowupUnreachableEvent'
           guardian_notified: '#/components/schemas/GuardianNotifiedEvent'
       description: |
         보호자 상태 확인과 폐루프 측정의 근거가 되는 세션 단위 저장 이벤트입니다.
         사용자 행동 12종은 서비스가 직접 관측한 화면 진입·버튼 선택을, 시스템 이벤트
-        4종은 Backend·푸시 시스템이 관측한 발송 및 폐루프 상태를 표현합니다.
+        6종은 Backend·푸시 시스템이 관측한 발송 및 폐루프 상태를 표현합니다.
 
         이 계약은 실제 이동 중·경로 추종·경로 이탈·실제 대피소 도착을 표현하지
         않습니다. 특히 `arrival_confirmed_by_user`는 GPS 검증 결과가 아니라 사용자가
@@ -1298,9 +1814,11 @@ components:
         `route_guidance_started`, `next_guidance_requested`,
         `emergency_call_119_selected`. 화면 재진입·재선택은 새 행동으로 모두 기록합니다.
 
-        **세션당 1회:** `arrival_confirmed_by_user`와 시스템 이벤트 4종. 도착 완료
-        선택이나 최초·2차 발송 계측을 중복 집계하지 않습니다. 시스템 이벤트 4종이
+        **세션당 1회:** `arrival_confirmed_by_user`와 시스템 이벤트 6종. 도착 완료
+        선택이나 최초·2차 발송 계측을 중복 집계하지 않습니다. 시스템 이벤트 6종이
         이미 존재하면 새 이벤트를 쓰지 않고 최초 이벤트의 `at`을 유지합니다.
+        `followup_unreachable`도 같습니다 — 30분마다 다시 남기면 TTL 6시간 동안 최대
+        12건이 쌓여, 한 세션의 「보낼 곳이 없었다」가 열두 번 있었던 일처럼 읽힙니다.
         이 의미 제약과 별개로 모든 POST 재시도는 `Idempotency-Key`로 중복 제거하며,
         실제 반복 행동에는 매번 새 키를 사용합니다. 특히 `profile_review_completed`는
         사용자가 정보를 수정한 뒤 다시 확인·완료할 수 있으므로 서로 다른 키로 여러 건
@@ -1323,7 +1841,7 @@ components:
       description: |
         사용자 행동 기록 POST가 성공했을 때 반환하는 저장 이벤트입니다. 요청에서 허용한
         사용자 행동 12종에 서버가 생성한 UTC `at`을 더한 결과만 허용하며, 시스템 이벤트
-        4종은 이 응답에 포함하지 않습니다.
+        6종은 이 응답에 포함하지 않습니다.
 
     SituationCheckSelectedEvent:
       type: object
@@ -1476,6 +1994,37 @@ components:
         at: { $ref: '#/components/schemas/EventTimestamp' }
         payload: { $ref: '#/components/schemas/EmptyEventPayload' }
 
+    GuardianInformedEvent:
+      type: object
+      description: |
+        최초 재난 알림과 **같은 시점**에 보호자 기기로 나간 정보성 통지의 발송 요청을
+        푸시 서비스가 접수한 기록입니다. 30분 무응답 뒤의 2차 발송(`guardian_notified`)과
+        다른 이벤트입니다 — 이쪽은 **개입 요청이 아니라 정보 전달**이고,
+        재난 1건당 1회만 남습니다(ADR-0015 결정 2번, 제안).
+
+        **보호자가 받는 문안은 피보호자 문안과 다릅니다.** 피보호자는 행동 지시를,
+        보호자는 「어느 지역에 무슨 특보가 떠서 누구에게 안내를 보냈다」는 통지를
+        받습니다. 보호자 통지문은 생성물이 아니라 고정 문구이며 생성 계약(ADR-0006)을
+        타지 않습니다.
+
+        **보호자 기기가 없으면 이 이벤트는 남지 않고, 그것은 실패가 아닙니다.**
+        `Profile.guardian`이 `null`인 사람과 보호자는 있으나 구독이 없는 사람이
+        여기 해당합니다. 피보호자(`ward`) 발송이 성립하면 그 세션은 정상입니다.
+
+        ⚠️ **M1(알림 도달 속도)의 끝점이 아닙니다.** M1의 끝점은 그 사람의 `ward`
+        기기 중 최초로 접수된 발송이며(ADR-0013, 승인 - 2026-08-26),
+        이 이벤트가 그 정의를 바꾸지 않습니다.
+        M4(폐루프 2차 발송 성공률)도 `guardian_notified` 기준이므로 무관합니다.
+
+        ⚠️ **접수이지 전달이 아닙니다.** 보호자 단말에 알림이 떴다는 뜻도,
+        보호자가 읽었다는 뜻도 아닙니다.
+      required: [type, at, payload]
+      additionalProperties: false
+      properties:
+        type: { type: string, const: guardian_informed }
+        at: { $ref: '#/components/schemas/EventTimestamp' }
+        payload: { $ref: '#/components/schemas/EmptyEventPayload' }
+
     FollowupDueEvent:
       type: object
       description: |
@@ -1494,6 +2043,41 @@ components:
         at: { $ref: '#/components/schemas/EventTimestamp' }
         payload: { $ref: '#/components/schemas/EmptyEventPayload' }
 
+    FollowupUnreachableEvent:
+      type: object
+      description: |
+        `followup_due`와 같은 조건에 도달했으나 **보낼 보호자 기기가 없어 2차 발송을
+        하지 않고 건너뛴 기록.** 뜻하는 것은 **`GuardianStatus.pushEnabled: false`
+        하나뿐입니다** — 보호자는 등록돼 있는데 그 기기가 구독하지 않은 경우입니다.
+
+        **보호자가 아예 없는 사람(`Profile.guardian: null`)은 이 이벤트를 남기지
+        않습니다.** 보낼 대상이 정의되지 않은 루프이므로 재진입 자체가 성립하지 않고,
+        폐루프는 관측에서 끝납니다. 둘을 같은 이벤트로 묶으면 이 이벤트 수를 「보호자
+        알림이 닿지 못한 사람 수」로 보고할 때 **설계상 정상인 경우와 메울 수 있는 운영
+        공백이 한 숫자에 섞입니다.** 앞의 수는 등록 정보에서 세면 되고 로그가 답할
+        질문이 아닙니다.
+
+        **`followup_due`와 배타입니다.** 한 번의 재진입 판정에서 둘 중 하나만 남습니다 —
+        보낼 곳이 있으면 `followup_due`, 없으면 이 이벤트입니다. 그래서 재진입 사실은
+        로그에 남고, `followup_due`를 분모로 세는 집계는 이 세션을 자동으로 비켜 갑니다.
+        **M4(폐루프 2차 발송 성공률)의 분모·분자 규칙의 정본은 ADR-0012(승인 - 2026-08-26) 7절·7-a절이며
+        이 계약이 정하지 않습니다.** 7-a절은 PR 120 개정분입니다.
+
+        분모 소속은 그 판정 시점에 고정되고 이후 이벤트가 바꾸지 않습니다(같은 7-a절).
+        보호자가 나중에 구독해 소급 발송이 나가면 그 세션의 로그는 `followup_due` 없이
+        `guardian_notified`만 갖는 모양이 되며, 그것이 소속을 되돌리지는 않습니다.
+        그 소급 발송은 실패해도 이벤트를 남기지 않고 다음 관측에서 다시 시도하므로
+        (7-a절의 at-least-once), **로그에 재시도 흔적이 없는 것은 결함이 아닙니다.**
+
+        ⚠️ **아무것도 보내지 않은 기록입니다.** 보호자가 통보받았다는 뜻이 아니고,
+        피보호자의 안전과도 무관합니다.
+      required: [type, at, payload]
+      additionalProperties: false
+      properties:
+        type: { type: string, const: followup_unreachable }
+        at: { $ref: '#/components/schemas/EventTimestamp' }
+        payload: { $ref: '#/components/schemas/EmptyEventPayload' }
+
     GuardianNotifiedEvent:
       type: object
       description: |
@@ -1509,7 +2093,7 @@ components:
 
     Shelter:
       type: object
-      required: [id, name, address, distanceM, isUnderground, hasStairs]
+      required: [id, name, address, distanceM, isUnderground, hasStairs, cautions]
       properties:
         id:
           type: string
@@ -1526,7 +2110,14 @@ components:
           format: double
         distanceM:
           type: integer
-          description: 직선거리(m). 보행 경로 거리는 TMAP 연동 이후 별도 필드로 추가합니다.
+          description: |
+            직선거리(m). 보행 경로 거리는 TMAP 연동 이후 별도 필드로 추가합니다.
+
+            ⚠️ `cautions`의 `over_time`도 이 값에서 유도하므로 **도보 환산 시간은
+            직선거리 기준의 하한**입니다 — 실제 보행 거리는 우회 때문에 더 깁니다.
+            화면 문구가 「N분 이내」를 단정하지 않도록 이 사실을 함께 노출합니다.
+            **`basis`가 `dongCode`이면 원점이 그 동 대피소들의 평균 좌표라 이 값
+            자체가 추정치**입니다. 그래서 `over_time`은 그 경우 붙지 않습니다.
           example: 420
         bearing:
           type: [string, 'null']
@@ -1539,9 +2130,47 @@ components:
             안전 판단은 클라이언트에 두지 않는다.'
         hasStairs:
           type: boolean
-          description: '`stairsOk: false`인 사용자에게 상위 배치하지 않습니다.'
+          description: |
+            계단이 있는 시설인지. **시설의 속성이며 「이 사람이 쓸 수 있는가」가
+            아닙니다** — 요청자 기준 판정은 `cautions`의 `stairs`가 맡습니다.
+            이 값만 보고 순서를 다시 정하지 마십시오. 정렬은 서버가 `cautions`까지
+            반영해 끝낸 상태로 내려옵니다.
         capacity:
           type: [integer, 'null']
+        cautions:
+          type: array
+          default: []
+          description: |
+            **이 요청자 기준으로** 이 대피소에 붙는 주의. 비어 있으면 주의가 없다는
+            뜻입니다. 시설의 속성(`isUnderground`·`hasStairs`)과는 다른 축이며, 같은
+            대피소라도 보는 사람에 따라 값이 달라집니다. 프로필은 세션 토큰 뒤에 있고
+            민감 필드는 본문으로 다시 오지 않으므로 클라이언트가 유도할 수 없습니다 —
+            그래서 서버가 판정해 내려줍니다.
+
+            ⚠️ **주의는 제외가 아닙니다.** 주의가 붙은 대피소도 목록에 남고 순서만
+            뒤로 갑니다. 계단 있는 곳밖에 없는 지역에서 그곳이 여전히 가장 나은
+            선택지일 수 있고, 서버가 지우면 그 선택 자체가 사라집니다. 후보가 하나도
+            남지 않을 때만 `availability: all_excluded`로 갑니다. 호우·침수의 지하
+            제외는 사람과 무관한 안전 판단이므로 계속 `excluded`입니다 — 두 축을 섞지
+            않습니다([ADR-0016](../../docs/adr/0016-shelter-cautions-not-exclusion.md),
+            제안). 프론트는 항목별 라벨로 표시하며, 별도 군(群) 섹션을 요구하지 않습니다.
+
+            - `stairs`: 계단이 있는 시설인데 요청자의 `stairsOk`가 거짓입니다.
+              판정은 `stairsOk`로만 하고 `mobility`로는 하지 않습니다 — 두 값이
+              어긋나는 프로필이 있을 수 있고, 계약이 계단의 권위로 삼는 값은
+              `stairsOk`입니다.
+            - `over_time`: 도보 환산 도달 시간이 기준 시간을 넘습니다.
+              **`basis`가 `coordinate`일 때만 붙습니다.** `dongCode` 기준의 원점은
+              그 동 대피소들의 평균 좌표라 거리가 추정값이고, 추정값에 시간 초과를
+              선언하면 없는 사실을 만듭니다. 기준 시간과 보행 속도는 정책
+              파라미터이며 계약은 수치를 고정하지 않습니다.
+          items:
+            type: string
+            enum: [stairs, over_time]
+          examples:
+            - []
+            - [stairs]
+            - [stairs, over_time]
 
     ShelterList:
       type: object
@@ -1701,8 +2330,31 @@ components:
 
     DeviceRegisterRequest:
       type: object
-      required: [registrationToken, fcmToken]
+      required: [registrationToken, fcmToken, role]
       properties:
+        role:
+          type: string
+          enum: [ward, guardian]
+          description: |
+            이 기기가 누구의 것인지. **기본값을 두지 않고 필수로 받는다.**
+            생략을 `ward`로 해석하면 보호자 기기가 조용히 피보호자 기기로 등록되고,
+            그 결과는 「보호자 폰이 통지가 아니라 행동 지시를 받는다」로 나타난다.
+            값이 틀렸을 때 화면이 아니라 **어느 문안을 받는지**가 틀어지는 필드이므로,
+            호출자가 매번 의사를 밝히게 한다.
+
+            - `ward` — 피보호자 기기. 1차 재난 알림의 **행동 지시 문안**을 받는다.
+            - `guardian` — 보호자 기기. 1차 시점의 **정보성 통지**(`guardian_informed`)와
+              30분 무응답 뒤의 **2차 발송**(`guardian_notified`)을 받는다.
+              두 발송의 문안은 서로 다르고, 피보호자 문안과도 다르다.
+              `Profile.guardian`이 `null`이면 400이다.
+
+            한 사람에게 각 역할의 기기를 여러 대 붙일 수 있다(공용 단말, 기기 교체 중
+            겹치는 기간). 같은 값을 다시 올리면 멱등이다.
+
+            ⚠️ **`guardian`은 이 경로에서만 여러 대다.** 갱신 경로
+            (`POST /v1/guardian/{token}/device`)가 교체이므로, 갱신이 한 번이라도 성공하면
+            guardian 기기는 그 토큰 하나만 남는다(ADR-0015 결정 4번 — 제안,
+            2026-08-26 개정분). `ward`는 그대로 여러 대다.
         registrationToken:
           type: string
           description: |
@@ -1714,9 +2366,128 @@ components:
             **미정이며 팀 결정이 필요하다.**
         fcmToken:
           type: string
-          description: FCM 등록 토큰.
+          minLength: 1
+          pattern: '^\S+$'
+          description: |
+            FCM 등록 토큰. **빈 값과 공백만 있는 값은 받지 않습니다**(422).
+            받아 넣으면 닿지 않는 토큰이 목록에 남아 `pushEnabled`를 켜고,
+            실발송에서 그 세션이 M4 분모에 든 채 분자를 못 채웁니다(이슈 149).
+            FCM 토큰에는 공백이 없으므로 `^\S+$`가 실제 값을 거르지 않습니다.
+
         userAgent:
           type: [string, 'null']
+
+    DeviceUnregisterRequest:
+      type: object
+      description: |
+        `DELETE /v1/devices`의 본문. **`role`이 없다.**
+        FCM 토큰이 기기마다 유일해 역할 없이도 대상이 정해지고, 이 경로는 없는 토큰의
+        해제도 200이므로 역할을 틀리게 실으면 아무것도 떼지 못한 채 성공을 받는다.
+        해제 뒤 그 토큰이 어느 역할로도 남아 있지 않으면 된다 — 조회 방법은 구현의 몫이다.
+      required: [registrationToken, fcmToken]
+      properties:
+        registrationToken:
+          type: string
+          description: 등록 토큰. `DeviceRegisterRequest.registrationToken`과 같은 값이다.
+        fcmToken:
+          type: string
+          minLength: 1
+          pattern: '^\S+$'
+          description: |
+            해제할 FCM 등록 토큰. **빈 값과 공백만 있는 값은 받지 않습니다**(422).
+            이 경로는 없는 토큰의 해제도 200이므로, 빈 값을 허용하면
+            아무것도 떼지 못한 채 성공을 받습니다(이슈 149).
+
+        userAgent:
+          type: [string, 'null']
+
+    GuardianDeviceRegisterRequest:
+      type: object
+      description: |
+        `POST`·`DELETE /v1/guardian/{token}/device`의 본문.
+        **`role`도 `registrationToken`도 없다** — 경로의 보호자 토큰이 둘 다 답한다.
+        역할은 경로가 이미 `guardian`으로 고정하고, 대상자는 서버가 그 토큰으로
+        내부 조회한다. 보호자에게 등록 토큰도 세션 토큰도 건네지 않는 기존 분리를
+        그대로 유지하기 위한 것으로, `GET /v1/guardian/{token}`이 보호자 토큰 하나로
+        답하는 것과 같은 이유다.
+      required: [fcmToken]
+      properties:
+        fcmToken:
+          type: string
+          minLength: 1
+          pattern: '^\S+$'
+          description: |
+            FCM 등록 토큰. **빈 값과 공백만 있는 값은 받지 않습니다**(422).
+            받아 넣으면 닿지 않는 토큰이 목록에 남아 `pushEnabled`를 켜고,
+            실발송에서 그 세션이 M4 분모에 든 채 분자를 못 채웁니다(이슈 149).
+            FCM 토큰에는 공백이 없으므로 `^\S+$`가 실제 값을 거르지 않습니다.
+
+        userAgent:
+          type: [string, 'null']
+
+    WebPushPayload:
+      type: object
+      required: [data]
+      additionalProperties: false
+      description: |
+        **발송 페이로드의 모양.** 이 저장소가 서비스하는 경로가 아니라
+        백엔드가 FCM에 넣고 서비스워커(`apps/frontend/src/sw.ts`)가 꺼내 읽는
+        메시지의 계약입니다. 양쪽 코드에 이미 같은 규칙이 주석으로 적혀 있었으나
+        계약에는 없어, 새 발송부가 생기면 아무것도 막지 못하는 상태였습니다.
+
+        ⚠️ **`notification` 블록을 넣지 않습니다. 발송은 data-only 고정입니다.**
+        FCM SDK는 `notification` 블록이 있는 백그라운드 메시지를 **자체적으로 한 번
+        표시**합니다. 서비스워커의 `showNotification`과 겹쳐 알림이 2건 뜨고,
+        더 나쁜 쪽은 클릭 동작입니다 - SDK가 표시한 알림에는 우리가 넣은 `data.url`이
+        없어, 탭하면 딥링크가 아니라 origin 기본 페이지로 갑니다.
+        **알림 2개 중 하나는 딥링크가 죽은 채로 뜹니다.**
+
+        그래서 최상위도 `additionalProperties: false`로 닫혀 있습니다 - 허용되는
+        최상위 키는 `data` 하나뿐이며, `notification`을 포함한 다른 키는 스키마
+        검증에서 걸립니다. 금지를 설명에만 적어 두면 새 발송부를 막지 못합니다.
+
+        서비스워커가 `payload.notification`을 폴백으로 읽는 방어를 두고 있지만,
+        그것은 계약 위반의 면죄부가 아니라 한 통이라도 살리기 위한 안전망입니다.
+
+        FCM `data`의 값은 **문자열만 허용**되므로 숫자·불린을 넣지 않습니다.
+      properties:
+        data:
+          type: object
+          required: [title, body, url]
+          additionalProperties: false
+          properties:
+            title:
+              type: string
+              description: 알림 제목. `[세이버스] {행정동} {특보명}` 형태입니다.
+              example: '[세이버스] 서원동 호우경보'
+            body:
+              type: string
+              description: |
+                **생성된 문안 그대로입니다.** 자르지도, 슬롯에 끼우지도 않습니다
+                ([ADR-0005](../../docs/adr/0005-webpush-primary-channel.md) -
+                렌더링 어댑터는 폐기했고 재도입하지 않습니다).
+            url:
+              type: string
+              description: |
+                딥링크. 서비스워커의 `notificationclick`이 이 값으로 이동합니다.
+                **받는 사람에 따라 두 형태**이고, 그 외의 경로는 없습니다.
+
+                - 본인 알림: `/a?t={세션 토큰}&s={stage}`
+                - 보호자 알림(폐루프 2차 발송): `/g/{보호자 토큰}`
+                  - `GET /v1/guardian/{token}`이 받는 그 토큰입니다.
+
+                ⚠️ **같은 origin으로 풀려야 합니다.** 서비스워커는 이 값을 자기 origin
+                기준으로 파싱해, 다른 origin이거나 파싱에 실패하면 `/`로 접습니다
+                (`sw.ts`의 `notificationclick`). 알림은 뜨는데 탭하면 첫 화면으로
+                가므로, 어긋나도 발송 로그에는 성공으로 남습니다.
+
+                **경로 형태(상대)와 절대 URL을 모두 받습니다.** 상대 경로는 origin이
+                끼어들 자리가 없어 이 제약을 무조건 만족하므로, 새로 만드는 발송부는
+                상대 경로를 씁니다(`/g/g_4e8b1c7d..`). 절대 URL로 넣는 경우
+                `PUBLIC_BASE_URL`과 origin이 같아야 하며, 이미 그렇게 만드는 자리가
+                하나 있습니다 - `backend_core/dispatch.py`의 `deep_link()`가 본인 알림
+                링크를 `{base_url}/a?t=..&s=..`로 조립합니다.
+              example: /a?t=s_9f2c8a1b4e7d&s=2
 
     RegistrationTarget:
       type: object
@@ -1759,7 +2530,9 @@ components:
         - lastResponse
         - openedAt
         - respondedAt
+        - lastNotice
         - safetyStatus
+        - pushEnabled
       properties:
         wardName:
           type: string
@@ -1798,6 +2571,36 @@ components:
             누른 뒤 상황이 악화될 수도 있다. 보호자가 이 값을 "생존 확인"으로 받아
             추가 연락·구조 요청을 중단하면 위험하다 — 안전 확인은 `safetyStatus`가
             아닌, 명시적 도움 요청·구조 확인 절차를 통해서만 이루어진다.
+        lastNotice:
+          type: string
+          enum: [first, followup, none]
+          description: |
+            이 보호자에게 마지막으로 나간 통지가 **몇 차인지.**
+            `first`는 재난 발생과 함께 나간 정보성 통지(`guardian_informed`),
+            `followup`은 30분 무응답 뒤의 2차 발송(`guardian_notified`)입니다.
+
+            `none`은 **이 재난에서 보호자에게 아무것도 나가지 않은 상태**입니다.
+            `lastResponse`가 같은 이유로 `none`을 갖는 것과 같은 모양입니다 —
+            키는 항상 존재하고 값으로 부재를 말합니다.
+
+            ⚠️ **`none`은 두 상황을 뭉칩니다. `pushEnabled`와 함께 읽어야 갈립니다.**
+            `first`와 `followup`은 각각 `guardian_informed`·`guardian_notified`
+            **이벤트의 존재**로만 세팅되는데, 발송이 실패해도 이벤트가 남지 않기 때문입니다
+            (`run.send_errors`는 어댑터 예외만 세고 푸시 서비스의 정직한 거부는 세지
+            않습니다). 그래서 죽은 토큰으로 조용히 실패한 세션도 `none`으로 떨어집니다.
+
+            | `pushEnabled` | `lastNotice` | 뜻 |
+            |---|---|---|
+            | `false` | `none` | 보호자 기기가 등록되지 않았습니다 |
+            | `true` | `none` | 등록은 됐으나 **발송이 없었거나 조용히 실패**했습니다 |
+
+            **화면은 두 번째 줄을 성공으로 표시하면 안 됩니다.** 실패를 이벤트로 남기는
+            것은 ADR-0015 후속 조치의 Backend 항목이며, 그 전까지 이 교차 판독이
+            유일한 구분 수단입니다.
+
+            ⚠️ **차수이지 도달이 아닙니다.** 발송 요청이 접수됐다는 뜻이고,
+            보호자 단말에 알림이 떴다는 뜻도 보호자가 읽었다는 뜻도 아닙니다.
+            신호등 단계인 `stage`와는 축이 다릅니다.
         safetyStatus:
           type: string
           enum: [unknown]
@@ -1812,9 +2615,488 @@ components:
             이 필드는 향후 안전 확인 채널(구조대 확인 통보 등)이 정의되면
             `safe`·`in_rescue` 같은 값으로 확장될 자리다 — 지금은 확정할 값을
             가지고 있지 않으므로 `unknown`으로 둔다.
+        pushEnabled:
+          type: boolean
+          description: |
+            이 피보호자에게 붙은 **보호자 기기가 하나 이상 있는지.**
+            단위는 **피보호자**이며 브라우저가 아닙니다. FCM 토큰 값은 내려가지
+            않습니다 — 이 값이 답하는 질문은 「이 사람에게 2차 발송이 나갈 수 있는가」
+            하나이고, 토큰 자체는 그 답에 필요하지 않습니다.
+
+            **용도는 2차 도달 설정 확인입니다.** 다만 1차 보호자 통지
+            (`guardian_informed`)도 같은 `guardian` 버킷을 읽으므로,
+            이 값이 `false`이면 2차뿐 아니라 **1차 통지도 나가지 않습니다.**
+            용도를 2차로 좁혀 적되 그 의존까지 감추지는 않습니다. `Guardian` 스키마에 기기
+            필드를 두지 않은 것도 같은 이유입니다(`Profile.guardian`은 피보호자
+            브라우저로 내려가는 값입니다).
+
+            ⚠️ **「이 브라우저가 구독했는가」가 아닙니다.** 사전등록
+            (`POST /v1/devices` + `role: guardian`)이 덧붙이므로 보호자 기기가 두 건일 수
+            있고, 그러면 다른 보호자 폰이 구독돼 있는 것만으로 지금 보고 있는 브라우저가
+            구독하지 않았어도 `true`가 내려옵니다. 갱신이 한 번 돌면 교체되어 한 건으로
+            줄지만(ADR-0015 결정 4번 — 제안, 2026-08-26 개정분), 그 뒤에도 **이 값이 참인
+            브라우저와 지금 보고 있는 브라우저는 여전히 다를 수 있습니다.**
+            **[알림 받기]를 감출지는 이 값이 아니라 브라우저 쪽 상태
+            (알림 권한과 이 기기의 FCM 토큰)로 정합니다** — 서버는 그것을 알지 못합니다.
+            이 값으로 버튼을 감추면 그 브라우저는 영영 구독하지 못합니다.
+
+            이 값이 `false`면 30분이 지나도
+            **2차 발송이 나갈 기기가 없고**, 그 세션의 로그에는 `followup_due` 대신
+            `followup_unreachable`이 남습니다 — 2차 발송은 `role: guardian` 기기로만
+            나가기 때문입니다. **M4(폐루프 2차 발송 성공률)의 분모와 분자 정의는
+            ADR-0012(승인 - 2026-08-26) 7절·7-a절을 따르며 이 계약은 그것을 바꾸지 않습니다.**
+            7-a절은 PR 120 개정분입니다.
+
+            ⚠️ **`true`가 전달을 보장하지 않습니다.** 구독된 기기가 있다는 사실일 뿐,
+            푸시 접수·전달·열람 어느 것도 뜻하지 않습니다 — `push_accepted`가
+            접수까지만 뜻하는 것과 같은 선입니다. 안전 상태와도 무관합니다.
         acknowledgedByGuardian:
           type: boolean
           description: 보호자가 [내가 확인했음]을 눌렀는지.
+
+    GuardianQuestionId:
+      type: string
+      description: |
+        보호자 화면이 버튼으로 제공하는 추천 질문. **이번 구간의 질문은 이 셋뿐이고,
+        지원 범위는 이 셋으로 닫혀 있습니다** — 목록 밖 값이나 자유 텍스트는 422이며
+        200 폴백 경로가 없습니다.
+
+        | 값 | 화면 질문(예) | 인용할 수 있는 이벤트 | 강제하는 스키마 |
+        |---|---|---|---|
+        | `evacuation_progress` | 지금 어디까지 진행했나요? | **사용자 행동 12종 전부** | `EvacuationProgressEvidenceType` |
+        | `help_request` | 도움을 요청한 기록이 있나요? | `help_request_selected` · `emergency_call_119_selected` | `HelpRequestEvidenceType` |
+        | `arrival_status` | 도착 완료를 누른 기록이 있나요? | `arrival_confirmed_by_user` | `ArrivalStatusEvidenceType` |
+
+        **문구는 계약이 고정하지 않습니다** — 화면이 문구를 다듬을 때마다 계약 PR이
+        필요해지면 안 되므로 고정하는 것은 `questionId`뿐이고, 위 열은 예시입니다.
+        다만 예시도 계약의 의미와 어긋나면 안 됩니다. 앞선 판의 「대피소 도착을
+        완료했나요?」는 **실제 도착을 물어 이 스키마가 못박은 「버튼 기록일 뿐」과
+        정반대로 읽혔습니다.** 지금 문구는 셋 다 「기록이 있나요」를 묻습니다.
+
+        ⚠️ **이 표는 설명이 아니라 스키마입니다.** 응답이 `questionId`를 함께 싣고,
+        `GuardianAnswer`의 갈래가 그 값마다 `sources[].type`을 위 enum으로 좁힙니다.
+        표로만 적어 두면 `arrival_status` 질문에 `alert_dispatched`를 근거로 붙인
+        응답이 계약 검사를 통과하고, 그것은 「질문별로 허용된 로그만 근거로 쓴다」는
+        이 계약의 목적 자체가 검사되지 않는다는 뜻입니다.
+
+        **행은 겹칩니다.** `help_request`·`arrival_status`가 보는 이벤트는
+        `evacuation_progress`의 부분집합입니다. 배타적으로 나누면 마지막 기록이
+        `arrival_confirmed_by_user`인 세션에서 「어디까지 갔나」를 물었을 때 그
+        이벤트를 인용하지 못해, 도착 확인까지 끝난 사람을 그 앞 단계에서 멈춘 것처럼
+        답하게 됩니다.
+
+        **`evacuation_progress`의 답은 이 세션 로그에서 가장 최근에 확인된
+        사용자 행동 하나이고, 도착 확인(`arrival_confirmed_by_user`)이 세션 로그
+        어디에도 없을 때만 그 부재를 두 번째 근거로 답니다.** 사용자 행동 12종 중
+        `at`이 가장 늦은 이벤트 하나의 존재를 인용합니다. 도착 확인이 로그에 있으면
+        최근 행동이 무엇이든 부재 근거를 만들지 않습니다 — 있는 이벤트를 없다고
+        말하면 `absent_claim_mismatch`입니다. 두 번째 근거로 달 수 있는 것은 도착
+        확인 하나뿐이며, 행동별 「다음 단계」를 계산해 그 부재를 대신 달지는
+        않습니다 — 12종이 선형이 아니라 그런 표는 실제 흐름과 어긋납니다
+        ([ADR-0012](../../docs/adr/0012-verifier-rules-and-closed-loop.md) 2절).
+        관련 행동이 하나도 없으면 12종 전부의 부재를 근거로
+        「현재 세션의 사용자 행동은 기록에서 확인되지 않습니다」로 답합니다.
+
+        **한 문장에 두 사실을 「그 뒤로」·「이후」로 잇지 않는 규칙은
+        질문 전체에 그대로 적용됩니다** — `help_request`처럼 근거가 여러 건인
+        답도 사실마다 문장을 끊습니다. 잇는 말이 곧 삼중항에 담기지 않는 세
+        번째 주장이 되기 때문입니다
+        ([ADR-0012](../../docs/adr/0012-verifier-rules-and-closed-loop.md) 2절).
+
+        **`help_request`·`arrival_status`는 접수도 도착도 아닙니다.** 버튼을 눌렀다는
+        기록일 뿐이며, 그 이상은 각 이벤트 스키마가 이미 못박아 둔 제약입니다.
+
+        **어느 질문의 근거도 아닌 이벤트가 여섯 있습니다** — `alert_dispatched` ·
+        `push_accepted`(M1의 끝점이며 진행 상태가 아닙니다) · `guardian_informed` ·
+        `followup_due` · `followup_unreachable` · `guardian_notified`(폐루프 계측이며,
+        보호자에게 왜 연락이 갔는지는 이번 3질문이 묻는 것이 아닙니다).
+
+        **`guardian_informed`가 여기 있는 이유는 축이 다르기 때문입니다.**
+        이번 3질문은 셋 다 **피보호자의 행동과 상태**를 확인하는 질문인데,
+        1차 보호자 통지는 서비스가 보호자에게 한 행위이지 피보호자의 상태가 아닙니다.
+        스키마도 같은 방향으로 닫혀 있습니다 — `evacuation_progress`는 사용자 행동
+        12종으로 제한되고, 나머지 둘은 특정 사용자 행동으로 제한됩니다.
+        **보호자 통지 자체를 확인하는 질문이 추가되면 그 질문의 근거가 될 자리입니다**
+        (AI/RAG 확인, 2026-08-27). 그런 질문을 여는 것은 이번 구간 범위 밖입니다.
+
+        `alert_dispatched`는 앞선 판(`e24f7c6`)에서 `evacuation_progress`에 넣어
+        뒀다가 뺐습니다. 넣은 이유가 「사용자 행동이 하나도 없는 세션에서 **언제
+        발송됐고 그 뒤로 기록이 없다**를 말할 기준 시각」이었는데, ADR-0012 2절
+        개정이 바로 그 「그 뒤로」 형태를 차단했습니다. 근거가 사라진 자리는
+        비웁니다 — 발송 시각은 보호자 화면이 이미 따로 보여 주고 있습니다.
+
+        `followup_due`는 **ADR-0012 2절과 어긋난 채로 남습니다.** 2절은
+        「30분이 지난 뒤라면 재진입 자체가 `followup_due`로 로그에 있으므로 그것을
+        인용한다」고 적었지만, 이 계약은 그 인용을 허용하지 않습니다. 이유는 바로 앞
+        문단과 같습니다 — 시스템 이벤트를 근거로 열면 「재진입이 있었고 **그 뒤로**
+        사용자 기록이 없다」는 문장이 되살아나고, 그것이 2절이 스스로 막으려던
+        형태입니다. 사용자 행동이 하나도 없는 세션의 답은 12종 전부의 부재를 인용하는
+        문장 하나로 닫습니다.
+
+        **ADR-0012 2절 문구 정정은 Tech Lead 후속 과제로 남습니다.** 계약과 ADR 중
+        한쪽만 고치면 다음 사람이 같은 자리에서 다시 멈춥니다.
+
+        `followup_unreachable`이 여기 있는 것은 **질문 범위의 문제이지 검증기 규칙이
+        아닙니다.** 「보낼 기기가 없어 건너뛰었다」는 소급 구독으로 늦게 알림을 받은
+        보호자에게는 「왜 30분 늦게 받았나」의 답이 되지만, 그 질문은 이번 구간의 셋에
+        없습니다. 「기타」 자유질문이 열리면 그때 이 이벤트가 답의 근거가 됩니다.
+
+        「기타」 자유질문은 본선 이후 계약 확장 대상입니다. **지금 자리를 미리 만들어
+        두지 않습니다** — 도달할 수 없는 분기를 계약에 두면 구현자가 실행되지 않는
+        코드를 쓰게 됩니다.
+      enum: [evacuation_progress, help_request, arrival_status]
+
+    GuardianAskRequest:
+      type: object
+      required: [questionId]
+      additionalProperties: false
+      description: |
+        추천 질문 1건. **`questionId` 밖의 입력 경로는 없습니다** — 자유 텍스트 질문
+        필드를 두지 않았고, 목록 밖 값은 422입니다. 본선 이후 자유질문을 열 때
+        입력 필드와 그때의 폴백 규약을 함께 정의합니다.
+
+        **`locale`의 허용값은 `ko` 하나뿐이고, 목록 밖 값은 422입니다** — 이 계약에서
+        언어 필드가 좁혀진 곳은 여기 하나입니다. 보호자 Q&A 답변은 세션 이벤트 로그를
+        옮겨 적는 결정적(deterministic) 문안이라 문장이 코드에 한국어로 박혀 있고,
+        번역 단계가 따로 없습니다. 2026-08-25 팀 합의(보호자 응답 Q&A 생성은 본선
+        데모에서 한국어만)를 계약이 받은 자리이며, 근거는
+        [ADR-0021](../../docs/adr/0021-guardian-qa-korean-only.md)입니다(승인, 2026-08-28).
+
+        ⚠️ **프론트가 화면 언어를 그대로 실어 보내면 422입니다.** `Profile.language` ·
+        `ChatRequest.locale` · `AnswerRequest.locale` · `RecipientContext.language`는
+        여전히 `[ko, vi, zh, en]`이라, 네 값을 들고 다니는 화면이 이 필드에도 같은 값을
+        넣으면 `vi` · `zh` · `en`에서 422가 나고 200 폴백 경로가 없습니다. 이 요청만은 `ko`로 고정하거나 필드를
+        생략하십시오(기본값 `ko`). 그 넷이 넓은 채로 남아 있는 것은 누락이 아닙니다 —
+        ADR-0021 결정 3번이 확정 범위를 보호자 Q&A 답변 생성으로 못박았고, 프로필
+        언어와 코퍼스 챗봇 출력 언어는 그 범위 밖입니다. 좁히려면 별도 ADR이 필요합니다.
+
+        「받되 한국어로 폴백」이 아니라 거절인 이유는, 폴백이 성립하려면 요청한 언어와
+        다른 언어로 답이 왔다는 사실을 화면이 알 수 있어야 하는데 `GuardianAnswer`에
+        그것을 실을 자리가 없기 때문입니다. 다국어를 열 때 실제 생성 언어를 응답에
+        함께 싣고, 그때 이 enum을 넓힙니다.
+      properties:
+        questionId:
+          $ref: '#/components/schemas/GuardianQuestionId'
+        locale:
+          type: string
+          enum: [ko]
+          default: ko
+
+    GuardianAnswerRequest:
+      type: object
+      required: [questionId, events]
+      additionalProperties: false
+      description: |
+        `POST /v1/guardian/answer`(backend → ai-engine 내부)의 요청 본문.
+        `POST /v1/guardian/{token}/ask`가 보호자 토큰으로 해석한 사용자 세션의
+        `questionId`와 이벤트 로그를 그대로 옮겨 싣습니다.
+
+        `events`는 `GET /internal/sessions/{token}/events`가 돌려주는 `SessionEvent`
+        배열과 같은 원소 모양입니다. 빈 배열도 유효한 입력이며, 순서를 강제하지
+        않습니다 — ai-engine이 `at` 오름차순으로 다시 정렬한 뒤 질문의
+        `CITATION_SCOPE` 밖 타입은 걸러냅니다.
+      properties:
+        questionId:
+          $ref: '#/components/schemas/GuardianQuestionId'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionEvent'
+
+    GuardianEvidenceType:
+      type: string
+      description: |
+        인용 가능한 이벤트 종류. **`SessionEvent`의 `discriminator.mapping` 키 18종과
+        같은 목록이며, 늘리거나 줄일 때는 두 곳을 같은 PR에서 함께 고칩니다.**
+
+        답변 쪽에 목록을 한 번 더 두는 이유는 `SessionEvent`가 `oneOf`라
+        타입 이름만 따로 참조할 자리가 없기 때문입니다. 문자열을 열어 두면
+        존재하지 않는 이벤트를 인용한 답변이 스펙 검사를 통과하고, 그것이 곧
+        M2가 세려는 「로그에 없는 사실」입니다.
+      enum:
+        - situation_check_selected
+        - profile_review_started
+        - profile_review_completed
+        - profile_review_skipped
+        - choice_screen_viewed
+        - help_request_selected
+        - direct_evacuation_selected
+        - evacuation_guidance_viewed
+        - route_guidance_started
+        - next_guidance_requested
+        - emergency_call_119_selected
+        - arrival_confirmed_by_user
+        - alert_dispatched
+        - push_accepted
+        - guardian_informed
+        - followup_due
+        - followup_unreachable
+        - guardian_notified
+
+    EvacuationProgressEvidenceType:
+      type: string
+      description: |
+        `evacuation_progress` 답변이 인용할 수 있는 이벤트 — **`SessionEvent`의 사용자
+        행동 12종 전부**이며 시스템 이벤트 6종은 들어가지 않습니다. `RecordedUserActionEvent`가
+        받는 목록과 같습니다.
+      enum:
+        - situation_check_selected
+        - profile_review_started
+        - profile_review_completed
+        - profile_review_skipped
+        - choice_screen_viewed
+        - help_request_selected
+        - direct_evacuation_selected
+        - evacuation_guidance_viewed
+        - route_guidance_started
+        - next_guidance_requested
+        - emergency_call_119_selected
+        - arrival_confirmed_by_user
+
+    HelpRequestEvidenceType:
+      type: string
+      description: |
+        `help_request` 답변이 인용할 수 있는 이벤트. 둘 다 **버튼을 눌렀다는 기록일
+        뿐이며 접수·연결을 뜻하지 않습니다.**
+      enum:
+        - help_request_selected
+        - emergency_call_119_selected
+
+    ArrivalStatusEvidenceType:
+      type: string
+      description: |
+        `arrival_status` 답변이 인용할 수 있는 이벤트. 하나뿐이며, GPS 검증이 아니라
+        `[도착 완료]` 선택 기록입니다.
+      enum:
+        - arrival_confirmed_by_user
+
+    GuardianEvidence:
+      description: |
+        답변 한 문장을 뒷받침한 근거 1건. **확인됨과 확인되지 않음을 같은 모양으로
+        담습니다.**
+
+        ⚠️ **`present: false`는 「그 일이 없었다」가 아니라 「이 세션 로그에서
+        확인되지 않는다」입니다.** 로그는 서비스가 관측한 범위일 뿐이라, 기록이 없다는
+        것이 현실에서 그 행동이 일어나지 않았음을 증명하지는 못합니다 — 화면 밖에서
+        전화를 걸었을 수도, 기록 요청이 유실됐을 수도 있습니다. 「기록된 사실만 말하고
+        추정하지 않는다」가 이 경로의 원칙이므로, 부재를 사실로 승격시키는 순간 그
+        원칙이 깨집니다. **답변 문안도 같습니다** — 「누르지 않으셨습니다」가 아니라
+        「기록에서 확인되지 않습니다」로 씁니다.
+
+        보호자 답변의 절반은 이 방향을 말합니다. 담을 자리가 없으면 그 문장들은
+        근거 없이 나가거나(지표 M2를 깸), 아예 못 나갑니다(보호자가 가장 알고 싶은
+        것을 못 알려 줌). 그래서 `present`로 방향을 구분합니다.
+
+        대조 검증기는 이 배열을 그대로 씁니다 — `present: true`면 그 이벤트가 로그에
+        있고 `at`이 일치하는지, `present: false`면 로그에 **없는지**를 봅니다.
+        하나라도 어긋나면 그 문장을 차단합니다. 대조 규칙과 차단 사유 코드의 정본은
+        [ADR-0012](../../docs/adr/0012-verifier-rules-and-closed-loop.md) 2절·4절이며,
+        이 스키마는 그 규칙이 읽는 삼중항 `(type, present, at)`과 1:1입니다.
+
+        **반복 가능한 이벤트는 인용한 1건의 `at`으로 특정합니다.** `SessionEvent`
+        11종은 같은 종류가 여러 번 기록되므로, `present: true`인 근거는 「그 종류가
+        있었다」가 아니라 「그 시각에 그 종류가 있었다」를 주장합니다. 그래서 `at`은
+        **`present: true`일 때 필수**이고, 그 조건을 설명이 아니라 아래 두 갈래로
+        강제합니다 — 시각 없는 존재 주장은 검증기가 대조할 삼중항이 되지 못합니다.
+      oneOf:
+        - $ref: '#/components/schemas/GuardianEvidenceConfirmed'
+        - $ref: '#/components/schemas/GuardianEvidenceNotFound'
+
+    GuardianEvidenceConfirmed:
+      type: object
+      description: 그 시각에 그 이벤트가 로그에서 확인된 근거. `at`이 필수다.
+      required: [type, present, at]
+      additionalProperties: false
+      properties:
+        type:
+          $ref: '#/components/schemas/GuardianEvidenceType'
+        present:
+          type: boolean
+          const: true
+        at:
+          type: string
+          format: date-time
+          description: 로그에 적힌 RFC3339 시각. `null`일 수 없습니다.
+          example: '2026-08-24T03:05:00Z'
+
+    GuardianEvidenceNotFound:
+      type: object
+      description: |
+        그 이벤트를 이 세션 로그에서 찾지 못했다는 근거. 시각이 없으므로 `at`은
+        생략하거나 `null`이며, 값을 넣을 수 없습니다 — 없는 일에 시각을 붙이면
+        그 자체가 지어낸 사실입니다.
+      required: [type, present]
+      additionalProperties: false
+      properties:
+        type:
+          $ref: '#/components/schemas/GuardianEvidenceType'
+        present:
+          type: boolean
+          const: false
+        at:
+          type: 'null'
+
+    GuardianAnswer:
+      description: |
+        `ChatResponse`와 같은 모양이지만 **불변식을 설명이 아니라 스키마로 강제합니다.**
+        응답은 두 갈래뿐이고, 어느 쪽에도 안 걸리는 조합은 계약 위반입니다.
+
+        | | `questionId` | `answer` | `sources` | `refusalReason` |
+        |---|---|---|---|---|
+        | 전달 | 물어본 값 | 문자열 | 1건 이상, **그 질문에 허용된 타입만** | `null` |
+        | 거절 | 물어본 값 | `null` | 빈 배열 | `no_evidence` |
+
+        가운데가 없다는 것이 이 API의 안전장치 전부입니다 — 근거 없는 문안(문자열 +
+        빈 배열)도, 근거를 달고 침묵하는 응답(`null` + 근거 있음)도 만들 수 없습니다.
+        확인되지 않음을 말하는 근거도 `sources`에 담기므로(위 `GuardianEvidence` 참조)
+        「확인되지 않습니다」라고 답하는 경우는 **전달** 쪽입니다.
+
+        ⚠️ **응답이 `questionId`를 함께 싣는 이유는 질문별 근거 제한을 스키마로
+        강제하기 위해서입니다.** 전달 갈래가 질문마다 하나씩 있고, 각 갈래가
+        `sources[].type`을 그 질문의 enum(`GuardianQuestionId` 표 참조)으로 좁힙니다.
+        `questionId`가 응답에 없으면 이 제한을 요청과 대조해야만 검사할 수 있고,
+        그러면 응답 하나만 보는 소비자 — 검증기·채점기·골든셋 — 가 검사하지 못합니다.
+        `arrival_status`에 `alert_dispatched`를 붙인 응답이 계약 검사를 통과하던
+        구멍이 여기서 닫힙니다.
+
+        **부분 전달은 없습니다.** [ADR-0012](../../docs/adr/0012-verifier-rules-and-closed-loop.md)
+        5절이 정한 대로, 검증기가 문장 하나라도 차단하면 남은 문장만 보내지 않고
+        응답 전체가 거절이 됩니다. 그때 `sources`는 빈 배열입니다 — 차단된 근거를
+        실어 보낼 자리가 없기 때문입니다. 화면은 어느 경우든 「확인할 수 없습니다」
+        하나를 띄우고, 왜 차단됐는지는 ADR-0012 4절의 사유 코드로 채점기 쪽에
+        남으므로 집계에서 잃는 것이 없습니다.
+      oneOf:
+        - $ref: '#/components/schemas/GuardianAnswerEvacuationProgress'
+        - $ref: '#/components/schemas/GuardianAnswerHelpRequest'
+        - $ref: '#/components/schemas/GuardianAnswerArrivalStatus'
+        - $ref: '#/components/schemas/GuardianAnswerRefused'
+
+    GuardianAnswerEvacuationProgress:
+      type: object
+      description: |
+        `evacuation_progress` 전달 응답. 근거는 **사용자 행동 12종**으로 제한되며
+        시스템 이벤트는 붙일 수 없습니다.
+      required: [questionId, answer, sources, refusalReason]
+      additionalProperties: false
+      properties:
+        questionId:
+          type: string
+          const: evacuation_progress
+        answer:
+          $ref: '#/components/schemas/GuardianAnswerBody'
+        sources:
+          type: array
+          minItems: 1
+          items:
+            allOf:
+              - $ref: '#/components/schemas/GuardianEvidence'
+              - properties:
+                  type:
+                    $ref: '#/components/schemas/EvacuationProgressEvidenceType'
+        refusalReason:
+          type: 'null'
+
+    GuardianAnswerHelpRequest:
+      type: object
+      description: |
+        `help_request` 전달 응답. 근거는 `help_request_selected` ·
+        `emergency_call_119_selected` 둘뿐입니다.
+      required: [questionId, answer, sources, refusalReason]
+      additionalProperties: false
+      properties:
+        questionId:
+          type: string
+          const: help_request
+        answer:
+          $ref: '#/components/schemas/GuardianAnswerBody'
+        sources:
+          type: array
+          minItems: 1
+          items:
+            allOf:
+              - $ref: '#/components/schemas/GuardianEvidence'
+              - properties:
+                  type:
+                    $ref: '#/components/schemas/HelpRequestEvidenceType'
+        refusalReason:
+          type: 'null'
+
+    GuardianAnswerArrivalStatus:
+      type: object
+      description: |
+        `arrival_status` 전달 응답. 근거는 `arrival_confirmed_by_user` 하나뿐입니다.
+      required: [questionId, answer, sources, refusalReason]
+      additionalProperties: false
+      properties:
+        questionId:
+          type: string
+          const: arrival_status
+        answer:
+          $ref: '#/components/schemas/GuardianAnswerBody'
+        sources:
+          type: array
+          minItems: 1
+          items:
+            allOf:
+              - $ref: '#/components/schemas/GuardianEvidence'
+              - properties:
+                  type:
+                    $ref: '#/components/schemas/ArrivalStatusEvidenceType'
+        refusalReason:
+          type: 'null'
+
+    GuardianAnswerBody:
+      type: string
+      minLength: 1
+      description: |
+        답변 본문. **로그에 있는 것만 말하고, 없는 것은 「확인되지 않습니다」로
+        말합니다** — 「누르지 않으셨습니다」처럼 부재를 사실로 단정하지 않습니다.
+
+        ⚠️ 「안전합니다」·「괜찮습니다」 같은 안전 판단은 금지입니다.
+
+        ⚠️ **두 사실을 「그 뒤로」·「이후」로 잇지 않습니다.** 잇는 말이 삼중항에
+        담기지 않는 세 번째 주장이 되어 차단됩니다
+        ([ADR-0012](../../docs/adr/0012-verifier-rules-and-closed-loop.md) 2절).
+        문장을 끊고 각각에 근거를 답니다.
+
+    GuardianAnswerRefused:
+      type: object
+      description: |
+        답하지 않은 응답. `answer`가 `null`인 것은 "대조할 근거가 없어 생성하지
+        않았다"는 **확정 신호**이며, 화면은 「확인할 수 없습니다」로 표시합니다.
+        키를 생략하지 않는 이유는 `ChatResponse`와 같습니다 — 생략하면 이 신호와
+        「응답 누락」이 구분되지 않습니다.
+
+        거절에도 `questionId`가 실립니다. 어느 질문이 거절됐는지를 응답만 보고
+        알 수 있어야 거절률을 질문별로 집계할 수 있습니다.
+      required: [questionId, answer, sources, refusalReason]
+      additionalProperties: false
+      properties:
+        questionId:
+          $ref: '#/components/schemas/GuardianQuestionId'
+        answer:
+          type: 'null'
+        sources:
+          type: array
+          maxItems: 0
+          description: 항상 빈 배열입니다.
+          items:
+            $ref: '#/components/schemas/GuardianEvidence'
+        refusalReason:
+          type: string
+          enum: [no_evidence]
+          description: |
+            **값은 이것뿐이고 둘째를 두지 않습니다.** 그 세션 로그에 대조할 것이 아예
+            없었던 경우와, 문안을 만들었으나 검증기가 차단한 경우가 여기에 함께
+            들어갑니다 — 대조에 실패한 근거는 없는 근거와 같이 다룹니다
+            ([ADR-0012](../../docs/adr/0012-verifier-rules-and-closed-loop.md) 5절).
+            이 값은 보호자 화면이 무엇을 띄울지 고르는 값인데 두 경우의 화면이
+            「확인할 수 없습니다」로 같으므로, 나누면 소비자가 없는 분기만 늘어납니다.
+
+            추천 3질문 밖 입력을 위한 `out_of_scope`는 두지 않았습니다. 요청이
+            `questionId` 3종으로 닫혀 있어 그 값이 나올 수 있는 정상 요청이 없고,
+            도달할 수 없는 분기는 실행되지 않는 구현을 부릅니다. 자유질문을 열 때
+            입력 필드와 함께 정의합니다.
 
     Error:
       type: object
@@ -1888,7 +3170,10 @@ components:
           format: date-time
           description: |
             특보 발효 시각. **타임존이 포함된 값이어야 합니다**(naive datetime 금지) —
-            도달 속도 측정이 이 값 기준이라 KST/UTC가 섞이면 지표가 조용히 틀어집니다.
+            화면에 찍히는 판단 시각이 이 값 기준이라 KST/UTC가 섞이면 사용자에게 틀린
+            시각이 뜹니다. ⚠️ **M1(알림 도달 속도)의 기산점은 이 값이 아닙니다** —
+            파이프라인이 그 특보 처리를 시작한 시각이며, 유입 지연은 M1 밖입니다
+            ([ADR-0013](../../docs/adr/0013-m1-measures-push-acceptance.md)).
           example: '2026-08-10T11:30:00+09:00'
         disaster:
           $ref: '#/components/schemas/DisasterContext'
@@ -2003,7 +3288,19 @@ components:
         distanceM:
           type: integer
           minimum: 0
-          description: 직선거리(m). 문장에 넣을 때도 이 값을 씁니다.
+          description: |
+            직선거리(m). 문장에 넣을 때도 이 값을 씁니다.
+
+            ⚠️ **이 값은 실제 보행 거리의 하한이고, 추정값일 수도 있습니다.** 우회
+            때문에 실제로는 더 멀며, 사용자가 위치를 주지 않은 요청에서는 백엔드가
+            행정동 단위의 대표 좌표에서 이 값을 잽니다. **둘 중 어느 쪽인지는 이 요청
+            본문에 실리지 않습니다** — 프론트 대면 응답의 `ShelterList.basis`에 해당하는
+            필드가 여기에는 없고, 생성부가 그것을 알아야 할 이유도 없습니다. 그래서
+            아래 규칙은 **조건 없이** 적용됩니다.
+
+            **도달 시각이나 소요 시간을 단정하는 문장을 만들지 않습니다** —
+            「N분이면 도착합니다」, 「곧 도착합니다」는 이 값으로 뒷받침되지 않습니다.
+            거리를 말할 때는 직선거리임을 함께 밝힙니다.
           example: 420
         hasStairs:
           type: boolean

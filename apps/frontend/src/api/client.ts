@@ -9,17 +9,20 @@
 // the old GET /v1/shelters) is visible at the API boundary without
 // consumers reaching past this module.
 //
-// The browser-facing v0.3 ApiClient methods (mirroring operationIds in
+// The browser-facing v0.10 ApiClient methods (mirroring operationIds in
 // packages/contracts/openapi.yaml 1:1):
-//   getSession · postSessionResponse · getRegistrationTarget ·
-//   searchShelters · postChat · registerDevice · unregisterDevice ·
-//   getGuardianStatus · postGuardianAcknowledge
-// (The internal `postGenerate` operationId is backend↔ai-engine only and is
-// intentionally not on this client.)
+//   getSession · postSessionResponse · postSessionEvent ·
+//   getRegistrationTarget · searchShelters · postChat · registerDevice ·
+//   unregisterDevice · getGuardianStatus · postGuardianAcknowledge ·
+//   registerGuardianDevice · unregisterGuardianDevice · postGuardianAsk
+// (The internal `postGenerate` / `postAnswer` / `postGuardianAnswer`
+// operationIds and the backend-internal `getSessionEvents` are
+// backend↔ai-engine / internal-only and are intentionally not on this
+// client.)
 
 import type { ApiClient, Ack, Profile } from './types'
 import { mockAdapter } from './mock'
-import { httpAdapter, PATH_SHELTERS_SEARCH } from './http'
+import { httpAdapter, ApiRequestError, PATH_SHELTERS_SEARCH } from './http'
 import {
   isStoreEnabled,
   putRegistration as fsPut,
@@ -35,6 +38,10 @@ import { substituteAdminTerms } from '../lib/readability'
 export { isStoreEnabled }
 export { subscribeRegistrations, getRegistration } from './firestore'
 export { getRegistrationTarget } from './firestore'
+// Only thrown by the httpAdapter guardian-device calls today (mockAdapter
+// never throws it) — re-exported so pages/Guardian.tsx and lib/push.ts can
+// `instanceof`-check it without importing './http' directly.
+export { ApiRequestError as BackendApiError }
 
 const useMock =
   (import.meta.env.VITE_USE_MOCK ?? 'true').toLowerCase() !== 'false'

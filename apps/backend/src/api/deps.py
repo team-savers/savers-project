@@ -5,16 +5,15 @@ can substitute them via `app.dependency_overrides` — including the AI engine, 
 never be called for real from a test (external calls cost money and make CI
 non-deterministic).
 
-P1 state is process-local and in-memory: residents come from the demo seed, sessions live
-in a dict, and pushes are recorded rather than sent. Each of those is a documented seam,
-not an accident — see the module each provider returns.
+Residents come from the demo seed, sessions use SQLite-backed storage, and pushes are
+recorded rather than sent. See the module each provider returns for that seam.
 """
 
 from functools import lru_cache
 
 from backend_core.ai_client import AiEngineClient, HttpAiEngineClient
 from backend_core.config import Settings, get_settings
-from backend_core.dispatch import Dispatcher, RecordingDispatcher
+from backend_core.dispatch import Dispatcher, create_dispatcher
 from backend_core.registry import ResidentRegistry, seed_registry
 from backend_core.sessions import SessionStore
 from backend_core.shelters import (
@@ -37,14 +36,22 @@ def registry() -> ResidentRegistry:
 
 @lru_cache(maxsize=1)
 def sessions() -> SessionStore:
-    """⚠️ Process-local: a restart invalidates every live alert link."""
-    return SessionStore(ttl_s=settings().session_ttl_s)
+    """Return the process-local store backed by the configured SQLite database."""
+    return SessionStore(
+        ttl_s=settings().session_ttl_s,
+        db_path=settings().session_db_path,
+    )
 
 
 @lru_cache(maxsize=1)
 def dispatcher() -> Dispatcher:
-    """Recording dispatcher until FCM Admin credentials exist on the deployed VM."""
-    return RecordingDispatcher()
+    """Resolve and validate the explicitly configured push channel once per process."""
+    config = settings()
+    return create_dispatcher(
+        config.push_channel,
+        config.fcm_service_account_path,
+        ttl_seconds=config.session_ttl_s,
+    )
 
 
 @lru_cache(maxsize=1)
@@ -59,4 +66,8 @@ def shelters() -> ShelterRepository:
     That is the intended P1 behaviour and it is visible in the response
     (`availability: cache_only`) rather than being disguised as live data.
     """
-    return ShelterRepository(UnavailableShelterSource(), CachedShelterSource.from_jsonl())
+    return ShelterRepository(
+        UnavailableShelterSource(),
+        CachedShelterSource.from_jsonl(),
+        evac_time_limit_s=settings().evac_time_limit_s,
+    )

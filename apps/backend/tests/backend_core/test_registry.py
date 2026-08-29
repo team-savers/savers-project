@@ -2,24 +2,58 @@
 
 import pytest
 
-from backend_core.registry import RegistrationNotFoundError, ResidentRegistry, seed_registry
+from backend_core.registry import (
+    DEMO_DONG_CODE,
+    GuardianNotRegisteredError,
+    RegistrationNotFoundError,
+    ResidentRegistry,
+    seed_registry,
+)
 
 
 def test_device_registration_is_idempotent(registry: ResidentRegistry) -> None:
-    resident = registry.register_device("r_demo_resident_p002", "fcm_new")
-    registry.register_device("r_demo_resident_p002", "fcm_new")
-    assert resident.devices.count("fcm_new") == 1
+    resident = registry.register_device("r_demo_resident_p002", "fcm_new", "ward")
+    registry.register_device("r_demo_resident_p002", "fcm_new", "ward")
+    assert resident.devices["ward"].count("fcm_new") == 1
+
+
+def test_devices_are_kept_separate_by_role(registry: ResidentRegistry) -> None:
+    """1차(ward)·2차(guardian) 발송 대상이 갈리므로 버킷도 갈린다 — 한쪽 등록이 다른 쪽에 새지 않는다."""
+    # 보호자가 있는 p001을 쓴다 — guardian 등록은 보호자 없는 대상에서 400으로 막히므로(ADR-0015 결정 3).
+    resident = registry.register_device("r_demo_resident_p001", "fcm_ward", "ward")
+    registry.register_device("r_demo_resident_p001", "fcm_guardian", "guardian")
+    assert "fcm_ward" in resident.devices["ward"]
+    assert "fcm_ward" not in resident.devices["guardian"]
+    assert "fcm_guardian" in resident.devices["guardian"]
+    assert "fcm_guardian" not in resident.devices["ward"]
+
+
+def test_guardian_device_rejected_when_no_guardian(registry: ResidentRegistry) -> None:
+    """보호자 없는 대상에 guardian 기기를 붙이면 아무 데도 도달하지 않으므로 등록 시점에 막는다(ADR-0015 결정 3)."""
+    with pytest.raises(GuardianNotRegisteredError):
+        registry.register_device("r_demo_resident_p002", "fcm_guardian", "guardian")
+
+
+def test_same_token_can_hold_both_roles_and_unregister_clears_both(
+    registry: ResidentRegistry,
+) -> None:
+    """공용 단말은 ward이자 guardian일 수 있고, 해제는 역할 없이 양쪽에서 뗀다(계약 DeviceUnregisterRequest)."""
+    registry.register_device("r_demo_resident_p001", "fcm_shared", "ward")
+    registry.register_device("r_demo_resident_p001", "fcm_shared", "guardian")
+    resident = registry.unregister_device("r_demo_resident_p001", "fcm_shared")
+    assert "fcm_shared" not in resident.devices["ward"]
+    assert "fcm_shared" not in resident.devices["guardian"]
 
 
 def test_unregistering_a_missing_token_still_succeeds(registry: ResidentRegistry) -> None:
     """분실·교체·동의 철회 경로는 재시도 루프를 만들지 않아야 한다."""
     resident = registry.unregister_device("r_demo_resident_p001", "never_registered")
-    assert "never_registered" not in resident.devices
+    assert all("never_registered" not in bucket for bucket in resident.devices.values())
 
 
 def test_unknown_registration_token_is_rejected(registry: ResidentRegistry) -> None:
     with pytest.raises(RegistrationNotFoundError):
-        registry.register_device("r_not_issued", "fcm_x")
+        registry.register_device("r_not_issued", "fcm_x", "ward")
 
 
 def test_registration_token_is_stable_per_person() -> None:
@@ -46,8 +80,74 @@ def test_profile_projection_drops_identity(registry: ResidentRegistry) -> None:
     assert "hearing" not in dumped
 
 
+def test_register_guardian_device_by_user_is_idempotent(registry: ResidentRegistry) -> None:
+    """보호자 토큰 경로는 user_id로 guardian 버킷에 붙이고, 같은 토큰 재등록은 멱등이다."""
+    resident = registry.register_guardian_device_by_user("p001", "fcm_g_new")
+    registry.register_guardian_device_by_user("p001", "fcm_g_new")
+    assert resident.devices["guardian"].count("fcm_g_new") == 1
+    # ward 버킷에는 새지 않는다.
+    assert "fcm_g_new" not in resident.devices["ward"]
+
+
+def test_register_guardian_device_by_user_replaces_previous(registry: ResidentRegistry) -> None:
+    """갱신은 추가가 아니라 교체다 - 새 토큰으로 재등록하면 옛 토큰이 사라지고 개수는 그대로다.
+
+    보호자는 대상당 단수이므로(Profile.guardian), FCM 토큰 회전 시 죽은 토큰이 쌓이지 않고
+    갈아끼워진다(이슈 #151, PR #154 결정 D).
+    """
+    registry.register_guardian_device_by_user("p001", "fcm_g_old")
+    resident = registry.register_guardian_device_by_user("p001", "fcm_g_rotated")
+    assert resident.devices["guardian"] == ["fcm_g_rotated"]
+    assert "fcm_g_old" not in resident.devices["guardian"]
+
+
+def test_register_guardian_device_by_user_drops_seed_token(registry: ResidentRegistry) -> None:
+    """첫 갱신에서 시드의 가공 보호자 토큰(fcm_demo_guardian_p001)도 함께 사라진다.
+
+    사라진 브라우저 안 값을 요구하던 DELETE 정리 경로가 닿지 못하던 바로 그 죽은 토큰을,
+    교체 시맨틱이 갱신 한 번으로 떨군다(이슈 #151).
+    """
+    resident = registry.register_guardian_device_by_user("p001", "fcm_g_real")
+    assert resident.devices["guardian"] == ["fcm_g_real"]
+    assert "fcm_demo_guardian_p001" not in resident.devices["guardian"]
+
+
+def test_register_guardian_device_by_user_leaves_ward_bucket_intact(
+    registry: ResidentRegistry,
+) -> None:
+    """교체는 guardian 버킷에만 적용된다 - ward 등록은 회귀 없이 그대로 유지된다."""
+    resident = registry.register_device("r_demo_resident_p001", "fcm_ward_extra", "ward")
+    before = list(resident.devices["ward"])
+    registry.register_guardian_device_by_user("p001", "fcm_g_swap")
+    assert resident.devices["ward"] == before
+
+
+def test_register_guardian_device_by_user_rejected_when_no_guardian(
+    registry: ResidentRegistry,
+) -> None:
+    """보호자 없는 대상(p002)에 guardian 기기를 붙이면 아무 데도 도달하지 않으므로 막는다."""
+    with pytest.raises(GuardianNotRegisteredError):
+        registry.register_guardian_device_by_user("p002", "fcm_g")
+
+
+def test_register_guardian_device_by_user_unknown_user_rejected(
+    registry: ResidentRegistry,
+) -> None:
+    with pytest.raises(RegistrationNotFoundError):
+        registry.register_guardian_device_by_user("p_missing", "fcm_g")
+
+
+def test_unregister_guardian_device_by_user_is_idempotent(registry: ResidentRegistry) -> None:
+    """등록 뒤 해제하면 버킷에서 빠지고, 없던 토큰 해제도 성공이다(재시도 루프 방지)."""
+    registry.register_guardian_device_by_user("p001", "fcm_g_x")
+    resident = registry.unregister_guardian_device_by_user("p001", "fcm_g_x")
+    assert "fcm_g_x" not in resident.devices["guardian"]
+    resident = registry.unregister_guardian_device_by_user("p001", "never_there")
+    assert "never_there" not in resident.devices["guardian"]
+
+
 def test_seed_covers_both_demo_personas(registry: ResidentRegistry) -> None:
-    """반지하 고령자 + 외국인 근로자 — 출력이 달라지는 축을 모두 건드리는 2인(S2-E1)."""
-    assert len(registry) == 2
-    languages = {r.profile.language for r in registry.by_dong_codes(["1162064500"])}
-    assert languages == {"ko", "vi"}
+    """반지하 고령자 + 외국인 근로자 - 출력이 달라지는 축을 모두 건드리는 2인(S2-E1)."""
+    seowon = registry.by_dong_codes([DEMO_DONG_CODE])
+    assert len(seowon) == 2
+    assert {r.profile.language for r in seowon} == {"ko", "vi"}

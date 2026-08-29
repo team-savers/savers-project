@@ -37,6 +37,10 @@ dev = [
 # ── 무거운 의존성(DB 드라이버, 지오 연산 등)은 core에 넣지 말고 별도 extra로 분리할 것.
 #    CI/기본 설치를 가볍게 유지하는 장치입니다. 예: pip install -e "./apps/backend[geo]"
 # geo = ["shapely>=2.0.0"]
+# ── FCM 실전 발송 어댑터(FcmDispatcher) 전용. 배포 VM에서만 설치합니다:
+#    pip install -e "./apps/backend[fcm]". CI와 로컬 테스트는 RecordingDispatcher를 쓰고
+#    dispatch._load_firebase를 목으로 대체하므로 firebase-admin 없이 그대로 돕니다.
+fcm = ["firebase-admin>=6.5.0"]
 
 # src 레이아웃: src/ 하위 패키지(api, backend_core)를 최상위 import 이름으로 노출.
 # 코드는 `import backend_core` / `from api import ...` 형태 (⚠️ `src.` 접두어 없음).
@@ -68,6 +72,12 @@ no_implicit_optional = true
 # 점진 도입: 계약(packages/contracts)이 확정된 뒤 아래 두 줄을 켜세요.
 # disallow_untyped_defs = true
 # disallow_incomplete_defs = true
+
+# firebase-admin은 fcm extra 전용(배포 VM에만 설치)이라 CI에는 스텁이 없습니다.
+# ai-engine의 langchain·chromadb 처리와 같은 방식으로 미싱 임포트만 무시합니다.
+[[tool.mypy.overrides]]
+module = ["firebase_admin.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

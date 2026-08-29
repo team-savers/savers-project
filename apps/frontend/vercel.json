@@ -3,9 +3,10 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- .",
   "rewrites": [
     {
-      "source": "/((?!assets/|sw\\.js|registerSW\\.js|workbox-.*\\.js|manifest\\.webmanifest|favicon\\.svg|icons\\.svg).*)",
+      "source": "/((?!assets/|sw\\.js|registerSW\\.js|workbox-.*\\.js|manifest\\.webmanifest|favicon\\.svg|icons\\.svg|logo\\.png|pwa-192\\.png|pwa-512\\.png).*)",
       "destination": "/index.html"
     }
   ],
