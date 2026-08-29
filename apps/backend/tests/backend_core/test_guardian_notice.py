@@ -758,6 +758,120 @@ def test_guardian_dispatch_failure_never_fails_the_run(
     assert run.guardian_send_errors == 1
 
 
+# ── 저장 실패 격리: guardian_informed 저장 오류가 run 을 중단하지 않는다 ──────────────
+
+
+class _GuardianInformedStorageFailingStore(SessionStore):
+    """첫 guardian_informed 저장에서만 토큰·링크가 든 예외를 던지고, 그 외 모든 이벤트 저장
+    (alert_dispatched·push_accepted·둘째 세션의 guardian_informed)은 정상 위임한다 —
+    guardian push 접수 직후 저장이 실패하는 상황의 재현."""
+
+    def __init__(self, secrets: list[str], *, ttl_s: int) -> None:
+        super().__init__(ttl_s=ttl_s)
+        self._secrets = secrets
+        self._guardian_informed_calls = 0
+
+    def append_system_event(self, record, event_type, *, now=None):  # type: ignore[no-untyped-def]
+        if event_type == "guardian_informed":
+            self._guardian_informed_calls += 1
+            if self._guardian_informed_calls == 1:
+                raise RuntimeError("event store write failed: " + " ".join(self._secrets))
+        return super().append_system_event(record, event_type, now=now)
+
+
+def test_guardian_informed_persistence_failure_is_isolated(
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+    event,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """접수 직후 guardian_informed 저장이 실패해도 run 이 중단되지 않는다(머지 전 필수 결함).
+
+    두 resident 모두 ward·guardian 접수. 첫 resident 의 guardian_informed 저장만 RuntimeError.
+    run 은 정상 반환하고 ward Delivery·M1·계상이 보존되며, 저장 실패는 guardian_send_errors 로
+    위장되지 않고 접수 사실(guardian_accepted)도 유지된다."""
+    # `*_marker` 이름은 S105(하드코딩 비밀번호) 오탐을 피하기 위한 것 — 값은 가짜 표식이다.
+    session_marker = "SESSION-TOKEN-SECRET"
+    guardian_marker = "GUARDIAN-TOKEN-SECRET"
+    fcm_marker = "FCM-DEVICE-SECRET"
+    link_marker = "http://localhost:3000/g/LINK-TOKEN-SECRET"
+    sessions = _GuardianInformedStorageFailingStore(
+        [session_marker, guardian_marker, fcm_marker, link_marker], ttl_s=6 * 60 * 60
+    )
+    first = _guardian_resident("first", ward_tokens=["w1"], guardian_tokens=["g1"])
+    second = _guardian_resident("second", ward_tokens=["w2"], guardian_tokens=["g2"])
+    registry = ResidentRegistry([first, second])
+    dispatcher = _RoutingDispatcher([True, True])  # 두 guardian 발송 모두 접수
+
+    with caplog.at_level(logging.ERROR):
+        run = _run(registry, sessions, ai, dispatcher, shelter_repository, event)
+
+    # run 정상 반환 + ward 결과 보존
+    assert run.finished_at is not None
+    assert len(run.deliveries) == 2
+    assert run.accepted == 2
+    assert run.latencies_ms == [d.latency_ms for d in run.deliveries]  # ward latency 보존
+    assert run.send_errors == 0  # ward 오류에 섞이지 않음
+    # guardian 계상: 접수 2건 유지, 저장 실패를 send_errors 로 위장하지 않음
+    assert run.guardian_dispatched == 2
+    assert run.guardian_accepted == 2
+    assert run.guardian_send_errors == 0
+    assert run.guardian_skipped_no_device == 0
+    assert run.guardian_dispatched + run.guardian_skipped_no_device == run.accepted
+    # 첫 resident 는 informed 미저장, 둘째는 저장됨
+    first_token = run.deliveries[0].session_token
+    second_token = run.deliveries[1].session_token
+    assert _guardian_informed_count(sessions, first_token) == 0
+    assert _guardian_informed_count(sessions, second_token) == 1
+    assert len(dispatcher.guardian_sends) == 2  # 둘째 resident guardian 발송 실제 수행
+    # 로그 보안: 고정 문구 + 예외 클래스명만, 토큰·링크·traceback·예외 메시지 없음
+    text = caplog.text
+    assert "guardian first-notice event persistence failed" in text
+    assert "RuntimeError" in text
+    assert "event store write failed" not in text  # 예외 메시지 미노출
+    assert "Traceback" not in text
+    for secret in (
+        session_marker,
+        guardian_marker,
+        fcm_marker,
+        link_marker,
+        first_token,
+        second_token,
+        run.deliveries[0].guardian_token,
+        run.deliveries[1].guardian_token,
+    ):
+        assert secret not in text
+    # 보호자 등록/FCM 토큰 유지
+    _assert_registration_preserved(first, ["g1"])
+    _assert_registration_preserved(second, ["g2"])
+
+
+def test_guardian_persistence_failure_continues_remaining_devices(
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+    event,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """같은 resident 에 guardian 기기가 여럿이면, 첫 접수 직후 저장이 실패해도 나머지 기기
+    발송은 계속된다. 접수는 세션당 1회라 guardian_accepted 는 1로 유지된다."""
+    sessions = _GuardianInformedStorageFailingStore(["S"], ttl_s=6 * 60 * 60)
+    resident = _guardian_resident("p001", ward_tokens=["w1"], guardian_tokens=["g1", "g2"])
+    registry = ResidentRegistry([resident])
+    dispatcher = _RoutingDispatcher([True, True])
+
+    with caplog.at_level(logging.ERROR):
+        run = _run(registry, sessions, ai, dispatcher, shelter_repository, event)
+
+    assert run.finished_at is not None
+    assert run.guardian_dispatched == 1
+    assert run.guardian_accepted == 1  # 세션당 1회
+    assert run.guardian_send_errors == 0
+    assert len(dispatcher.guardian_sends) == 2  # 저장 실패 뒤에도 둘째 기기 발송 계속
+    assert _guardian_informed_count(sessions, run.deliveries[0].session_token) == 0
+    assert "guardian first-notice event persistence failed" in caplog.text
+    _assert_registration_preserved(resident, ["g1", "g2"])
+
+
 # ── 민감 토큰 로그 비노출 ────────────────────────────────────────────────────
 
 

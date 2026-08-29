@@ -116,7 +116,9 @@ class AlertRun:
     # 이상 접수된 세션**(= `accepted`)뿐이라, ward 기기 없음·ward 전건 실패 세션은 네 필드 어디에도
     # 들지 않고 항상 `guardian_dispatched + guardian_skipped_no_device == accepted` 다.
     guardian_dispatched: int = 0  # 그 모집단 중 guardian 기기가 있어 통지를 시도한 세션 수
-    guardian_accepted: int = 0  # 그중 1대 이상 접수된 세션 수 = 남은 guardian_informed 이벤트 수
+    guardian_accepted: int = 0  # 그중 1대 이상 접수된 세션 수. 저장 성공 경로에서 남은
+    # guardian_informed 이벤트 수와 같다 — 접수 직후 이벤트 저장이 실패하면 접수는 실제 발생했으므로
+    # 이 값은 유지되고 이벤트만 안 남아, 그 세션만큼 informed 이벤트 수가 이 값보다 적을 수 있다.
     guardian_skipped_no_device: int = 0  # 그 모집단 중 보호자 없음/guardian 버킷 빔(실패 아님)
     guardian_send_errors: int = 0  # 어댑터가 예외를 던진 보호자 발송 '건수'(세션 수 아님)
 
@@ -395,6 +397,9 @@ def _notify_guardian(
       `guardian_send_errors` 에 센다(세션 수 아님).
     - `guardian_informed` 는 **첫 접수 1건에서만**, 세션당 1회 남긴다. 시각은 `push_accepted` 와
       같은 주입+단조 기준(`started + Δperf_counter`)이라 리플레이에서 순서가 보장된다.
+    - `guardian_informed` 저장이 실패해도 접수는 실제 일어났으므로 `guardian_accepted` 를 되돌리지
+      않고, 저장 실패를 `guardian_send_errors`(발송 예외 건수)로 위장하지 않는다. 저장 실패는 이
+      resident 의 남은 기기·다음 resident·run 반환을 막지 않는다(발송 예외 격리와 같은 원칙).
     - 전건 `False`(전건 거부)는 여기서 아무 것도 더하지 않는다 — `guardian_dispatched -
       guardian_accepted` 로 읽는다(#218).
     """
@@ -428,8 +433,21 @@ def _notify_guardian(
         if accepted and not accepted_this_session:
             accepted_this_session = True
             run.guardian_accepted += 1
-            sessions.append_system_event(
-                session,
-                "guardian_informed",
-                now=started + timedelta(seconds=perf_counter() - clock_start),
-            )
+            try:
+                sessions.append_system_event(
+                    session,
+                    "guardian_informed",
+                    now=started + timedelta(seconds=perf_counter() - clock_start),
+                )
+            except Exception as exc:
+                # push 접수는 실제로 일어났으므로 `guardian_accepted` 를 되돌리지 않는다 —
+                # `guardian_informed` 이벤트만 저장되지 않은 채 남는다. 이는 dispatcher 예외와 다른
+                # 종류(저장 실패)라 `guardian_send_errors` 에 섞지 않고 ward `send_errors` 에도 더하지
+                # 않는다. 저장 실패가 이 resident 의 남은 guardian 기기나 다음 resident 처리를,
+                # 그리고 이미 확정된 ward Delivery·M1 결과와 run 반환을 막아서는 안 된다(발송 예외
+                # 격리와 같은 원칙). 예외 메시지·traceback 은 남기지 않고(토큰·링크가 실릴 수 있음)
+                # 고정 문구와 예외 클래스명만 기록한다(`logger.exception` 아님, `exc_info` 없음).
+                logger.error(
+                    "guardian first-notice event persistence failed (%s)",
+                    type(exc).__name__,
+                )
