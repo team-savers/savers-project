@@ -9,6 +9,7 @@ from typing import get_args
 
 from conftest import GROUNDED_BODY, FakeAiEngine
 
+from backend_core import pipeline
 from backend_core.dispatch import PushPayload, RecordingDispatcher
 from backend_core.fallback import OFFICIAL_FALLBACK_BODY
 from backend_core.models import Availability, DisasterEvent, ServiceMode, ShelterList
@@ -340,6 +341,140 @@ def test_multiple_devices_all_receive(
     delivery = next(d for d in run.deliveries if d.user_id == "p001")
     assert delivery.devices_notified == 2
     assert len(dispatcher.sent) == 3
+
+
+class _TimedOutcomeDispatcher:
+    def __init__(self, clock: list[float], outcomes: list[tuple[float, bool | Exception]]) -> None:
+        self.clock = clock
+        self.outcomes = iter(outcomes)
+
+    def send(self, payload: PushPayload) -> bool:
+        at, outcome = next(self.outcomes)
+        self.clock[0] = at
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+def _run_single_resident_with_timed_outcomes(
+    monkeypatch,
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+    outcomes: list[tuple[float, bool | Exception]],
+) -> AlertRun:
+    resident = registry.get("p001")
+    assert resident is not None
+    resident.devices["ward"][:] = ["ward-phone", "ward-tablet"]
+    clock = [0.0]
+    monkeypatch.setattr(pipeline, "perf_counter", lambda: clock[0])
+    return run_alert(
+        event,
+        registry=ResidentRegistry([resident]),
+        sessions=sessions,
+        ai=ai,
+        dispatcher=_TimedOutcomeDispatcher(clock, outcomes),
+        shelters=shelter_repository,
+        public_base_url=BASE_URL,
+    )
+
+
+def test_m1_uses_first_ward_acceptance_when_multiple_devices_accept(
+    monkeypatch,
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+) -> None:
+    run = _run_single_resident_with_timed_outcomes(
+        monkeypatch,
+        event,
+        registry,
+        sessions,
+        ai,
+        shelter_repository,
+        [(0.1, True), (0.9, True)],
+    )
+
+    delivery = run.deliveries[0]
+    assert delivery.devices_notified == 2
+    assert delivery.latency_ms == 100.0
+    assert [event.type for event in sessions.events_of(sessions.get(delivery.session_token))] == [
+        "alert_dispatched",
+        "push_accepted",
+    ]
+
+
+def test_m1_uses_later_device_when_first_is_not_accepted(
+    monkeypatch,
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+) -> None:
+    run = _run_single_resident_with_timed_outcomes(
+        monkeypatch,
+        event,
+        registry,
+        sessions,
+        ai,
+        shelter_repository,
+        [(0.1, False), (0.7, True)],
+    )
+
+    assert run.deliveries[0].devices_notified == 1
+    assert run.deliveries[0].latency_ms == 700.0
+
+
+def test_m1_first_acceptance_survives_later_send_exception(
+    monkeypatch,
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+) -> None:
+    run = _run_single_resident_with_timed_outcomes(
+        monkeypatch,
+        event,
+        registry,
+        sessions,
+        ai,
+        shelter_repository,
+        [(0.2, True), (0.8, RuntimeError("later send failed"))],
+    )
+
+    assert run.deliveries[0].devices_notified == 1
+    assert run.deliveries[0].latency_ms == 200.0
+    assert run.send_errors == 1
+
+
+def test_all_failed_delivery_keeps_float_but_is_excluded_from_m1(
+    monkeypatch,
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+) -> None:
+    run = _run_single_resident_with_timed_outcomes(
+        monkeypatch,
+        event,
+        registry,
+        sessions,
+        ai,
+        shelter_repository,
+        [(0.3, False), (0.6, False)],
+    )
+
+    assert run.deliveries[0].devices_notified == 0
+    assert run.deliveries[0].latency_ms == 600.0
+    assert run.latencies_ms == []
+    assert run.p95_latency_ms == 0.0
 
 
 def test_reached_recipient_gets_alert_dispatched_then_push_accepted(

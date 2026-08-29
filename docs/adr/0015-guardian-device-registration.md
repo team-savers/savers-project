@@ -59,6 +59,17 @@
   **그래서 결과 절의 "최초 구독 UI 가 없으므로 실사용에서는 보호자가 대리등록 자리에
   함께 있어야 2차 발송이 닿는다" 문단은 기록 시점 서술로 남아 있고, 지금 사실과 다르다** -
   그 자리의 정정은 아래 후속 조치 표의 해당 행에 있다
+- **개정**: 2026-08-29, 승인 뒤에 후속 조치 표의 두 행을 갱신하고 한 행을 신설했다.
+  [이슈 218](https://github.com/team-savers/savers-project/issues/218) 의 PM 확정 두 건을 반영한 것으로,
+  보호자 1차 통지의 제목과 본문 문안, 그리고 보호자 발송 계상 필드의 이름이다.
+  상태 칸만 옮기는 것이면 [ADR-0005](0005-webpush-primary-channel.md) 의
+  2026-08-26 범위 명확화대로 개정으로 남길 일이 아니지만,
+  갱신한 두 행은 상태 칸만으로 결정 내용을 적을 수 없어 행 서술까지 고쳤고
+  문안 행은 없던 행을 새로 만든 것이므로, 바로 위 2026-08-28 개정이 세운 기준을 그대로 따른다.
+  원문을 지우지 않고 날짜를 명시해 덧붙이는 형태이며, 결정 절과 결과 절은 손대지 않았다.
+  결정 2번은 보호자 통지가 고정 문구라는 것과 슬롯 셋까지만 정하고 실제 문안을 두지 않았는데,
+  그 문안은 사전 승인 문안이라 QA/보안 소관이므로
+  ([ADR-0006](0006-generation-contract.md) 결과 절) ADR 이 아니라 이슈에 두고 표가 가리킨다
 - **날짜**: 2026-08-24
 - **결정자**: 신호정 (Tech Lead) 작성 / 김도혁 (Backend) 확인 완료, 김소원 (AI/RAG/프론트엔드) 확인 대기
 - **관련 문서**: [ADR-0005](0005-webpush-primary-channel.md) (1차 채널),
@@ -398,8 +409,9 @@ M4 가 폐루프 신뢰성이 아니라 **보호자 가입률 지표**가 되기
 | **`ward` 버킷에는 같은 구조가 그대로 남는다.** `POST /v1/devices` 의 `ward` 등록도 덧붙이고, 지울 값을 아는 쪽이 그 브라우저뿐인 것도 같다. 교체를 보호자 갱신 경로 하나로 좁힌 결과이며(위 구현 행), 1차 발송이 죽은 토큰으로 나가는 형태로 나타난다. 본선 시연은 피보호자 기기 1대로 서므로 범위 밖에 둔다 | Tech Lead | 본선 후 |
 | **계약에 `guardian_informed` 신설**, 시스템 이벤트 5종 표기를 6종으로, 판별 유니온과 `GuardianEvidenceType` 17종 표기를 18종으로. `GuardianStatus.lastNotice`(`first`, `followup`, `none`) 신설, `pushEnabled` 설명을 2차 도달 설정용으로 명확화 | Tech Lead | 완료, 이 PR |
 | **1차 dispatch 가 `guardian` 버킷도 읽도록 확장.** 보호자 문안은 `ward` 문안과 다른 본문이고 생성 계약을 타지 않는다(결정 2번). `backend_core/pipeline.py` 268행 루프 | Backend | 대기 |
-| **`devices_notified` 의 역할 무구분을 푼다.** 이 값이 도달률 계상(`pipeline.py` 113행)과 M1 속도 표본 필터(120행) 두 곳의 기준인데 역할을 가리지 않는다. 1차가 `guardian` 까지 보내면 **`ward` 전 기기가 실패해도 `guardian` 한 대가 접수되면 그 세션이 "도달"로 계상되고 M1 표본에도 든다.** 최소안은 두 곳의 기준을 `ward` 로 좁히는 것이고, 필드 자체를 역할별로 쪼갤지는 Backend 판단 | Backend | 대기, **이 개정의 선행** |
-| **1차 `guardian` 발송이 없는 경우의 계상.** `skipped_no_device`(`pipeline.py` 258행 `if not ward_devices`, 적재는 263행)는 `ward` 가 빌 때만 잡으므로 그대로 쓸 수 없다 - 결정 2번대로 그것은 실패가 아니고, 세는 단위도 주민이 아니라 발송 건이다 | Backend | 대기, **이 개정의 선행** |
+| **보호자 1차 통지의 제목과 본문 문안 확정.** 결정 2번은 고정 문구라는 것과 슬롯 셋(지역, 특보 종류, 피보호자 이름)까지만 정했고 실제 문안이 없었다. 사전 승인 문안이므로 QA/보안이 확정한다([ADR-0006](0006-generation-contract.md) 결과 절, 선례는 `backend_core/fallback.py` 의 `OFFICIAL_FALLBACK_BODY`). 한국어 전용(`Guardian` 스키마에 로케일 필드가 없다), 단계 중립("대피 안내"가 아니라 "안내 메시지" - 단계 1 상황 주시에서는 대피 안내가 아니다), 30분이라는 숫자와 후속 발송 약속을 넣지 않는다(시연 플래그가 30분을 30초로 줄이고, 피보호자가 제때 응답한 성공 경로에서는 2차 발송이 없다). 문안 원문은 [이슈 218](https://github.com/team-savers/savers-project/issues/218) 결정 1번 | PM | 완료 (2026-08-29) |
+| **`devices_notified` 의 역할 무구분을 푼다.** 이 값이 도달률 계상(`pipeline.py` 113행)과 M1 속도 표본 필터(120행) 두 곳의 기준인데 역할을 가리지 않는다. 1차가 `guardian` 까지 보내면 **`ward` 전 기기가 실패해도 `guardian` 한 대가 접수되면 그 세션이 "도달"로 계상되고 M1 표본에도 든다.** 최소안은 두 곳의 기준을 `ward` 로 좁히는 것이고, 필드 자체를 역할별로 쪼갤지는 Backend 판단. **2026-08-29 PM 판단 - 필드를 쪼개지 않고 보호자 발송을 `Delivery` 에 넣지 않는다.** 도달률 계상과 M1 표본 필터 두 곳의 기준은 `ward` 전용으로 남고, 보호자 쪽은 아래 행의 별도 `guardian_` 계상 넷으로 센다([이슈 218](https://github.com/team-savers/savers-project/issues/218) 결정 2번, 구현 제약 1번) | Backend | 판단 완료 (2026-08-29, PM), 구현 대기 |
+| **1차 `guardian` 발송이 없는 경우의 계상.** `skipped_no_device`(`pipeline.py` 258행 `if not ward_devices`, 적재는 263행)는 `ward` 가 빌 때만 잡으므로 그대로 쓸 수 없다 - 결정 2번대로 그것은 실패가 아니고, 세는 단위도 주민이 아니라 발송 건이다. **2026-08-29 PM 확정** - `guardian_dispatched`, `guardian_accepted`, `guardian_skipped_no_device`, `guardian_send_errors` 넷으로 세고, 전건 거부는 앞의 두 값의 차로 읽어 필드를 두지 않는다. 미등록은 실패가 아니므로 주민 명단이 아니라 세션 수(`int`)다. 이름은 피보호자 쪽 넷(`dispatched`, `accepted`, `send_errors`, `skipped_no_device`)에 `guardian_` 접두어를 붙인 대칭이며 새 어휘를 만들지 않는다([이슈 218](https://github.com/team-savers/savers-project/issues/218) 결정 2번). **넷이 함께 있는 자리는 `AlertRunSummary`(`api/routes/internal.py` 77 ~ 80행)이고 `AlertRun` 이 아니다** - `dispatched` 는 `AlertRun` 의 필드가 아니라 응답에서 `len(run.deliveries)` 로 만들어진다(같은 파일 113행). 보호자 발송은 구현 제약 1번대로 `Delivery` 를 남기지 않으므로 같은 유도가 성립하지 않는다. `guardian_dispatched` 는 `AlertRun` 의 실제 필드여야 한다. `/internal/*` 응답이라 계약 수정과 새 ADR 이 필요하지 않고, 1차 보호자 통지가 M1 끝점도 M4 대상도 아니라 제출 지표에도 걸리지 않는다 | Backend | 결정 완료 (2026-08-29, PM), 구현 대기 |
 | [ADR-0013](0013-m1-measures-push-acceptance.md) 후속 조치의 `Delivery.latency_ms` 계산 시점 이동. 그 행이 "루프가 읽는 버킷이 늘면 그 한정은 사라진다"로 이미 조건을 걸어 두었고([PR 153](https://github.com/team-savers/savers-project/pull/153)), 이 개정이 그 조건을 성립시킨다. **본문 수정 없이 우선순위만 8/28 폐루프 조립 선행으로 올린다** - 시드에서 `guardian` 버킷을 가진 유일한 대상이 `p001`, 곧 킬러 데모 페르소나다 | Backend | 대기, 우선순위 상향 |
 | **`guardian_informed` 는 `GuardianEvidenceType` 에는 들어가되 3질문의 인용 범위에는 넣지 않는다.** 처음에는 매핑표에 넣는 쪽으로 정했으나(Tech Lead 판단, 2026-08-27 오전) 넣을 행이 없었다 - `evacuation_progress` 는 `EvacuationProgressEvidenceType` 이 사용자 행동 12종으로 닫아 두었고, `help_request` 와 `arrival_status` 는 특정 사용자 행동으로 제한된다. **AI/RAG 확인(2026-08-27)으로 그 자리 없음이 우연이 아니라는 것이 확인됐다** - 이번 3질문은 셋 다 **피보호자의 행동과 상태**를 확인하는 질문인데 1차 보호자 통지는 서비스가 보호자에게 한 행위라 축이 다르다. 그래서 `alert_dispatched` 와 같이 "어느 질문의 근거도 아닌 이벤트" 목록(다섯에서 여섯)에 둔다. **보호자 통지 자체를 확인하는 질문이 추가되면 그 질문의 근거가 될 자리이며**, 그 질문을 여는 것은 이번 구간 범위 밖이다 | AI/RAG/프론트엔드 | 확인 완료 (2026-08-27) |
 | 결정자 확인 후 상태를 승인으로 변경 | Tech Lead | 완료, 이 PR. 김소원 확인은 [PR 184](https://github.com/team-savers/savers-project/pull/184) 리뷰에 있다 |
