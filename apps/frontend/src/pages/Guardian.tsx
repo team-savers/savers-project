@@ -32,7 +32,12 @@ import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import './GuardianPushControl.css'
 import rain from '../assets/rain.webp'
-import type { GuardianStatus, SafetyStatus } from '../api/types'
+import type {
+  GuardianAnswer,
+  GuardianQuestionId,
+  GuardianStatus,
+  SafetyStatus,
+} from '../api/types'
 import { api, BackendApiError } from '../api/client'
 import { requestPushPermissionForGuardian } from '../lib/push'
 import {
@@ -42,7 +47,7 @@ import {
   writeGuardianFcmToken,
 } from '../lib/guardianPushStorage'
 import { C, ICON, MOBILE_WIDTH, SHADOW_CARD, gutter, radius, touchTarget } from '../lib/tokens'
-import { GUARDIAN_MOCK, PERSONA_IMAGE, type GuardianQuestionId, type QaTurn } from '../mocks/guardianStatus'
+import { GUARDIAN_MOCK, PERSONA_IMAGE, type QaTurn } from '../mocks/guardianStatus'
 
 // ---------------------------------------------------------------------------
 // GUARDIAN COLOR PALETTE — this screen's own brand hue set (the design
@@ -139,6 +144,7 @@ function guardianStatusFacts(status: GuardianStatus): string[] {
 // evidence timestamp) as a KST 24-hour "HH:MM" string, display-only —
 // mirrors the "KST 기준 분 단위 24시간제" rule applied to Q&A answers too.
 function formatKstMinute(iso: string): string {
+  if (Number.isNaN(Date.parse(iso))) return '시간 확인 불가'
   const parts = new Intl.DateTimeFormat('ko-KR', {
     timeZone: 'Asia/Seoul',
     hour: '2-digit',
@@ -291,6 +297,7 @@ export function Guardian({ token }: GuardianProps) {
       )}
       {screen === 'ai' && (
         <AiScreen
+          token={token}
           personName={token === undefined ? protectedPerson.name : status.wardName}
           onBack={() => setScreen('status')}
         />
@@ -867,12 +874,73 @@ function FamilyCard({
 }
 
 // ---------------------------------------------------------------------------
-// Screen 3 — 안전 확인 AI (mock Q&A)
+// Screen 3 — 안전 확인 AI Q&A
 // ---------------------------------------------------------------------------
 
-function AiScreen({ personName, onBack }: { personName: string; onBack: () => void }) {
+type QaDisplayTurn =
+  | { kind: 'answer'; questionId: GuardianQuestionId; question: string; answer: string }
+  | { kind: 'no_evidence'; questionId: GuardianQuestionId; question: string }
+  | { kind: 'unsupported'; questionId: GuardianQuestionId; question: string }
+  | { kind: 'timeout'; questionId: GuardianQuestionId; question: string }
+  | { kind: 'error'; questionId: GuardianQuestionId; question: string }
+  | { kind: 'malformed'; questionId: GuardianQuestionId; question: string }
+
+const GUARDIAN_ASK_DEADLINE_MS = 10_000
+
+class GuardianAskTimeoutError extends Error {}
+
+function withGuardianAskDeadline<T>(request: Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const deadline = window.setTimeout(() => {
+      reject(new GuardianAskTimeoutError('Guardian Q&A request timed out'))
+    }, GUARDIAN_ASK_DEADLINE_MS)
+
+    request.then(
+      (result) => {
+        window.clearTimeout(deadline)
+        resolve(result)
+      },
+      (error: unknown) => {
+        window.clearTimeout(deadline)
+        reject(error)
+      },
+    )
+  })
+}
+
+function classifyGuardianAnswer(
+  result: GuardianAnswer,
+): 'delivered' | 'no_evidence' | 'malformed' {
+  if (
+    result.answer !== null &&
+    result.answer.trim() !== '' &&
+    result.sources.length > 0 &&
+    result.refusalReason === null
+  ) {
+    return 'delivered'
+  }
+  if (
+    result.answer === null &&
+    result.sources.length === 0 &&
+    result.refusalReason === 'no_evidence'
+  ) {
+    return 'no_evidence'
+  }
+  return 'malformed'
+}
+
+function AiScreen({
+  token,
+  personName,
+  onBack,
+}: {
+  token?: string
+  personName: string
+  onBack: () => void
+}) {
   const { recommendedQuestions } = GUARDIAN_MOCK
-  const [turns, setTurns] = useState<QaTurn[]>([])
+  const [turns, setTurns] = useState<(QaTurn | QaDisplayTurn)[]>([])
+  const [isAsking, setIsAsking] = useState(false)
   // Which recommended-question button is currently pressed, for the
   // momentary orange-border press feedback below — NOT a persisted
   // "selected" state (it always clears on release/leave/cancel). Keyed by
@@ -885,14 +953,56 @@ function AiScreen({ personName, onBack }: { personName: string; onBack: () => vo
   // not something the render output depends on.
   const turnsEndRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (turns.length === 0) return
+    if (turns.length === 0 && !isAsking) return
     turnsEndRef.current?.scrollIntoView({ block: 'end' })
-  }, [turns])
+  }, [turns, isAsking])
 
   // Each recommended question already carries its own answer (QaTurn) —
   // just append it. No string-key lookup that could silently miss.
-  function askRecommended(turn: QaTurn): void {
-    setTurns((prev) => [...prev, turn])
+  async function askRecommended(turn: QaTurn): Promise<void> {
+    if (token === undefined) {
+      setTurns((prev) => [...prev, turn])
+      return
+    }
+    if (isAsking) return
+    setIsAsking(true)
+    try {
+      const result = await withGuardianAskDeadline(
+        api.postGuardianAsk(token, {
+          questionId: turn.questionId,
+          locale: 'ko',
+        }),
+      )
+      const outcome = classifyGuardianAnswer(result)
+      if (outcome === 'delivered') {
+        setTurns((prev) => [
+          ...prev,
+          {
+            kind: 'answer',
+            questionId: turn.questionId,
+            question: turn.question,
+            answer: result.answer as string,
+          },
+        ])
+      } else {
+        setTurns((prev) => [
+          ...prev,
+          { kind: outcome, questionId: turn.questionId, question: turn.question },
+        ])
+      }
+    } catch (error) {
+      const kind = error instanceof GuardianAskTimeoutError
+        ? 'timeout'
+        : error instanceof BackendApiError && error.status === 422
+          ? 'unsupported'
+          : 'error'
+      setTurns((prev) => [
+        ...prev,
+        { kind, questionId: turn.questionId, question: turn.question },
+      ])
+    } finally {
+      setIsAsking(false)
+    }
   }
 
   return (
@@ -932,7 +1042,8 @@ function AiScreen({ personName, onBack }: { personName: string; onBack: () => vo
               <button
                 key={turn.questionId}
                 type="button"
-                onClick={() => askRecommended(turn)}
+                onClick={() => void askRecommended(turn)}
+                disabled={isAsking}
                 // 눌린 동안만 border를 orange로 — 배경/모양은 그대로 두고
                 // border-color만 바꾸는 짧은 pressed 피드백. pointer 계열
                 // 이벤트라 마우스·터치 모두 같은 핸들러로 처리되고, up/leave/
@@ -953,7 +1064,8 @@ function AiScreen({ personName, onBack }: { personName: string; onBack: () => vo
                   fontFamily: 'inherit',
                   fontSize: '15.5px',
                   fontWeight: 600,
-                  cursor: 'pointer',
+                  cursor: isAsking ? 'default' : 'pointer',
+                  opacity: isAsking ? 0.6 : 1,
                   transition: 'border-color 150ms ease',
                   // 모바일 브라우저 기본 tap-highlight(하늘색 사각 flash)를
                   // 이 버튼 범위에서만 끈다 — 전역 스타일은 건드리지 않는다.
@@ -1013,17 +1125,83 @@ function AiScreen({ personName, onBack }: { personName: string; onBack: () => vo
                   padding: '12px 14px',
                 }}
               >
-                <p style={{ margin: 0, fontSize: '15.5px', lineHeight: 1.55, color: GC.text, fontWeight: 700 }}>{turn.answer}</p>
-                {turn.note !== undefined && (
-                  <p style={{ margin: '6px 0 0', fontSize: '14px', lineHeight: 1.5, color: GC.textMuted }}>{turn.note}</p>
+                {!('kind' in turn) && (
+                  <>
+                    <p style={{ margin: 0, fontSize: '15.5px', lineHeight: 1.55, color: GC.text, fontWeight: 700 }}>{turn.answer}</p>
+                    {turn.note !== undefined && (
+                      <p style={{ margin: '6px 0 0', fontSize: '14px', lineHeight: 1.5, color: GC.textMuted }}>{turn.note}</p>
+                    )}
+                  </>
+                )}
+                {'kind' in turn && turn.kind === 'answer' && (
+                  <p style={{ margin: 0, fontSize: '15.5px', lineHeight: 1.55, color: GC.text, fontWeight: 700 }}>{turn.answer}</p>
+                )}
+                {'kind' in turn && turn.kind === 'no_evidence' && (
+                  <p style={{ margin: 0, fontSize: '15.5px', lineHeight: 1.55, color: GC.text, fontWeight: 700 }}>
+                    확인할 수 없습니다
+                  </p>
+                )}
+                {'kind' in turn && turn.kind === 'unsupported' && (
+                  <p style={{ margin: 0, color: GC.textMuted }}>지원하지 않는 질문입니다.</p>
+                )}
+                {'kind' in turn && turn.kind === 'timeout' && (
+                  <p style={{ margin: 0, color: GC.textMuted }}>응답이 늦어지고 있습니다. 잠시 뒤 다시 시도해 주세요.</p>
+                )}
+                {'kind' in turn && turn.kind === 'error' && (
+                  <p style={{ margin: 0, color: GC.textMuted }}>답변을 가져오지 못했습니다. 잠시 뒤 다시 시도해 주세요.</p>
+                )}
+                {'kind' in turn && turn.kind === 'malformed' && (
+                  <p style={{ margin: 0, color: GC.textMuted }}>답변 형식을 확인할 수 없습니다. 잠시 뒤 다시 시도해 주세요.</p>
                 )}
               </div>
             </div>
           ))}
+          {isAsking && (
+            <div
+              role="status"
+              style={{
+                alignSelf: 'flex-start',
+                background: GC.surface,
+                border: `1px solid ${GC.line}`,
+                borderRadius: '4px 16px 16px 16px',
+                padding: '10px 14px',
+                color: GC.textMuted,
+                fontSize: '14px',
+              }}
+            >
+              답변을 확인하고 있어요.
+            </div>
+          )}
           {/* 스크롤 앵커 — 새 turn이 추가될 때마다 useEffect가 이 sentinel로
               scrollIntoView해 최신 답변이 보이게 한다. 화면에는 아무것도
               그리지 않는다(높이 0). */}
           <div ref={turnsEndRef} />
+        </div>
+
+        <div
+          style={{
+            padding: `10px ${gutter}px calc(10px + env(safe-area-inset-bottom, 0px))`,
+            borderTop: `1px solid ${GC.line}`,
+            background: GC.surface,
+          }}
+        >
+          <a
+            href="tel:119"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '100%',
+              minHeight: `${touchTarget.minimum}px`,
+              borderRadius: `${radius.button}px`,
+              background: GC.danger,
+              color: GC.surface,
+              fontWeight: 800,
+              textDecoration: 'none',
+            }}
+          >
+            119 신고하기
+          </a>
         </div>
       </main>
     </>
