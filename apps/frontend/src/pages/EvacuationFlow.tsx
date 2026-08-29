@@ -192,16 +192,19 @@ export function ProductionEvacuationFlow({ token, session, suppressBody }: Produ
   const actions = useEvacuationActionFlow(token)
   const shelterState = useShelterSearch(token, session.profile)
   const stageCopy = STAGE_COPY[lang][session.stage]
-  const stairsState = session.profile.fromRegistration === true
-    ? 'unknown'
-    : session.profile.stairsOk
-      ? 'ok'
-      : 'blocked'
-  const nextActionKey = stairsState === 'ok'
-    ? 'shelter.nextAction.stairsOk'
-    : stairsState === 'blocked'
-      ? 'shelter.nextAction.stairsBlocked'
-      : 'shelter.nextAction.stairsUnknown'
+  // Deliberately NOT branching on session.profile.stairsOk /
+  // fromRegistration here. `fromRegistration` is frontend-only (see
+  // api/types.ts) and never populated by the real HTTP adapter, so in
+  // production it is always undefined — it cannot signal anything. And the
+  // OpenAPI contract carries no field that distinguishes a deliberately
+  // confirmed `stairsOk` from an unconfirmed neutral default (Register.tsx's
+  // NEUTRAL_STAIRS_OK path can ship `stairsOk: true` without the resident
+  // ever being asked). With no contract-level way to tell the two apart, a
+  // "go upstairs" instruction conditioned on stairsOk===true would risk
+  // treating an unconfirmed default as a confirmed safety fact. So the
+  // shelter-unavailable fallback below does not show a stairs-conditioned
+  // instruction at all — it offers the same 도움이 필요해요 action the
+  // choice screen offers, via requestHelp() below.
   const speechText = useMemo(() => {
     if (currentStep === 'alert') return `${session.message.title}. ${suppressBody ? copy.suppressed : session.message.body}`
     if (currentStep === 'choice') return `${copy.choiceTitle} ${copy.choiceBody}`
@@ -228,14 +231,18 @@ export function ProductionEvacuationFlow({ token, session, suppressBody }: Produ
     actions.clearFailure()
     setCurrentStep(previousStep(currentStep, true))
   }
+  // Shared by the choice screen's "도움이 필요해요" card AND the
+  // shelter-unavailable fallback button below — same event, same
+  // idempotency/retry rules, one call site instead of two copies.
+  const requestHelp = () => {
+    setSelectedAction('help')
+    actions.run(['help_request_selected'], () => { setCurrentStep('help') }, () => {
+      actions.clearFailure(); setCurrentStep('help')
+    })
+  }
   const choose = (action: Exclude<Action, null>) => {
+    if (action === 'help') { requestHelp(); return }
     setSelectedAction(action)
-    if (action === 'help') {
-      actions.run(['help_request_selected'], () => { setCurrentStep('help') }, () => {
-        actions.clearFailure(); setCurrentStep('help')
-      })
-      return
-    }
     actions.run(['direct_evacuation_selected', 'evacuation_guidance_viewed'], () => {
       setCurrentStep('shelter')
     }, () => { actions.clearFailure(); setCurrentStep('shelter') })
@@ -269,8 +276,11 @@ export function ProductionEvacuationFlow({ token, session, suppressBody }: Produ
       onNext={() => actions.run(['route_guidance_started'], () => setCurrentStep('route'))}
       stage={session.stage} stageLabel={stageCopy.label} stageAction={stageCopy.action}
       shelterState={shelterState} pending={actions.pending}
-      nextAction={t(nextActionKey, lang)}
-      failure={actions.error === null ? null : <ActionFailureView copy={copy} retry={actions.failure?.retry} />}
+      onRequestHelp={requestHelp}
+      failure={actions.error === null ? null : <ActionFailureView
+        copy={copy} retry={actions.failure?.retry} continueWithoutRecord={actions.failure?.continueWithoutRecord}
+        continueLabel={selectedAction === 'help' ? copy.continuingHelp : copy.continuingShelter}
+      />}
     />}
     {currentStep === 'route' && <RouteGuidanceStep
       onArrival={() => actions.run(['arrival_confirmed_by_user'], () => setCurrentStep('arrival'))}
@@ -626,7 +636,7 @@ function ShelterRecommendationStep({
   shelterState,
   pending = false,
   failure,
-  nextAction,
+  onRequestHelp,
   demoShelter,
   demoAlert,
 }: {
@@ -637,14 +647,19 @@ function ShelterRecommendationStep({
   shelterState?: { loading: boolean; error: string | null; result: ShelterList | null }
   pending?: boolean
   failure?: ReactNode
-  nextAction?: string
+  // Called when the resident taps the help action offered on the
+  // shelter-unavailable card below. Reuses ProductionEvacuationFlow's
+  // requestHelp() — same help_request_selected event, same retry/
+  // continue-without-record rules the choice screen's help card uses.
+  onRequestHelp?: () => void
   demoShelter?: EvacuationDemoData['shelter']
   demoAlert?: EvacuationDemoData['alert']
 }) {
   const production = shelterState !== undefined
   const shelter = shelterState?.result?.items[0] ?? null
   const excludedCount = shelterState?.result?.excluded.reduce((sum, item) => sum + item.count, 0) ?? 0
-  const vi = useContext(FlowCopyContext) === FLOW_COPY.vi
+  const copy = useContext(FlowCopyContext)
+  const vi = copy === FLOW_COPY.vi
   const lang: Language = vi ? 'vi' : 'ko'
   // Reuses ShelterGuide's already-approved copy (shelter.degradedNotice /
   // shelter.allExcluded.* / shelter.excludedPrefix / shelter.cacheAsOf) —
@@ -683,7 +698,16 @@ function ShelterRecommendationStep({
         <div className="evac-shelter-body">
           {production && shelterState.loading && <article className="evac-card evac-shelter"><h2>{t('shelter.searching', lang)}</h2></article>}
           {production && shelterState.error !== null && <article className="evac-card evac-shelter" role="alert"><h2>{t('shelter.fetchFailedPrefix', lang)}</h2><p>{shelterState.error}</p></article>}
-          {production && !shelterState.loading && shelterState.error === null && shelter === null && <article className="evac-card evac-shelter"><h2>{t('shelter.emptyList', lang)}</h2>{nextAction !== undefined && <strong className="evac-distance">{nextAction}</strong>}</article>}
+          {/* No stairs-conditioned "go upstairs" / "계단 없이는 아직 안내
+              방법 없음" instruction here (see ProductionEvacuationFlow's
+              comment on stairsOk provenance) — the real next action this
+              screen can actually offer is the same 도움이 필요해요 flow the
+              choice screen offers, not a ChatDock-shaped "아래에서 더
+              질문하세요" that this UI does not have. */}
+          {production && !shelterState.loading && shelterState.error === null && shelter === null && <article className="evac-card evac-shelter">
+            <h2>{t('shelter.emptyList', lang)}</h2>
+            {onRequestHelp !== undefined && <button className="evac-primary" type="button" disabled={pending} onClick={onRequestHelp}>{copy?.help ?? '도움이 필요해요'}</button>}
+          </article>}
           {(!production || shelter !== null) && <article className="evac-card evac-shelter">
             {production && shelter !== null ? <ProductionShelterCard shelter={shelter} /> : <>
             <h2>{demoShelter?.name}</h2>
