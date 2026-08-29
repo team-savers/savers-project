@@ -64,6 +64,17 @@ services:
       # 쉼표로 구분하고, 비워 두면 동일 출처만 허용합니다 — 로컬 개발은 vite 프록시를
       # 쓰므로 비어 있는 것이 정상이고, 배포에서만 채웁니다.
       SAVERS_CORS_ALLOW_ORIGINS: ${SAVERS_CORS_ALLOW_ORIGINS:-}
+      # 발송 채널 명시 선택(ADR-0023). 비우면 recording — 자격증명이 있어도 자동 승격하지
+      # 않습니다. fcm으로 명시했는데 아래 파일이 없으면 기동이 즉시 실패합니다(설계).
+      SAVERS_PUSH_CHANNEL: ${SAVERS_PUSH_CHANNEL:-recording}
+      # 컨테이너 내부 고정 경로. infra/secrets/ 에 실제 파일을 두면(호스트 쪽) 아래
+      # volumes 마운트로 이 경로에 나타납니다 — .env에는 이 컨테이너 경로를 그대로 적습니다.
+      SAVERS_FCM_SERVICE_ACCOUNT_PATH: ${SAVERS_FCM_SERVICE_ACCOUNT_PATH:-}
+    volumes:
+      # 항상 마운트합니다(디렉터리가 비어 있어도 무해 — recording 모드의 기본 상태입니다).
+      # fcm으로 전환할 때는 이 디렉터리에 자격증명 파일을 넣고 위 경로 값을 그 파일명까지
+      # 맞추면 됩니다. infra/secrets/ 는 .gitignore로 막혀 있어 저장소에 올라가지 않습니다.
+      - ../infra/secrets:/run/secrets/fcm:ro
     ports:
       # ⚠️ 127.0.0.1 바인딩입니다. caddy가 compose 네트워크로 `backend:8000`에 직접
       #    닿으므로 외부 공개가 필요 없고, 0.0.0.0으로 열면 HTTPS 앞단을 세워 둔 채

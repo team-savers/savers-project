@@ -164,6 +164,13 @@ credentials/
 /e2e/playwright-report/
 /e2e/.pytest_cache/
 
+# FCM 서비스 계정 파일이 실제로 놓이는 자리(ADR-0023) — docker-compose가 이 디렉터리를
+# 통째로 마운트하므로, 실수로 다른 파일을 넣어도 커밋되지 않게 막습니다.
+# ⚠️ 디렉터리 자체(`/infra/secrets/`)가 아니라 내용물(`/infra/secrets/*`)을 무시해야
+#    아래 README 예외가 먹습니다 — git은 무시된 디렉터리 안의 예외를 복원하지 못합니다.
+/infra/secrets/*
+!/infra/secrets/README.md
+
 # --- Model Artifacts & Training Logs ---
 models/
 weights/
