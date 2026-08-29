@@ -1,8 +1,9 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import type { Guardian, Language, SessionResponse, Shelter, ShelterCaution, ShelterExclusion, ShelterList } from '../api/types'
+import type { Guardian, Language, SessionResponse, Shelter, ShelterBasis, ShelterCaution, ShelterExclusion, ShelterList } from '../api/types'
 import { useEvacuationActionFlow } from '../hooks/useEvacuationActionFlow'
 import { useShelterSearch } from '../hooks/useShelterSearch'
-import { applyDocumentLanguage, countUnit, excludedReasonLabel, t } from '../lib/i18n'
+import { applyDocumentLanguage, bearingLabel, countUnit, excludedReasonLabel, formatDistance, t } from '../lib/i18n'
+import type { StringKey } from '../lib/i18n'
 import './EvacuationFlow.css'
 
 // v0.9 (ADR-0016): 계약이 정의한 문구가 아니라 화면이 붙이는 라벨이다
@@ -235,6 +236,11 @@ export function ProductionEvacuationFlow({ token, session, suppressBody }: Produ
   // shelter-unavailable fallback button below — same event, same
   // idempotency/retry rules, one call site instead of two copies.
   const requestHelp = () => {
+    // Sync guard ahead of setSelectedAction — not just inside run(). Without
+    // this, a rapid second tap can overwrite selectedAction with a value
+    // whose run() call is then dropped by pendingRef, leaving the failure
+    // copy (continueLabel) pointing at an action that never actually ran.
+    if (actions.pendingRef.current) return
     setSelectedAction('help')
     actions.run(['help_request_selected'], () => { setCurrentStep('help') }, () => {
       actions.clearFailure(); setCurrentStep('help')
@@ -242,6 +248,7 @@ export function ProductionEvacuationFlow({ token, session, suppressBody }: Produ
   }
   const choose = (action: Exclude<Action, null>) => {
     if (action === 'help') { requestHelp(); return }
+    if (actions.pendingRef.current) return
     setSelectedAction(action)
     actions.run(['direct_evacuation_selected', 'evacuation_guidance_viewed'], () => {
       setCurrentStep('shelter')
@@ -277,6 +284,7 @@ export function ProductionEvacuationFlow({ token, session, suppressBody }: Produ
       stage={session.stage} stageLabel={stageCopy.label} stageAction={stageCopy.action}
       shelterState={shelterState} pending={actions.pending}
       onRequestHelp={requestHelp}
+      dongName={session.profile.dongName}
       failure={actions.error === null ? null : <ActionFailureView
         copy={copy} retry={actions.failure?.retry} continueWithoutRecord={actions.failure?.continueWithoutRecord}
         continueLabel={selectedAction === 'help' ? copy.continuingHelp : copy.continuingShelter}
@@ -284,7 +292,7 @@ export function ProductionEvacuationFlow({ token, session, suppressBody }: Produ
     />}
     {currentStep === 'route' && <RouteGuidanceStep
       onArrival={() => actions.run(['arrival_confirmed_by_user'], () => setCurrentStep('arrival'))}
-      production shelter={shelterState.result?.items[0] ?? null} pending={actions.pending}
+      production shelter={shelterState.result?.items[0] ?? null} basis={shelterState.result?.basis} pending={actions.pending}
       failure={actions.error === null ? null : <ActionFailureView copy={copy} retry={actions.failure?.retry} />}
       copy={copy} stageLabel={stageCopy.label}
     />}
@@ -637,6 +645,7 @@ function ShelterRecommendationStep({
   pending = false,
   failure,
   onRequestHelp,
+  dongName,
   demoShelter,
   demoAlert,
 }: {
@@ -652,11 +661,16 @@ function ShelterRecommendationStep({
   // requestHelp() — same help_request_selected event, same retry/
   // continue-without-record rules the choice screen's help card uses.
   onRequestHelp?: () => void
+  // session.profile.dongName — only used to fill the {dong} slot of
+  // shelter.nearbyRegisteredHome when the list's basis is 'dongCode'.
+  dongName?: string
   demoShelter?: EvacuationDemoData['shelter']
   demoAlert?: EvacuationDemoData['alert']
 }) {
   const production = shelterState !== undefined
+  const loading = shelterState?.loading ?? false
   const shelter = shelterState?.result?.items[0] ?? null
+  const availability = shelterState?.result?.availability
   const excludedCount = shelterState?.result?.excluded.reduce((sum, item) => sum + item.count, 0) ?? 0
   const copy = useContext(FlowCopyContext)
   const vi = copy === FLOW_COPY.vi
@@ -665,22 +679,40 @@ function ShelterRecommendationStep({
   // shelter.allExcluded.* / shelter.excludedPrefix / shelter.cacheAsOf) —
   // no new safety-adjacent wording is authored here. See components/
   // ShelterGuide.tsx for the source of each key and its safety meaning.
-  const productionNote = (() => {
+  //
+  // baseNote carries the availability-specific sentence (degraded / all-
+  // excluded reason / partial-exclusion prefix). When shelter === null the
+  // empty-state heading below already renders this same sentence, so the
+  // note paragraph must not repeat it — only the separate cache-freshness
+  // disclosure (cacheNote) belongs there in that case.
+  const baseNote = (() => {
     const result = shelterState?.result
     if (result == null) return ''
-    const note = result.availability === 'upstream_unavailable'
-      ? t('shelter.degradedNotice', lang)
-      : result.availability === 'all_excluded'
-        ? (excludedCount > 0
-            ? t('shelter.allExcluded.why', lang, { count: excludedCount, reasons: summarizeShelterExclusions(result.excluded, lang) })
-            : t('shelter.allExcluded.whyNone', lang))
-        : excludedCount > 0
-          ? `${t('shelter.excludedPrefix', lang, { count: excludedCount })} (${summarizeShelterExclusions(result.excluded, lang)})`
-          : ''
-    if (result.dataAsOf === null) return note
-    const cacheNote = t('shelter.cacheAsOf', lang, { when: new Date(result.dataAsOf).toLocaleString(vi ? 'vi-VN' : 'ko-KR') })
-    return note === '' ? cacheNote : `${note} · ${cacheNote}`
+    if (result.availability === 'upstream_unavailable') return t('shelter.degradedNotice', lang)
+    if (result.availability === 'all_excluded') {
+      return excludedCount > 0
+        ? t('shelter.allExcluded.why', lang, { count: excludedCount, reasons: summarizeShelterExclusions(result.excluded, lang) })
+        : t('shelter.allExcluded.whyNone', lang)
+    }
+    return excludedCount > 0
+      ? `${t('shelter.excludedPrefix', lang, { count: excludedCount })} (${summarizeShelterExclusions(result.excluded, lang)})`
+      : ''
   })()
+  const cacheNote = (() => {
+    const result = shelterState?.result
+    if (result?.dataAsOf == null) return ''
+    return t('shelter.cacheAsOf', lang, { when: new Date(result.dataAsOf).toLocaleString(vi ? 'vi-VN' : 'ko-KR') })
+  })()
+  const productionNote = shelter === null
+    ? cacheNote
+    : (baseNote === '' ? cacheNote : (cacheNote === '' ? baseNote : `${baseNote} · ${cacheNote}`))
+  // Empty-state heading: distinguishes "upstream couldn't build a list"
+  // (upstream_unavailable) and "every candidate was excluded" (all_excluded,
+  // reason included via baseNote) from an actual empty result — the three
+  // must not collapse into one unconditional "no shelters nearby" line.
+  const emptyHeading = availability === 'upstream_unavailable' || availability === 'all_excluded'
+    ? baseNote
+    : t('shelter.emptyList', lang)
   return (
     <section className="evac-step evac-step-distributed">
       <div className="evac-content-group">
@@ -696,20 +728,29 @@ function ShelterRecommendationStep({
         </div>
 
         <div className="evac-shelter-body">
-          {production && shelterState.loading && <article className="evac-card evac-shelter"><h2>{t('shelter.searching', lang)}</h2></article>}
-          {production && shelterState.error !== null && <article className="evac-card evac-shelter" role="alert"><h2>{t('shelter.fetchFailedPrefix', lang)}</h2><p>{shelterState.error}</p></article>}
+          {production && loading && <article className="evac-card evac-shelter"><h2>{t('shelter.searching', lang)}</h2></article>}
+          {/* Approved copy only — the raw Error.message that used to render
+              here is an internal/English string with no user-facing value,
+              and the fetch-failed heading alone already tells the resident
+              what happened. Same help_request_selected fallback as the
+              empty-list branch below, so a search failure never leaves the
+              resident with nothing to do but reload the page. */}
+          {production && !loading && shelterState.error !== null && <article className="evac-card evac-shelter" role="alert">
+            <h2>{t('shelter.fetchFailedPrefix', lang)}</h2>
+            {onRequestHelp !== undefined && <button className="evac-primary" type="button" disabled={pending} onClick={onRequestHelp}>{copy?.help ?? '도움이 필요해요'}</button>}
+          </article>}
           {/* No stairs-conditioned "go upstairs" / "계단 없이는 아직 안내
               방법 없음" instruction here (see ProductionEvacuationFlow's
               comment on stairsOk provenance) — the real next action this
               screen can actually offer is the same 도움이 필요해요 flow the
               choice screen offers, not a ChatDock-shaped "아래에서 더
               질문하세요" that this UI does not have. */}
-          {production && !shelterState.loading && shelterState.error === null && shelter === null && <article className="evac-card evac-shelter">
-            <h2>{t('shelter.emptyList', lang)}</h2>
+          {production && !loading && shelterState.error === null && shelter === null && <article className="evac-card evac-shelter">
+            <h2>{emptyHeading}</h2>
             {onRequestHelp !== undefined && <button className="evac-primary" type="button" disabled={pending} onClick={onRequestHelp}>{copy?.help ?? '도움이 필요해요'}</button>}
           </article>}
-          {(!production || shelter !== null) && <article className="evac-card evac-shelter">
-            {production && shelter !== null ? <ProductionShelterCard shelter={shelter} /> : <>
+          {(!production || (!loading && shelter !== null)) && <article className="evac-card evac-shelter">
+            {production && shelter !== null ? <ProductionShelterCard shelter={shelter} basis={shelterState?.result?.basis} dongName={dongName} /> : <>
             <h2>{demoShelter?.name}</h2>
             <p>
               {demoShelter?.address} · {demoShelter?.type}
@@ -775,32 +816,41 @@ function summarizeShelterExclusions(excluded: ShelterExclusion[], lang: Language
   return excluded.map((e) => `${excludedReasonLabel(e.reason, lang)} ${e.count}${countUnit(lang)}`).join(sep)
 }
 
-function formatShelterDistance(shelter: Shelter): string {
-  return shelter.distanceM >= 1000
-    ? `${(shelter.distanceM / 1000).toFixed(1)}km`
-    : `${Math.round(shelter.distanceM)}m`
+// Reuses lib/i18n's formatDistance (locale-aware grouping + rounding
+// policy) and bearingLabel (8-point compass, language-specific suffix)
+// instead of a second, diverging implementation — see i18n.ts for the
+// rounding/formatting rules these encode.
+const PRODUCTION_CAUTION_LABEL_KEY: Record<ShelterCaution, StringKey> = {
+  stairs: 'shelter.caution.stairs',
+  over_time: 'shelter.caution.overTime',
 }
 
-function formatShelterBearing(shelter: Shelter, vi: boolean): string | null {
-  return shelter.bearing == null ? null : ({
-    N: vi ? 'Bắc' : '북쪽', NE: vi ? 'Đông Bắc' : '북동쪽', E: vi ? 'Đông' : '동쪽',
-    SE: vi ? 'Đông Nam' : '남동쪽', S: vi ? 'Nam' : '남쪽', SW: vi ? 'Tây Nam' : '남서쪽',
-    W: vi ? 'Tây' : '서쪽', NW: vi ? 'Tây Bắc' : '북서쪽',
-  } as const)[shelter.bearing]
+// Defensive guard against a caution value this build hasn't been updated
+// for yet — mirrors ShelterGuide.tsx's isKnownCaution. An unrecognized
+// value is skipped, not guessed at; the rest of the shelter card still
+// renders normally.
+function isKnownShelterCaution(value: ShelterCaution): value is ShelterCaution {
+  return value === 'stairs' || value === 'over_time'
 }
 
-function ProductionShelterCard({ shelter }: { shelter: Shelter }) {
+function ProductionShelterCard({ shelter, basis, dongName }: { shelter: Shelter; basis?: ShelterBasis; dongName?: string }) {
   const vi = useContext(FlowCopyContext) === FLOW_COPY.vi
-  const distance = formatShelterDistance(shelter)
-  const bearing = formatShelterBearing(shelter, vi)
+  const lang: Language = vi ? 'vi' : 'ko'
+  const distance = formatDistance(shelter.distanceM, lang)
+  const bearing = bearingLabel(shelter.bearing ?? null, lang)
+  const knownCautions = shelter.cautions.filter(isKnownShelterCaution)
   return <>
     <h2>{shelter.name}</h2>
     <p>{shelter.address}{bearing === null ? '' : ` · ${bearing}`}</p>
+    {/* basis reflects what the server actually matched on
+        (openapi.yaml ShelterList.basis) — production only ever searches by
+        registered 행정동 (see useShelterSearch), so this is honest about
+        distance/direction being estimated from the registered dong, not
+        the resident's current position. */}
+    {basis === 'dongCode' && <p>{t('shelter.nearbyRegisteredHome', lang, { dong: dongName ?? '' })}</p>}
     {shelter.capacity != null && <div className="evac-tags"><span>{vi ? `Sức chứa ${shelter.capacity} người` : `수용 ${shelter.capacity}명`}</span></div>}
-    {shelter.cautions.length > 0 && <div className="evac-cautions">
-      {shelter.cautions.map((caution) => <span key={caution}>{vi
-        ? (caution === 'stairs' ? 'Chú ý cầu thang' : 'Chú ý thời gian di chuyển')
-        : CAUTION_LABEL[caution]}</span>)}
+    {knownCautions.length > 0 && <div className="evac-cautions">
+      {knownCautions.map((caution) => <span key={caution}>{t(PRODUCTION_CAUTION_LABEL_KEY[caution], lang)}</span>)}
     </div>}
     <strong className="evac-distance">{vi ? 'Khoảng cách ' : '거리 '}<b>{distance}</b></strong>
   </>
@@ -810,6 +860,7 @@ function RouteGuidanceStep({
   onArrival,
   production = false,
   shelter = null,
+  basis,
   pending = false,
   failure,
   copy,
@@ -819,6 +870,7 @@ function RouteGuidanceStep({
   onArrival: () => void
   production?: boolean
   shelter?: Shelter | null
+  basis?: ShelterBasis
   pending?: boolean
   failure?: ReactNode
   copy?: FlowCopy
@@ -826,8 +878,17 @@ function RouteGuidanceStep({
   demoRoute?: EvacuationDemoData['route']
 }) {
   const vi = copy === FLOW_COPY.vi
-  const bearing = shelter === null ? null : formatShelterBearing(shelter, vi)
-  const distance = shelter === null ? null : formatShelterDistance(shelter)
+  const lang: Language = vi ? 'vi' : 'ko'
+  const bearing = shelter === null ? null : bearingLabel(shelter.bearing ?? null, lang)
+  const distance = shelter === null ? null : formatDistance(shelter.distanceM, lang)
+  // Production searches by registered 행정동 only (useShelterSearch), so
+  // basis is honestly 'dongCode' there — the schematic's start point must
+  // say so instead of asserting "현재 위치" (openapi.yaml ShelterList.basis).
+  // Reuses the existing landing.registeredHomeLabel copy rather than
+  // authoring a new sentence.
+  const startLabel = production && basis === 'dongCode'
+    ? t('landing.registeredHomeLabel', lang)
+    : (vi ? 'Vị trí hiện tại' : '현재 위치')
   return (
     <section className="evac-step evac-step-distributed evac-route-step">
       <div className="evac-content-group">
@@ -852,7 +913,7 @@ function RouteGuidanceStep({
             <div className="safe-line line-c" />
             <div className="short-line" />
 
-            <span className="map-label start">{vi ? 'Vị trí hiện tại' : '현재 위치'}</span>
+            <span className="map-label start">{startLabel}</span>
             <span className="map-label end">{vi ? 'Nơi trú ẩn' : '추천 대피소'}</span>
 
             <span className="blocked b1">×</span>
