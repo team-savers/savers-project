@@ -589,6 +589,7 @@ export function Landing({ token }: Props) {
           <EvacuationActions
             token={token}
             guardian={profile.guardian}
+            lang={lang}
             shelterContent={(
               <ShelterGuide
                 profile={profile}

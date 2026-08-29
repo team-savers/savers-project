@@ -1,6 +1,7 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { api } from '../api/client'
-import type { Profile, UserActionEventType } from '../api/types'
+import type { Language, Profile, UserActionEventType } from '../api/types'
+import { t } from '../lib/i18n'
 import { C, SHADOW_CARD, touchTarget } from '../lib/tokens'
 
 type Stage = 'choice' | 'help' | 'guidance' | 'route' | 'arrived'
@@ -16,6 +17,7 @@ interface Props {
   token: string
   guardian: Profile['guardian']
   shelterContent: ReactNode
+  lang: Language
 }
 
 function createIdempotencyKey(type: UserActionEventType): string {
@@ -25,13 +27,14 @@ function createIdempotencyKey(type: UserActionEventType): string {
   return `evacuation.${type}.${suffix}`
 }
 
-export function EvacuationActions({ token, guardian, shelterContent }: Props) {
+export function EvacuationActions({ token, guardian, shelterContent, lang }: Props) {
   const [stage, setStage] = useState<Stage>('choice')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const attempts = useRef(new Map<EmptyPayloadEventType, EventAttempt>())
   const call119Attempt = useRef<EventAttempt | null>(null)
   const retryAction = useRef<(() => Promise<void>) | null>(null)
+  const continueAction = useRef<(() => void) | null>(null)
 
   const postAttempt = (type: EmptyPayloadEventType, attempt: EventAttempt): Promise<void> => {
     if (attempt.succeeded) return Promise.resolve()
@@ -70,14 +73,16 @@ export function EvacuationActions({ token, guardian, shelterContent }: Props) {
     return postAttempt('emergency_call_119_selected', call119Attempt.current)
   }
 
-  const run = async (action: () => Promise<void>) => {
+  const run = async (action: () => Promise<void>, continueWithoutRecord: (() => void) | null = null) => {
     if (pending) return
     retryAction.current = action
+    continueAction.current = continueWithoutRecord
     setPending(true)
     setError(null)
     try {
       await action()
       retryAction.current = null
+      continueAction.current = null
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -96,12 +101,22 @@ export function EvacuationActions({ token, guardian, shelterContent }: Props) {
     setStage('choice')
   }
 
+  const continueToGuidance = () => {
+    setError(null)
+    retryAction.current = null
+    continueAction.current = null
+    setStage('guidance')
+  }
+
   const chooseEvacuation = () =>
-    run(async () => {
-      await record('direct_evacuation_selected')
-      await record('evacuation_guidance_viewed')
-      setStage('guidance')
-    })
+    run(
+      async () => {
+        await record('direct_evacuation_selected')
+        await record('evacuation_guidance_viewed')
+        setStage('guidance')
+      },
+      continueToGuidance,
+    )
 
   const startRoute = () =>
     run(async () => {
@@ -145,37 +160,48 @@ export function EvacuationActions({ token, guardian, shelterContent }: Props) {
   }
 
   const failure = error !== null && (
-    <div role="alert" style={{ ...card, border: `2px solid ${C.alertBorder}` }}>
+    <div
+      role="alert"
+      style={{ marginBottom: '14px', padding: '14px', border: `2px solid ${C.alertBorder}`, borderRadius: '12px' }}
+    >
       <p style={{ margin: '0 0 12px', color: C.body, lineHeight: 1.55 }}>
-        행동 기록을 저장하지 못했습니다. 다시 시도해 주세요.
+        {t('evacuation.event.failure', lang)}
       </p>
       <button
         type="button"
         disabled={pending}
-        onClick={() => retryAction.current !== null && void run(retryAction.current)}
+        onClick={() => {
+          const action = retryAction.current
+          const continuation = continueAction.current
+          if (action !== null) void run(action, continuation)
+        }}
         style={primary}
       >
-        {pending ? '다시 시도하는 중…' : '다시 시도'}
+        {pending ? t('evacuation.event.retrying', lang) : t('evacuation.event.retry', lang)}
       </button>
+      {continueAction.current !== null && (
+        <button type="button" disabled={pending} onClick={continueAction.current} style={secondary}>
+          {t('evacuation.event.continueGuidance', lang)}
+        </button>
+      )}
     </div>
   )
-
-  if (failure) return failure
 
   if (stage === 'choice') {
     return (
       <section style={card} aria-labelledby="evacuation-choice-title">
         <h2 id="evacuation-choice-title" style={{ margin: '0 0 8px', color: C.navy, fontSize: '22px' }}>
-          지금 어떻게 하시겠어요?
+          {t('evacuation.choice.title', lang)}
         </h2>
         <p style={{ margin: '0 0 16px', color: C.body, lineHeight: 1.55 }}>
-          필요한 행동을 선택해 주세요.
+          {t('evacuation.choice.body', lang)}
         </p>
+        {failure}
         <button type="button" disabled={pending} onClick={() => void chooseHelp()} style={primary}>
-          도움이 필요해요
+          {t('evacuation.choice.help', lang)}
         </button>
         <button type="button" disabled={pending} onClick={() => void chooseEvacuation()} style={secondary}>
-          혼자서 대피할게요
+          {t('evacuation.choice.direct', lang)}
         </button>
       </section>
     )
@@ -185,10 +211,10 @@ export function EvacuationActions({ token, guardian, shelterContent }: Props) {
     return (
       <section style={card} aria-labelledby="evacuation-help-title">
         <h2 id="evacuation-help-title" style={{ margin: '0 0 8px', color: C.navy, fontSize: '22px' }}>
-          아래 번호로 직접 전화하세요
+          {t('evacuation.help.title', lang)}
         </h2>
         <p style={{ margin: '0 0 16px', color: C.body, lineHeight: 1.55 }}>
-          자동으로 신고되거나 위치가 공유되지 않습니다.
+          {t('evacuation.help.body', lang)}
         </p>
         <a
           href="tel:119"
@@ -197,18 +223,18 @@ export function EvacuationActions({ token, guardian, shelterContent }: Props) {
           }}
           style={{ ...primary, display: 'grid', boxSizing: 'border-box', placeItems: 'center', textDecoration: 'none' }}
         >
-          119 전화하기
+          {t('evacuation.help.call119', lang)}
         </a>
         {guardian !== null && (
           <a
             href={`tel:${guardian.phone}`}
             style={{ ...secondary, display: 'grid', boxSizing: 'border-box', placeItems: 'center', textDecoration: 'none' }}
           >
-            보호자에게 전화하기
+            {t('evacuation.help.callGuardian', lang)}
           </a>
         )}
         <button type="button" onClick={returnFromHelp} style={secondary}>
-          이전으로
+          {t('evacuation.help.back', lang)}
         </button>
       </section>
     )
@@ -220,22 +246,23 @@ export function EvacuationActions({ token, guardian, shelterContent }: Props) {
         {stage === 'route' ? (
           <section style={card} aria-labelledby="evacuation-route-title">
             <h2 id="evacuation-route-title" style={{ margin: '0 0 8px', color: C.navy, fontSize: '22px' }}>
-              경로 안내
+              {t('evacuation.route.title', lang)}
             </h2>
             <p style={{ margin: 0, color: C.body, lineHeight: 1.55 }}>
-              현재는 대피소 위치와 거리 안내만 제공합니다. 이동 중 공식 재난 안내를 함께 확인하세요.
+              {t('evacuation.route.body', lang)}
             </p>
           </section>
         ) : null}
         {shelterContent}
         <section style={card}>
+          {failure}
           {stage === 'guidance' ? (
             <button type="button" disabled={pending} onClick={() => void startRoute()} style={primary}>
-              경로 확인하기
+              {t('evacuation.route.start', lang)}
             </button>
           ) : (
             <button type="button" disabled={pending} onClick={() => void confirmArrival()} style={primary}>
-              도착했어요
+              {t('evacuation.arrival.confirm', lang)}
             </button>
           )}
         </section>
@@ -246,10 +273,10 @@ export function EvacuationActions({ token, guardian, shelterContent }: Props) {
   return (
     <section style={card} aria-labelledby="evacuation-arrived-title">
       <h2 id="evacuation-arrived-title" style={{ margin: '0 0 8px', color: C.tealText, fontSize: '22px' }}>
-        도착을 기록했습니다
+        {t('evacuation.arrival.title', lang)}
       </h2>
       <p style={{ margin: 0, color: C.body, lineHeight: 1.55 }}>
-        보호자가 현재 세션의 도착 기록을 확인할 수 있습니다.
+        {t('evacuation.arrival.body', lang)}
       </p>
     </section>
   )
