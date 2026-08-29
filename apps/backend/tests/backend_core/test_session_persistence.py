@@ -194,6 +194,33 @@ def test_once_per_session_keeps_first_event_after_restart(tmp_path: Path) -> Non
     assert len([event for event in restored.events if event.type == "followup_due"]) == 1
 
 
+def test_guardian_notice_events_persist_and_informed_keeps_first_at(tmp_path: Path) -> None:
+    path = tmp_path / "sessions.sqlite3"
+    first = _store(path)
+    record = _create(first)
+    informed_at = datetime(2026, 8, 28, 1, 30, tzinfo=UTC)
+    first.append_system_event(record, "guardian_informed", now=informed_at)
+    duplicate = first.append_system_event(
+        record, "guardian_informed", now=datetime(2026, 8, 28, 1, 40, tzinfo=UTC)
+    )
+    first.append_system_event(
+        record, "guardian_notified", now=datetime(2026, 8, 28, 2, 0, tzinfo=UTC)
+    )
+    assert duplicate.at == informed_at
+
+    second = _store(path)
+    restored = second.get(record.token)
+    events = second.events_of(restored)
+
+    assert [event.type for event in events] == ["guardian_informed", "guardian_notified"]
+    assert events[0].at == informed_at
+    retry = second.append_system_event(
+        restored, "guardian_informed", now=datetime(2026, 8, 28, 2, 30, tzinfo=UTC)
+    )
+    assert retry.at == informed_at
+    assert len([event for event in restored.events if event.type == "guardian_informed"]) == 1
+
+
 def test_exclusive_followups_survive_restart_and_have_db_defence(tmp_path: Path) -> None:
     path = tmp_path / "sessions.sqlite3"
     first = _store(path)
