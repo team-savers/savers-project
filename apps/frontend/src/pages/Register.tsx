@@ -133,9 +133,12 @@ interface FormState {
   housing: Housing | null
   mobility: Mobility | null
   // mobility 와는 독립된 값이다 — mobility 를 고른다고 자동으로 바뀌지
-  // 않는다. 화면에는 노출하지 않는 hearing/language 도 이 상태에 남아
-  // 있다: 값은 항상 기존 정상값('ok')·고정값('ko')으로 채워 제출한다.
-  stairsOk: boolean
+  // 않는다. null = 아직 안 고름(housing·mobility 와 마찬가지로 evac
+  // 단계 필수). 낙관적 기본값(true)을 두면 응답하지 않아도 "계단 이용
+  // 가능"으로 제출될 수 있어 null 로 시작한다. 화면에는 노출하지 않는
+  // hearing/language 도 이 상태에 남아 있다: 값은 항상 기존 정상값
+  // ('ok')·고정값('ko')으로 채워 제출한다.
+  stairsOk: boolean | null
   vision: Vision
   hearing: Hearing
   language: Language
@@ -157,7 +160,7 @@ const EMPTY_FORM: FormState = {
   dongName: ONLY_DONG?.name ?? '',
   housing: null,
   mobility: null,
-  stairsOk: true,
+  stairsOk: null,
   vision: 'ok',
   // 화면에서 묻지 않는다 — 항상 정상값/고정값으로 제출한다.
   hearing: 'ok',
@@ -436,6 +439,7 @@ export function Register(): React.ReactElement {
     if (current === 'evac') {
       if (form.housing === null) return '어디에 사시는지 골라 주세요.'
       if (form.mobility === null) return '혼자 이동할 수 있는지 골라 주세요.'
+      if (form.stairsOk === null) return '계단 이용이 어려운지 골라 주세요.'
     }
     if (current === 'guardian') {
       // 비상 연락처는 셋 다 비우거나 셋 다 채우거나여야 한다. 일부만 채우면
@@ -494,7 +498,9 @@ export function Register(): React.ReactElement {
         dongName: form.dongName.trim(),
         housing: sensitiveOk ? (form.housing ?? NEUTRAL_HOUSING) : NEUTRAL_HOUSING,
         mobility: sensitiveOk ? (form.mobility ?? NEUTRAL_MOBILITY) : NEUTRAL_MOBILITY,
-        stairsOk: sensitiveOk ? form.stairsOk : NEUTRAL_STAIRS_OK,
+        // validate('evac') 을 통과했으면 null 일 수 없다 — housing/mobility
+        // 와 같은 방식으로 ?? 폴백만 두어 타입을 좁힌다.
+        stairsOk: sensitiveOk ? (form.stairsOk ?? NEUTRAL_STAIRS_OK) : NEUTRAL_STAIRS_OK,
         // 항상 true. 파일 상단 주석 참조.
         easyText: true,
         vision: sensitiveOk ? form.vision : NEUTRAL_VISION,
@@ -568,9 +574,16 @@ export function Register(): React.ReactElement {
       warn: form.mobility !== null && form.mobility !== 'ok',
     },
     {
+      // validate('evac') 을 통과하면 null 일 수 없지만, 렌더 함수가 잘못된
+      // 의미("예" 또는 "아니오")를 표시하지 않도록 미응답 표시를 따로 둔다.
       k: '계단',
-      v: form.stairsOk ? STAIRS_LABEL.yes : STAIRS_LABEL.no,
-      warn: !form.stairsOk,
+      v:
+        form.stairsOk === null
+          ? '—'
+          : form.stairsOk
+            ? STAIRS_LABEL.yes
+            : STAIRS_LABEL.no,
+      warn: form.stairsOk === false,
     },
     { k: '화면', v: form.vision === 'low' ? '보기 어려움 (도움 필요)' : '잘 보임' },
     { k: '독거', v: form.livesAlone ? '혼자 사심' : '같이 사는 사람 있음' },
@@ -706,7 +719,10 @@ export function Register(): React.ReactElement {
           role="progressbar"
           aria-valuemin={1}
           aria-valuemax={3}
-          aria-valuenow={STEPS.indexOf(step) + 1}
+          // done 은 STEPS 의 4번째 항목이라 +1 이 4 가 되어 valuemax(3)을
+          // 넘는다. clamp 만으로 최소 수정한다 — done 에서 바를 숨기는
+          // 레이아웃 변경은 이번 리뷰 대응 범위 밖이다.
+          aria-valuenow={Math.min(STEPS.indexOf(step) + 1, 3)}
           aria-label="등록 진행 상황"
           style={{
             height: '6px',
@@ -1010,7 +1026,7 @@ export function Register(): React.ReactElement {
             idPrefix="reg-stairs"
             labelId="reg-stairs-label"
             variant="inline"
-            value={!form.stairsOk}
+            value={form.stairsOk === null ? null : !form.stairsOk}
             onChange={(difficult) => set('stairsOk', !difficult)}
             options={[
               { value: false, label: '아니오' },
