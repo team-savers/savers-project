@@ -7,8 +7,9 @@
 //
 // 설계 제약 (기획서 · ADR-0004):
 //   - 402px 모바일 전용. 반응형 데스크톱 레이아웃을 만들지 않는다.
-//   - 4단계 마법사. 폰에서 긴 폼을 한 화면에 쌓으면 이탈한다.
-//   - 주거·계단은 select 가 아니라 큰 선택 카드. 폰에서 드롭다운은 답답하다.
+//   - 3단계 마법사(기본 정보 → 대피 관련 정보 → 보호자 정보·동의·최종 확인).
+//     폰에서 긴 폼을 한 화면에 쌓으면 이탈한다.
+//   - 주거·이동은 select 가 아니라 큰 선택 카드. 폰에서 드롭다운은 답답하다.
 //
 // 안전 불변식:
 //   - 행정동은 ADMIN_DONG 에서만 고른다. 코드를 직접 입력받거나 목록을
@@ -21,6 +22,18 @@
 //     동작하지 않는다.
 //   - easyText 는 항상 true 다. 묻지 않는다 — "쉬운 말이 필요하냐"고 되묻는
 //     것 자체가 낙인이 된다.
+//   - 이동 가능 여부(mobility)와 계단 이용 가능 여부(stairsOk)는 서로 독립된
+//     질문이다. 한쪽 응답으로 다른 쪽을 자동으로 정하지 않는다 — 천천히
+//     이동하지만 계단은 괜찮은 경우, 반대로 이동은 괜찮지만 계단이 어려운
+//     경우가 둘 다 실재한다.
+//   - 시각 지원 필요 여부는 "화면을 보기 어려우세요?" 예/아니오 단일 질문
+//     으로만 묻는다. 내부적으로는 계약 타입 Vision('ok'|'low'|'blind')에
+//     담아야 하므로, 예 → 'low' / 아니오 → 'ok' 로 매핑한다(Ops.tsx 의
+//     저시력 2단계 정규화와 동일한 관례). 'blind' 는 이 화면에서 UI로
+//     노출하지 않는다.
+//   - 청력(hearing)·언어(language)는 이 화면에서 UI로 묻지 않는다. 값은
+//     각각 기존 정상값 'ok', 고정값 'ko' 로 항상 채워 제출한다 — 숨겼다고
+//     해서 필수 필드가 undefined 로 빠지면 저장 자체가 실패한다.
 //   - 민감정보 동의(consents.sensitive)가 거짓이면 주거·이동·계단·시력·
 //     청력·독거·돌봄 항목을 입력값 그대로 보내지 않고 중립 기본값으로
 //     바꿔 보낸다. 동의 문구가 "맞춤 안내가 제한됩니다"라고 약속하고 있으므로,
@@ -47,7 +60,35 @@ import type {
 import { ADMIN_DONG } from '../mocks/adminDong'
 import { C, FONT_MONO } from '../lib/tokens'
 
-const SHADOW_CARD = '0 6px 20px -12px rgba(13,43,69,.22)'
+// ---------------------------------------------------------------------------
+// PALETTE — 현재 SAVERS 최종 팔레트로 맞춘 로컬 별칭. 새 hex 를 만들지 않고
+// lib/tokens.ts 의 C.guardian* (Guardian.tsx 가 쓰는 것과 동일한 다섯 색
+// 그룹 — 메인 블루/포인트 오렌지/위험 레드/배경/텍스트)를 이 화면이 읽기
+// 편한 이름으로만 다시 노출한다. *Text/*Bg 변형은 새 색이 아니라 primary/
+// accent/danger 각각의 AA 대비용 파생값이다(teal/tealText 페어링과 동일한
+// 기법, Guardian.tsx GC 의 주석 참고).
+// ---------------------------------------------------------------------------
+const P = {
+  primary: C.guardianPrimary,
+  primaryText: C.guardianPrimaryText,
+  primaryBg: C.guardianPrimaryBg,
+  accent: C.guardianAccent,
+  accentText: C.guardianAccentText,
+  accentBg: C.guardianAccentBg,
+  danger: C.guardianDanger,
+  dangerText: C.guardianDangerText,
+  dangerBg: C.guardianDangerBg,
+  bg: C.guardianBg,
+  surface: C.white,
+  surfaceSoft: C.guardianSurfaceSoft,
+  text: C.guardianText,
+  textMuted: C.guardianTextMuted,
+  line: C.guardianLine,
+} as const
+
+// 카드 그림자 — 톤을 예전 navy(#0D2B45)에서 새 기본 텍스트 잉크(#111111)로
+// 바꿔 옛 테마의 색을 그림자에도 남기지 않는다.
+const SHADOW_CARD = '0 6px 20px -12px rgba(17,17,17,.22)'
 const ICON_BASE = {
   fill: 'none',
   stroke: 'currentColor',
@@ -60,12 +101,12 @@ const ICON_BASE = {
 const INPUT: React.CSSProperties = {
   width: '100%',
   minHeight: '56px',
-  border: `1.5px solid ${C.border}`,
+  border: `1.5px solid ${P.line}`,
   borderRadius: '13px',
   padding: '15px 16px',
   fontSize: '18px',
-  color: C.navy,
-  background: C.bg,
+  color: P.text,
+  background: P.surface,
   outline: 'none',
   fontFamily: 'inherit',
 }
@@ -73,27 +114,31 @@ const INPUT: React.CSSProperties = {
 // ---------------------------------------------------------------------------
 // 단계
 // ---------------------------------------------------------------------------
-type Step = 'who' | 'risk' | 'care' | 'confirm' | 'done'
+type Step = 'who' | 'evac' | 'guardian' | 'done'
 
-const STEPS: readonly Step[] = ['who', 'risk', 'care', 'confirm', 'done']
+const STEPS: readonly Step[] = ['who', 'evac', 'guardian', 'done']
 
 const META: Record<Step, { title: string; sub: string; count: string; bar: string }> = {
-  who: { title: '등록하실 분', sub: '이름과 동네', count: '1 / 4', bar: '25%' },
-  risk: { title: '위험 정보', sub: '안내를 정하는 두 가지', count: '2 / 4', bar: '50%' },
-  care: { title: '안내 방식', sub: '건너뛰어도 됩니다', count: '3 / 4', bar: '75%' },
-  confirm: { title: '확인', sub: '맞는지 봐 주세요', count: '4 / 4', bar: '100%' },
+  who: { title: '기본 정보', sub: '이름과 동네', count: '1 / 3', bar: '33%' },
+  evac: { title: '대피 관련 정보', sub: '안내를 정하는 정보', count: '2 / 3', bar: '67%' },
+  guardian: { title: '보호자·확인', sub: '연락처와 동의', count: '3 / 3', bar: '100%' },
   done: { title: '등록 완료', sub: '', count: '완료', bar: '100%' },
 }
 
 interface FormState {
   name: string
-  phone: string
   dongCode: string
   dongName: string
   // null = 아직 안 고름. 2단계에서 두 값 모두 필수다.
   housing: Housing | null
   mobility: Mobility | null
-  stairsOk: boolean
+  // mobility 와는 독립된 값이다 — mobility 를 고른다고 자동으로 바뀌지
+  // 않는다. null = 아직 안 고름(housing·mobility 와 마찬가지로 evac
+  // 단계 필수). 낙관적 기본값(true)을 두면 응답하지 않아도 "계단 이용
+  // 가능"으로 제출될 수 있어 null 로 시작한다. 화면에는 노출하지 않는
+  // hearing/language 도 이 상태에 남아 있다: 값은 항상 기존 정상값
+  // ('ok')·고정값('ko')으로 채워 제출한다.
+  stairsOk: boolean | null
   vision: Vision
   hearing: Hearing
   language: Language
@@ -111,13 +156,13 @@ const ONLY_DONG = ADMIN_DONG.length === 1 ? ADMIN_DONG[0] : null
 
 const EMPTY_FORM: FormState = {
   name: '',
-  phone: '',
   dongCode: ONLY_DONG?.code ?? '',
   dongName: ONLY_DONG?.name ?? '',
   housing: null,
   mobility: null,
-  stairsOk: true,
+  stairsOk: null,
   vision: 'ok',
+  // 화면에서 묻지 않는다 — 항상 정상값/고정값으로 제출한다.
   hearing: 'ok',
   language: 'ko',
   livesAlone: true,
@@ -240,8 +285,8 @@ function RadioGroup<T extends string | boolean>({
               flex: variant === 'inline' ? 1 : undefined,
               width: variant === 'inline' ? undefined : '100%',
               minHeight: variant === 'card' ? '64px' : '56px',
-              background: on ? C.tealBg : C.white,
-              border: `2px solid ${on ? C.tealText : C.border}`,
+              background: on ? P.primaryBg : P.surface,
+              border: `2px solid ${on ? P.primary : P.line}`,
               borderRadius: variant === 'card' ? '15px' : '13px',
               padding: variant === 'inline' ? '13px 10px' : '15px 17px',
               fontFamily: 'inherit',
@@ -260,8 +305,8 @@ function RadioGroup<T extends string | boolean>({
                   width: '24px',
                   height: '24px',
                   borderRadius: '50%',
-                  border: `2.5px solid ${on ? C.tealText : C.border}`,
-                  background: on ? C.tealText : C.white,
+                  border: `2.5px solid ${on ? P.primary : P.line}`,
+                  background: on ? P.primary : P.surface,
                   flex: 'none',
                   display: 'flex',
                   alignItems: 'center',
@@ -271,7 +316,7 @@ function RadioGroup<T extends string | boolean>({
                 {on && (
                   <svg
                     viewBox="0 0 24 24"
-                    style={{ ...ICON_BASE, width: 13, height: 13, strokeWidth: 3.5, color: C.white }}
+                    style={{ ...ICON_BASE, width: 13, height: 13, strokeWidth: 3.5, color: P.surface }}
                   >
                     <path d="M20 6 9 17l-5-5" />
                   </svg>
@@ -284,7 +329,7 @@ function RadioGroup<T extends string | boolean>({
                   display: 'block',
                   fontSize: variant === 'card' ? '18px' : '16.5px',
                   fontWeight: variant === 'card' ? 800 : 700,
-                  color: on ? C.tealText : C.navy,
+                  color: on ? P.primaryText : P.text,
                   letterSpacing: '-.02em',
                 }}
               >
@@ -295,7 +340,7 @@ function RadioGroup<T extends string | boolean>({
                   style={{
                     display: 'block',
                     fontSize: '15px',
-                    color: C.body,
+                    color: P.textMuted,
                     marginTop: '3px',
                     lineHeight: 1.45,
                   }}
@@ -340,7 +385,7 @@ function GroupTitle({ id, children }: { id: string; children: React.ReactNode })
       style={{
         fontSize: '17.5px',
         fontWeight: 800,
-        color: C.navy,
+        color: P.text,
         letterSpacing: '-.02em',
         marginBottom: '12px',
       }}
@@ -360,10 +405,12 @@ const HOUSING_LABEL: Record<Housing, string> = {
   normal: '그 밖의 집',
 }
 const MOBILITY_LABEL: Record<Mobility, string> = {
-  ok: '스스로 오르내릴 수 있음',
-  slow: '천천히 · 계단 어려움',
-  assisted: '거동에 도움 필요',
+  ok: '혼자 이동할 수 있음',
+  slow: '천천히 이동함',
+  assisted: '이동에 도움 필요',
 }
+// stairsOk 는 mobility 와 독립된 값이라 요약에서도 따로 보여준다.
+const STAIRS_LABEL = { yes: '이용 가능', no: '어려움 (계단 없는 곳으로)' } as const
 
 // ---------------------------------------------------------------------------
 // Register
@@ -384,26 +431,17 @@ export function Register(): React.ReactElement {
     setError(null)
   }
 
-  // 이동 능력을 고르면 계단 가능 여부가 따라 바뀐다. 'ok' 만 true — 느리거나
-  // 도움이 필요한 분에게 계단 있는 대피소를 먼저 안내하면 안 된다.
-  function setMobility(m: Mobility): void {
-    setForm((f) => ({ ...f, mobility: m, stairsOk: m === 'ok' }))
-    setError(null)
-  }
-
   function validate(current: Step): string | null {
     if (current === 'who') {
       if (form.name.trim() === '') return '등록하실 분의 성함을 적어 주세요.'
       if (form.dongCode.trim() === '') return '사시는 동네를 골라 주세요.'
-      const p = form.phone.trim()
-      if (p !== '' && !PHONE_RE.test(p))
-        return '연락처를 010-0000-0000 형태로 적어 주세요.'
     }
-    if (current === 'risk') {
+    if (current === 'evac') {
       if (form.housing === null) return '어디에 사시는지 골라 주세요.'
-      if (form.mobility === null) return '계단을 오르내릴 수 있는지 골라 주세요.'
+      if (form.mobility === null) return '혼자 이동할 수 있는지 골라 주세요.'
+      if (form.stairsOk === null) return '계단 이용이 어려운지 골라 주세요.'
     }
-    if (current === 'care') {
+    if (current === 'guardian') {
       // 비상 연락처는 셋 다 비우거나 셋 다 채우거나여야 한다. 일부만 채우면
       // 급할 때 연락할 수 없는 반쪽 정보가 저장된다.
       const filled = [form.gName, form.gPhone, form.gRel].filter(
@@ -414,8 +452,6 @@ export function Register(): React.ReactElement {
       const gp = form.gPhone.trim()
       if (gp !== '' && !PHONE_RE.test(gp))
         return '비상 연락처를 010-0000-0000 형태로 적어 주세요.'
-    }
-    if (current === 'confirm') {
       if (!form.consents.personal)
         return '개인정보 수집에 동의해 주셔야 등록할 수 있습니다.'
     }
@@ -423,7 +459,7 @@ export function Register(): React.ReactElement {
   }
 
   async function submit(): Promise<void> {
-    const err = validate('confirm')
+    const err = validate('guardian')
     if (err !== null) {
       setError(err)
       return
@@ -443,8 +479,6 @@ export function Register(): React.ReactElement {
             }
       const care: CareSubject | null =
         form.care.trim() === '' ? null : form.care.trim()
-      const phoneTrimmed = form.phone.trim()
-      const wardPhone: string | null = phoneTrimmed === '' ? null : phoneTrimmed
 
       // 민감정보 동의(consents.sensitive)가 거짓이면, 아래 항목들을 사용자가
       // 입력한 값 그대로 보내지 않고 «특기사항 없음» 중립 기본값으로 바꿔
@@ -464,7 +498,9 @@ export function Register(): React.ReactElement {
         dongName: form.dongName.trim(),
         housing: sensitiveOk ? (form.housing ?? NEUTRAL_HOUSING) : NEUTRAL_HOUSING,
         mobility: sensitiveOk ? (form.mobility ?? NEUTRAL_MOBILITY) : NEUTRAL_MOBILITY,
-        stairsOk: sensitiveOk ? form.stairsOk : NEUTRAL_STAIRS_OK,
+        // validate('evac') 을 통과했으면 null 일 수 없다 — housing/mobility
+        // 와 같은 방식으로 ?? 폴백만 두어 타입을 좁힌다.
+        stairsOk: sensitiveOk ? (form.stairsOk ?? NEUTRAL_STAIRS_OK) : NEUTRAL_STAIRS_OK,
         // 항상 true. 파일 상단 주석 참조.
         easyText: true,
         vision: sensitiveOk ? form.vision : NEUTRAL_VISION,
@@ -477,7 +513,10 @@ export function Register(): React.ReactElement {
         registeredBy: 'guardian',
         consents: { ...form.consents },
       }
-      await registerUserWithPhone(profile, wardPhone)
+      // 이 화면은 피보호자 본인 휴대폰 번호를 더 이상 입력받지 않는다 —
+      // registerUserWithPhone 은 그대로 재사용하되 두 번째 인자는 항상
+      // null 이다(당사자 폰 연결은 별도 QR/join 절차에서 이루어진다).
+      await registerUserWithPhone(profile, null)
       setStep('done')
     } catch (e) {
       // 실패를 완료로 위장하지 않는다. 알림이 오지 않을 사람을 등록됐다고
@@ -498,7 +537,7 @@ export function Register(): React.ReactElement {
       setError(err)
       return
     }
-    if (step === 'confirm') {
+    if (step === 'guardian') {
       void submit()
       return
     }
@@ -524,20 +563,29 @@ export function Register(): React.ReactElement {
   const summary: ReadonlyArray<{ k: string; v: string; warn?: boolean }> = [
     { k: '성함', v: form.name.trim() || '—' },
     { k: '동네', v: form.dongName || '—' },
-    { k: '연락처', v: form.phone.trim() || '없음' },
     {
       k: '집',
       v: form.housing === null ? '—' : HOUSING_LABEL[form.housing],
       warn: form.housing === 'banjiha' || form.housing === 'lowland',
     },
     {
-      k: '계단',
+      k: '이동',
       v: form.mobility === null ? '—' : MOBILITY_LABEL[form.mobility],
       warn: form.mobility !== null && form.mobility !== 'ok',
     },
-    { k: '글씨', v: form.vision === 'low' ? '잘 안 보임 (큰 글씨)' : '잘 보임' },
-    { k: '통화', v: form.hearing === 'bad' ? '어려움 (문자로)' : '가능' },
-    { k: '말', v: form.language === 'vi' ? '베트남어' : '한국어' },
+    {
+      // validate('evac') 을 통과하면 null 일 수 없지만, 렌더 함수가 잘못된
+      // 의미("예" 또는 "아니오")를 표시하지 않도록 미응답 표시를 따로 둔다.
+      k: '계단',
+      v:
+        form.stairsOk === null
+          ? '—'
+          : form.stairsOk
+            ? STAIRS_LABEL.yes
+            : STAIRS_LABEL.no,
+      warn: form.stairsOk === false,
+    },
+    { k: '화면', v: form.vision === 'low' ? '보기 어려움 (도움 필요)' : '잘 보임' },
     { k: '독거', v: form.livesAlone ? '혼자 사심' : '같이 사는 사람 있음' },
     { k: '돌봄', v: form.care.trim() || '없음' },
     { k: '비상 연락', v: guardianText, warn: guardianText === '없음' },
@@ -551,7 +599,7 @@ export function Register(): React.ReactElement {
         width: '100%',
         maxWidth: '402px',
         margin: '0 auto',
-        background: C.bg,
+        background: P.bg,
         minHeight: '100vh',
         // 한글은 단어 중간에서 끊지 않는다.
         wordBreak: 'keep-all',
@@ -559,9 +607,14 @@ export function Register(): React.ReactElement {
       }}
     >
       {/* ===================== 상단 고정 ===================== */}
+      {/* 헤더 배경은 새 팔레트에 없는 예전 navy(#0D2B45) 대신 기본 텍스트
+          잉크(#111111, P.text)를 쓴 중립 짙은 배경이다 — 메인 블루는 진행
+          표시 채움·CTA·선택 상태처럼 실제 인터랙션 신호에만 쓰고, 헤더
+          배경까지 파랗게 칠하면 그 위 진행바 채움(P.primary)이 안 보이게
+          된다. */}
       <div
         style={{
-          background: C.navy,
+          background: P.text,
           color: C.white,
           padding: '20px 22px 22px',
           position: 'sticky',
@@ -654,7 +707,7 @@ export function Register(): React.ReactElement {
               fontFamily: FONT_MONO,
               fontSize: '13px',
               fontWeight: 600,
-              color: C.mint,
+              color: P.primary,
               flex: 'none',
             }}
           >
@@ -665,8 +718,11 @@ export function Register(): React.ReactElement {
         <div
           role="progressbar"
           aria-valuemin={1}
-          aria-valuemax={4}
-          aria-valuenow={STEPS.indexOf(step) + 1}
+          aria-valuemax={3}
+          // done 은 STEPS 의 4번째 항목이라 +1 이 4 가 되어 valuemax(3)을
+          // 넘는다. clamp 만으로 최소 수정한다 — done 에서 바를 숨기는
+          // 레이아웃 변경은 이번 리뷰 대응 범위 밖이다.
+          aria-valuenow={Math.min(STEPS.indexOf(step) + 1, 3)}
           aria-label="등록 진행 상황"
           style={{
             height: '6px',
@@ -680,7 +736,7 @@ export function Register(): React.ReactElement {
               width: meta.bar,
               height: '100%',
               borderRadius: '4px',
-              background: C.mint,
+              background: P.primary,
               transition: 'width .35s cubic-bezier(.22,.7,.3,1)',
             }}
           />
@@ -694,7 +750,7 @@ export function Register(): React.ReactElement {
             style={{
               fontSize: '25px',
               fontWeight: 800,
-              color: C.navy,
+              color: P.text,
               letterSpacing: '-.025em',
               lineHeight: 1.35,
               margin: '0 0 11px',
@@ -707,7 +763,7 @@ export function Register(): React.ReactElement {
             style={{
               fontSize: '17px',
               lineHeight: 1.62,
-              color: C.body,
+              color: P.textMuted,
               margin: '0 0 22px',
               textWrap: 'pretty',
             }}
@@ -725,15 +781,15 @@ export function Register(): React.ReactElement {
                   gap: '7px',
                   fontSize: '16px',
                   fontWeight: 700,
-                  color: C.navy,
+                  color: P.text,
                   marginBottom: '9px',
                 }}
               >
                 성함
                 <span
                   style={{
-                    background: C.alertBg,
-                    color: '#9B1024',
+                    background: P.accentBg,
+                    color: P.accentText,
                     borderRadius: '6px',
                     padding: '2px 7px',
                     fontSize: '12.5px',
@@ -761,15 +817,15 @@ export function Register(): React.ReactElement {
                   gap: '7px',
                   fontSize: '16px',
                   fontWeight: 700,
-                  color: C.navy,
+                  color: P.text,
                   marginBottom: '5px',
                 }}
               >
                 사시는 동네
                 <span
                   style={{
-                    background: C.alertBg,
-                    color: '#9B1024',
+                    background: P.accentBg,
+                    color: P.accentText,
                     borderRadius: '6px',
                     padding: '2px 7px',
                     fontSize: '12.5px',
@@ -781,7 +837,7 @@ export function Register(): React.ReactElement {
               <div
                 style={{
                   fontSize: '15px',
-                  color: C.body,
+                  color: P.textMuted,
                   lineHeight: 1.5,
                   marginBottom: '11px',
                 }}
@@ -805,7 +861,7 @@ export function Register(): React.ReactElement {
                 }}
                 style={{
                   ...INPUT,
-                  borderColor: form.dongCode === '' ? C.border : C.tealText,
+                  borderColor: form.dongCode === '' ? P.line : P.primary,
                 }}
               >
                 <option value="">선택해 주세요</option>
@@ -820,7 +876,7 @@ export function Register(): React.ReactElement {
                   style={{
                     fontSize: '14.5px',
                     lineHeight: 1.55,
-                    color: C.tertiary,
+                    color: P.textMuted,
                     marginTop: '10px',
                     textWrap: 'pretty',
                   }}
@@ -830,51 +886,22 @@ export function Register(): React.ReactElement {
                 </div>
               )}
             </Card>
-
-            <Card>
-              <label
-                htmlFor="reg-phone"
-                style={{
-                  display: 'block',
-                  fontSize: '16px',
-                  fontWeight: 700,
-                  color: C.navy,
-                  marginBottom: '5px',
-                }}
-              >
-                연락처
-              </label>
-              <div
-                style={{
-                  fontSize: '15px',
-                  color: C.body,
-                  lineHeight: 1.5,
-                  marginBottom: '11px',
-                }}
-              >
-                없어도 됩니다. 나중에 추가하실 수 있어요.
-              </div>
-              <input
-                id="reg-phone"
-                type="tel"
-                inputMode="numeric"
-                value={form.phone}
-                onChange={(e) => set('phone', e.target.value)}
-                placeholder="010-0000-0000"
-                autoComplete="tel"
-                style={INPUT}
-              />
-            </Card>
           </div>
         </div>
       )}
 
-      {/* ===================== 2 · 위험 정보 ===================== */}
-      {step === 'risk' && (
+      {/* ===================== 2 · 대피 관련 정보 =====================
+          housing·mobility·stairsOk(필수) + vision·livesAlone·care(기본값
+          있음, 필수 아님)를 한 단계에 모은다. mobility 와 stairsOk 는 서로
+          독립 질문이다. hearing·language 는 이 화면에서 UI로 묻지 않는다
+          — hearing 은 EMPTY_FORM 의 정상값('ok'), language 는 고정값
+          ('ko') 그대로 제출된다(파일 상단 안전 불변식 참고). */}
+      {step === 'evac' && (
         <div style={{ padding: '24px 22px 130px' }}>
+          {/* "주의"성 안내(오류 아님) — 위험 레드가 아니라 포인트 오렌지로 표시. */}
           <div
             style={{
-              background: C.alertBg,
+              background: P.accentBg,
               borderRadius: '14px',
               padding: '15px 17px',
               marginBottom: '20px',
@@ -888,7 +915,7 @@ export function Register(): React.ReactElement {
                 ...ICON_BASE,
                 width: 19,
                 height: 19,
-                color: '#9B1024',
+                color: P.accentText,
                 marginTop: '2px',
               }}
             >
@@ -899,12 +926,11 @@ export function Register(): React.ReactElement {
               style={{
                 fontSize: '15.5px',
                 lineHeight: 1.6,
-                color: '#9B1024',
+                color: P.accentText,
                 textWrap: 'pretty',
               }}
             >
-              <b>이 두 가지가 안내 내용을 바꿉니다.</b> 나머지보다 신중히 골라
-              주세요.
+              <b>사는 곳, 이동 가능 여부, 계단 이용 가능 여부가 대피소 추천에 반영됩니다.</b>
             </div>
           </div>
 
@@ -913,7 +939,7 @@ export function Register(): React.ReactElement {
             style={{
               fontSize: '20px',
               fontWeight: 800,
-              color: C.navy,
+              color: P.text,
               letterSpacing: '-.02em',
               marginBottom: '13px',
             }}
@@ -940,107 +966,90 @@ export function Register(): React.ReactElement {
             style={{
               fontSize: '20px',
               fontWeight: 800,
-              color: C.navy,
+              color: P.text,
               letterSpacing: '-.02em',
               marginBottom: '6px',
             }}
           >
-            계단을 오르내릴 수 있나요?
+            혼자 이동하기 어려우신가요?
           </div>
           <div
             style={{
               fontSize: '15.5px',
-              color: C.body,
+              color: P.textMuted,
+              lineHeight: 1.55,
+              marginBottom: '13px',
+            }}
+          >
+            이동이 어려우면 도움 받기 쉬운 안내를 먼저 드립니다.
+          </div>
+          <RadioGroup<Mobility>
+            idPrefix="reg-mobility"
+            labelId="reg-mobility-label"
+            value={form.mobility}
+            onChange={(v) => set('mobility', v)}
+            options={[
+              { value: 'ok', label: '혼자 이동할 수 있어요' },
+              { value: 'slow', label: '천천히 이동해요' },
+              { value: 'assisted', label: '이동에 도움이 필요해요' },
+            ]}
+          />
+
+          {/* mobility 와는 독립된 질문이다 — 이동은 괜찮아도 계단만
+              어려운 경우, 반대로 천천히 이동해도 계단은 괜찮은 경우가
+              둘 다 있다. 한쪽 응답이 다른 쪽을 자동으로 정하지 않는다. */}
+          <div
+            id="reg-stairs-label"
+            style={{
+              fontSize: '20px',
+              fontWeight: 800,
+              color: P.text,
+              letterSpacing: '-.02em',
+              marginBottom: '6px',
+              marginTop: '28px',
+            }}
+          >
+            계단 이용이 어려우신가요?
+          </div>
+          <div
+            style={{
+              fontSize: '15.5px',
+              color: P.textMuted,
               lineHeight: 1.55,
               marginBottom: '13px',
             }}
           >
             계단이 어려우면 계단 없는 대피소를 먼저 알려드립니다.
           </div>
-          <RadioGroup<Mobility>
-            idPrefix="reg-mobility"
-            labelId="reg-mobility-label"
-            value={form.mobility}
-            onChange={setMobility}
+          <RadioGroup<boolean>
+            idPrefix="reg-stairs"
+            labelId="reg-stairs-label"
+            variant="inline"
+            value={form.stairsOk === null ? null : !form.stairsOk}
+            onChange={(difficult) => set('stairsOk', !difficult)}
             options={[
-              { value: 'ok', label: '스스로 오르내릴 수 있어요' },
-              { value: 'slow', label: '천천히 · 계단은 어려워요' },
-              { value: 'assisted', label: '거동에 도움이 필요해요' },
+              { value: false, label: '아니오' },
+              { value: true, label: '예' },
             ]}
           />
-        </div>
-      )}
 
-      {/* ===================== 3 · 안내 방식 ===================== */}
-      {step === 'care' && (
-        <div style={{ padding: '24px 22px 130px' }}>
-          <h1
-            style={{
-              fontSize: '25px',
-              fontWeight: 800,
-              color: C.navy,
-              letterSpacing: '-.025em',
-              lineHeight: 1.35,
-              margin: '0 0 11px',
-              textWrap: 'pretty',
-            }}
-          >
-            어떻게 안내드리면 좋을까요?
-          </h1>
-          <p
-            style={{
-              fontSize: '17px',
-              lineHeight: 1.62,
-              color: C.body,
-              margin: '0 0 22px',
-              textWrap: 'pretty',
-            }}
-          >
-            모르시면 그냥 넘어가셔도 됩니다. 나중에 바꿀 수 있어요.
-          </p>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginTop: '28px' }}>
             <Card>
-              <GroupTitle id="reg-vision-label">글씨가 잘 보이세요?</GroupTitle>
-              <RadioGroup<Vision>
+              <GroupTitle id="reg-vision-label">화면을 보기 어려우세요?</GroupTitle>
+              {/* 계약 타입 Vision 은 'ok'|'low'|'blind' 세 값이지만, 이
+                  화면은 예/아니오 단일 질문만 노출한다. 예 → 'low',
+                  아니오 → 'ok' 로 매핑한다 — Ops.tsx 의 저시력 2단계
+                  정규화와 동일한 관례다. 'blind' 는 이 화면에서 고르지
+                  않는다(별도 저시력 세부 UI 없음). */}
+              <RadioGroup<boolean>
                 idPrefix="reg-vision"
                 labelId="reg-vision-label"
                 variant="inline"
-                value={form.vision}
-                onChange={(v) => set('vision', v)}
+                value={form.vision !== 'ok'}
+                onChange={(hard) => set('vision', hard ? 'low' : 'ok')}
                 options={[
-                  { value: 'ok', label: '잘 보여요' },
-                  { value: 'low', label: '잘 안 보여요' },
-                ]}
-              />
-            </Card>
-
-            <Card>
-              <GroupTitle id="reg-hearing-label">전화 통화가 되세요?</GroupTitle>
-              <RadioGroup<Hearing>
-                idPrefix="reg-hearing"
-                labelId="reg-hearing-label"
-                variant="inline"
-                value={form.hearing}
-                onChange={(v) => set('hearing', v)}
-                options={[
-                  { value: 'ok', label: '통화 가능' },
-                  { value: 'bad', label: '통화 어려움' },
-                ]}
-              />
-            </Card>
-
-            <Card>
-              <GroupTitle id="reg-language-label">어떤 말이 편하세요?</GroupTitle>
-              <RadioGroup<Language>
-                idPrefix="reg-language"
-                labelId="reg-language-label"
-                variant="inline"
-                value={form.language}
-                onChange={(v) => set('language', v)}
-                options={[
-                  { value: 'ko', label: '한국어' },
-                  { value: 'vi', label: '베트남어' },
+                  { value: false, label: '아니오' },
+                  { value: true, label: '예' },
                 ]}
               />
             </Card>
@@ -1067,7 +1076,7 @@ export function Register(): React.ReactElement {
                   display: 'block',
                   fontSize: '17.5px',
                   fontWeight: 800,
-                  color: C.navy,
+                  color: P.text,
                   letterSpacing: '-.02em',
                   marginBottom: '6px',
                 }}
@@ -1077,7 +1086,7 @@ export function Register(): React.ReactElement {
               <div
                 style={{
                   fontSize: '15px',
-                  color: C.body,
+                  color: P.textMuted,
                   lineHeight: 1.5,
                   marginBottom: '11px',
                 }}
@@ -1093,64 +1102,10 @@ export function Register(): React.ReactElement {
               />
             </Card>
 
-            {/* 비상 연락처. 랜딩에서 온 사람이 곧 보호자이므로 여기서 받지
-                않으면 전원 guardian: null 로 등록되고, 수신 화면의 보호자
-                호출 경로가 통째로 사라진다. */}
-            <Card accent={C.mint}>
-              <div
-                style={{
-                  fontSize: '17.5px',
-                  fontWeight: 800,
-                  color: C.navy,
-                  letterSpacing: '-.02em',
-                  marginBottom: '6px',
-                }}
-              >
-                급할 때 연락할 사람
-              </div>
-              <div
-                style={{
-                  fontSize: '15px',
-                  color: C.body,
-                  lineHeight: 1.55,
-                  marginBottom: '14px',
-                  textWrap: 'pretty',
-                }}
-              >
-                보통은 <b style={{ color: C.navy }}>등록하시는 본인</b>입니다.
-                어르신이 움직이지 못할 때 이 번호로 알립니다.
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <input
-                  value={form.gName}
-                  onChange={(e) => set('gName', e.target.value)}
-                  placeholder="이름 (예: 이영희)"
-                  aria-label="비상 연락처 이름"
-                  style={INPUT}
-                />
-                <input
-                  type="tel"
-                  inputMode="numeric"
-                  value={form.gPhone}
-                  onChange={(e) => set('gPhone', e.target.value)}
-                  placeholder="연락처 (010-0000-0000)"
-                  aria-label="비상 연락처 번호"
-                  style={INPUT}
-                />
-                <input
-                  value={form.gRel}
-                  onChange={(e) => set('gRel', e.target.value)}
-                  placeholder="관계 (예: 딸)"
-                  aria-label="비상 연락처 관계"
-                  style={INPUT}
-                />
-              </div>
-            </Card>
-
             {/* 쉬운 말은 질문이 아니다. 되묻는 것 자체가 낙인이 된다. */}
             <div
               style={{
-                background: C.tealBg,
+                background: P.primaryBg,
                 borderRadius: '18px',
                 padding: '19px 20px',
               }}
@@ -1168,7 +1123,7 @@ export function Register(): React.ReactElement {
                     width: '28px',
                     height: '28px',
                     borderRadius: '9px',
-                    background: C.tealText,
+                    background: P.primary,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -1184,7 +1139,7 @@ export function Register(): React.ReactElement {
                   style={{
                     fontSize: '17px',
                     fontWeight: 800,
-                    color: C.navy,
+                    color: P.text,
                     letterSpacing: '-.02em',
                   }}
                 >
@@ -1195,7 +1150,7 @@ export function Register(): React.ReactElement {
                 style={{
                   fontSize: '15.5px',
                   lineHeight: 1.6,
-                  color: C.tealDeep,
+                  color: P.primaryText,
                   textWrap: 'pretty',
                 }}
               >
@@ -1206,33 +1161,113 @@ export function Register(): React.ReactElement {
         </div>
       )}
 
-      {/* ===================== 4 · 확인 ===================== */}
-      {step === 'confirm' && (
+      {/* ===================== 3 · 보호자 정보 · 동의 · 최종 확인 =====================
+          구 'care' 단계의 비상 연락처 카드 + 구 'confirm' 단계(요약·동의·
+          안내)를 한 단계로 합쳤다. */}
+      {step === 'guardian' && (
         <div style={{ padding: '24px 22px 130px' }}>
           <h1
             style={{
               fontSize: '25px',
               fontWeight: 800,
-              color: C.navy,
+              color: P.text,
               letterSpacing: '-.025em',
               lineHeight: 1.35,
               margin: '0 0 11px',
               textWrap: 'pretty',
             }}
           >
-            이렇게 등록됩니다
+            보호자 정보와 최종 확인
           </h1>
           <p
             style={{
               fontSize: '17px',
               lineHeight: 1.62,
-              color: C.body,
+              color: P.textMuted,
               margin: '0 0 22px',
               textWrap: 'pretty',
             }}
           >
-            잘못된 곳이 있으면 위 화살표로 돌아가 고쳐 주세요.
+            급할 때 연락할 사람을 남기고, 입력한 내용이 맞는지 확인해 주세요.
           </p>
+
+          {/* 비상 연락처. 랜딩에서 온 사람이 곧 보호자이므로 여기서 받지
+              않으면 전원 guardian: null 로 등록되고, 수신 화면의 보호자
+              호출 경로가 통째로 사라진다. */}
+          <Card accent={P.primary}>
+            <div
+              style={{
+                fontSize: '17.5px',
+                fontWeight: 800,
+                color: P.text,
+                letterSpacing: '-.02em',
+                marginBottom: '6px',
+              }}
+            >
+              급할 때 연락할 사람
+            </div>
+            <div
+              style={{
+                fontSize: '15px',
+                color: P.textMuted,
+                lineHeight: 1.55,
+                marginBottom: '14px',
+                textWrap: 'pretty',
+              }}
+            >
+              보통은 <b style={{ color: P.text }}>등록하시는 본인</b>입니다.
+              어르신이 움직이지 못할 때 이 번호로 알립니다.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <input
+                value={form.gName}
+                onChange={(e) => set('gName', e.target.value)}
+                placeholder="이름 (예: 이영희)"
+                aria-label="비상 연락처 이름"
+                style={INPUT}
+              />
+              <input
+                type="tel"
+                inputMode="numeric"
+                value={form.gPhone}
+                onChange={(e) => set('gPhone', e.target.value)}
+                placeholder="연락처 (010-0000-0000)"
+                aria-label="비상 연락처 번호"
+                style={INPUT}
+              />
+              <input
+                value={form.gRel}
+                onChange={(e) => set('gRel', e.target.value)}
+                placeholder="관계 (예: 딸)"
+                aria-label="비상 연락처 관계"
+                style={INPUT}
+              />
+            </div>
+          </Card>
+
+          <div style={{ marginTop: '20px', marginBottom: '11px' }}>
+            <div
+              style={{
+                fontSize: '20px',
+                fontWeight: 800,
+                color: P.text,
+                letterSpacing: '-.02em',
+                marginBottom: '9px',
+              }}
+            >
+              입력하신 내용
+            </div>
+            <div
+              style={{
+                fontSize: '15.5px',
+                color: P.textMuted,
+                lineHeight: 1.55,
+                textWrap: 'pretty',
+              }}
+            >
+              잘못된 곳이 있으면 위 화살표로 돌아가 고쳐 주세요.
+            </div>
+          </div>
 
           <div
             style={{
@@ -1251,14 +1286,14 @@ export function Register(): React.ReactElement {
                   gap: '14px',
                   padding: '15px 0',
                   borderBottom:
-                    i === summary.length - 1 ? 'none' : '1px solid #EDF1F0',
+                    i === summary.length - 1 ? 'none' : `1px solid ${P.line}`,
                 }}
               >
                 <span
                   style={{
                     fontSize: '15.5px',
                     fontWeight: 700,
-                    color: C.body,
+                    color: P.textMuted,
                     width: '96px',
                     flex: 'none',
                   }}
@@ -1269,7 +1304,9 @@ export function Register(): React.ReactElement {
                   style={{
                     fontSize: '17px',
                     fontWeight: 600,
-                    color: s.warn === true ? C.alertDeep : C.navy,
+                    // 요약의 "주의" 표시는 오류가 아니라 포인트다 —
+                    // 위험 레드가 아니라 포인트 오렌지를 쓴다.
+                    color: s.warn === true ? P.accentText : P.text,
                     flex: 1,
                     lineHeight: 1.45,
                   }}
@@ -1286,7 +1323,7 @@ export function Register(): React.ReactElement {
           <div
             style={{
               background: C.white,
-              border: `1.5px solid ${C.border}`,
+              border: `1.5px solid ${P.line}`,
               borderRadius: '18px',
               padding: '19px 20px',
               marginBottom: '14px',
@@ -1296,7 +1333,7 @@ export function Register(): React.ReactElement {
               style={{
                 fontSize: '17px',
                 fontWeight: 800,
-                color: C.navy,
+                color: P.text,
                 letterSpacing: '-.02em',
                 marginBottom: '14px',
               }}
@@ -1332,7 +1369,7 @@ export function Register(): React.ReactElement {
           <div
             style={{
               background: C.white,
-              border: `1.5px solid ${C.border}`,
+              border: `1.5px solid ${P.line}`,
               borderRadius: '18px',
               padding: '19px 20px',
             }}
@@ -1341,7 +1378,7 @@ export function Register(): React.ReactElement {
               style={{
                 fontSize: '16.5px',
                 fontWeight: 800,
-                color: C.navy,
+                color: P.text,
                 letterSpacing: '-.02em',
                 marginBottom: '12px',
               }}
@@ -1360,8 +1397,8 @@ export function Register(): React.ReactElement {
                       width: '22px',
                       height: '22px',
                       borderRadius: '50%',
-                      background: C.tealBg,
-                      color: C.tealText,
+                      background: P.primaryBg,
+                      color: P.primaryText,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -1377,7 +1414,7 @@ export function Register(): React.ReactElement {
                     style={{
                       fontSize: '16px',
                       lineHeight: 1.55,
-                      color: C.body,
+                      color: P.textMuted,
                       textWrap: 'pretty',
                     }}
                   >
@@ -1398,12 +1435,14 @@ export function Register(): React.ReactElement {
               width: '96px',
               height: '96px',
               borderRadius: '50%',
-              background: C.safe,
+              // 새 팔레트엔 별도 성공-초록이 없다 — 완료 표시도 메인 블루로
+              // 통일한다(예전 초록 C.safe 제거).
+              background: P.primary,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               margin: '0 auto 26px',
-              boxShadow: '0 14px 32px -14px rgba(11,122,92,.6)',
+              boxShadow: '0 14px 32px -14px rgba(24,119,242,.6)',
             }}
           >
             <svg
@@ -1417,7 +1456,7 @@ export function Register(): React.ReactElement {
             style={{
               fontSize: '27px',
               fontWeight: 800,
-              color: C.navy,
+              color: P.text,
               letterSpacing: '-.025em',
               lineHeight: 1.35,
               margin: '0 0 13px',
@@ -1430,7 +1469,7 @@ export function Register(): React.ReactElement {
             style={{
               fontSize: '17.5px',
               lineHeight: 1.62,
-              color: C.body,
+              color: P.textMuted,
               margin: '0 0 30px',
               textWrap: 'pretty',
             }}
@@ -1463,7 +1502,7 @@ export function Register(): React.ReactElement {
               style={{
                 fontSize: '17px',
                 fontWeight: 800,
-                color: C.navy,
+                color: P.text,
                 letterSpacing: '-.02em',
                 marginBottom: '9px',
               }}
@@ -1474,7 +1513,7 @@ export function Register(): React.ReactElement {
               style={{
                 fontSize: '16.5px',
                 lineHeight: 1.62,
-                color: C.body,
+                color: P.textMuted,
                 textWrap: 'pretty',
               }}
             >
@@ -1495,8 +1534,8 @@ export function Register(): React.ReactElement {
               width: '100%',
               minHeight: '56px',
               background: C.white,
-              border: `1.5px solid ${C.tealText}`,
-              color: C.tealText,
+              border: `1.5px solid ${P.primary}`,
+              color: P.primaryText,
               borderRadius: '14px',
               padding: '15px',
               fontFamily: 'inherit',
@@ -1519,7 +1558,7 @@ export function Register(): React.ReactElement {
               marginTop: '12px',
               background: 'none',
               border: 'none',
-              color: C.body,
+              color: P.textMuted,
               borderRadius: '14px',
               padding: '13px',
               fontFamily: 'inherit',
@@ -1542,22 +1581,24 @@ export function Register(): React.ReactElement {
             position: 'sticky',
             bottom: 0,
             padding: '14px 22px 22px',
+            // 페이지 배경(P.bg = #F8F9FA)과 이어지는 그라데이션 — 예전
+            // 배경색(#F4F8F7) 대신 새 배경색의 rgb 로 톤을 맞춘다.
             background:
-              'linear-gradient(180deg,rgba(244,248,247,0),rgba(244,248,247,.97) 34%)',
+              'linear-gradient(180deg,rgba(248,249,250,0),rgba(248,249,250,.97) 34%)',
           }}
         >
           {error !== null && (
             <div
               role="alert"
               style={{
-                background: C.alertBg,
-                border: `1.5px solid ${C.alertBorder}`,
+                background: P.dangerBg,
+                border: `1.5px solid ${P.danger}`,
                 borderRadius: '13px',
                 padding: '13px 15px',
                 marginBottom: '11px',
                 fontSize: '16px',
                 fontWeight: 700,
-                color: '#9B1024',
+                color: P.dangerText,
                 letterSpacing: '-.015em',
                 textWrap: 'pretty',
               }}
@@ -1572,7 +1613,7 @@ export function Register(): React.ReactElement {
             style={{
               width: '100%',
               minHeight: '62px',
-              background: submitting ? C.tertiary : C.tealText,
+              background: submitting ? P.textMuted : P.primary,
               color: C.white,
               border: 'none',
               borderRadius: '16px',
@@ -1584,37 +1625,15 @@ export function Register(): React.ReactElement {
               cursor: submitting ? 'progress' : 'pointer',
               boxShadow: submitting
                 ? 'none'
-                : '0 12px 28px -12px rgba(11,110,105,.55)',
+                : '0 12px 28px -12px rgba(24,119,242,.55)',
             }}
           >
             {submitting
               ? '등록하는 중…'
-              : step === 'confirm'
+              : step === 'guardian'
                 ? '이대로 등록하기'
                 : '다음'}
           </button>
-          {step === 'care' && (
-            <button
-              type="button"
-              onClick={next}
-              style={{
-                width: '100%',
-                minHeight: '50px',
-                marginTop: '9px',
-                background: 'none',
-                border: 'none',
-                color: C.body,
-                fontFamily: 'inherit',
-                fontSize: '16px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                textDecoration: 'underline',
-                textUnderlineOffset: '3px',
-              }}
-            >
-              잘 모르겠어요 · 건너뛰기
-            </button>
-          )}
         </div>
       )}
     </main>
@@ -1647,8 +1666,8 @@ function ConsentRow({
         display: 'flex',
         gap: '12px',
         alignItems: 'flex-start',
-        background: checked ? C.tealBg : C.bg,
-        border: `1.5px solid ${checked ? C.tealText : C.border}`,
+        background: checked ? P.primaryBg : P.bg,
+        border: `1.5px solid ${checked ? P.primary : P.line}`,
         borderRadius: '13px',
         padding: '14px 15px',
         cursor: 'pointer',
@@ -1664,7 +1683,7 @@ function ConsentRow({
         style={{
           width: '24px',
           height: '24px',
-          accentColor: C.tealText,
+          accentColor: P.primary,
           margin: '1px 0 0',
           flex: 'none',
         }}
@@ -1675,7 +1694,7 @@ function ConsentRow({
             display: 'block',
             fontSize: '16.5px',
             fontWeight: 700,
-            color: C.navy,
+            color: P.text,
             letterSpacing: '-.015em',
             marginBottom: '3px',
           }}
@@ -1687,7 +1706,7 @@ function ConsentRow({
             display: 'block',
             fontSize: '15px',
             lineHeight: 1.55,
-            color: C.body,
+            color: P.textMuted,
             textWrap: 'pretty',
           }}
         >
