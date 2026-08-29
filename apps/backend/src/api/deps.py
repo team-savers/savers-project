@@ -13,7 +13,7 @@ from functools import lru_cache
 
 from backend_core.ai_client import AiEngineClient, HttpAiEngineClient
 from backend_core.config import Settings, get_settings
-from backend_core.dispatch import Dispatcher, RecordingDispatcher
+from backend_core.dispatch import Dispatcher, create_dispatcher
 from backend_core.registry import ResidentRegistry, seed_registry
 from backend_core.sessions import SessionStore
 from backend_core.shelters import (
@@ -45,8 +45,13 @@ def sessions() -> SessionStore:
 
 @lru_cache(maxsize=1)
 def dispatcher() -> Dispatcher:
-    """Recording dispatcher until FCM Admin credentials exist on the deployed VM."""
-    return RecordingDispatcher()
+    """Resolve and validate the explicitly configured push channel once per process."""
+    config = settings()
+    return create_dispatcher(
+        config.push_channel,
+        config.fcm_service_account_path,
+        ttl_seconds=config.session_ttl_s,
+    )
 
 
 @lru_cache(maxsize=1)
