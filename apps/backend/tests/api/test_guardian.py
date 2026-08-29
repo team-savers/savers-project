@@ -133,7 +133,7 @@ def test_delete_device_removes_and_absent_token_still_200(
     assert again.status_code == 200
 
 
-# ── GET status: pushEnabled ───────────────────────────────────────────────────
+# ── GET status: pushEnabled / lastNotice ──────────────────────────────────────
 
 
 def test_status_push_enabled_true_when_guardian_device_present(
@@ -143,6 +143,7 @@ def test_status_push_enabled_true_when_guardian_device_present(
     record = _session(sessions, event, user_id="p001")
     body = client.get(f"/v1/guardian/{record.guardian_token}").json()
     assert body["pushEnabled"] is True
+    assert body["lastNotice"] == "none"
 
 
 def test_status_push_enabled_false_without_guardian_device(
@@ -152,6 +153,36 @@ def test_status_push_enabled_false_without_guardian_device(
     record = _session(sessions, event, user_id="p002")
     body = client.get(f"/v1/guardian/{record.guardian_token}").json()
     assert body["pushEnabled"] is False
+    assert body["lastNotice"] == "none"
+
+
+def test_status_last_notice_first_is_independent_of_current_device_state(
+    client: TestClient, sessions: SessionStore, event: DisasterEvent
+) -> None:
+    record = _session(sessions, event, user_id="p002")
+    sessions.append_system_event(record, "guardian_informed")
+
+    body = client.get(f"/v1/guardian/{record.guardian_token}").json()
+
+    assert body["pushEnabled"] is False
+    assert body["lastNotice"] == "first"
+
+
+@pytest.mark.parametrize("include_first", [False, True])
+def test_status_last_notice_followup_wins_with_or_without_first_notice(
+    client: TestClient,
+    sessions: SessionStore,
+    event: DisasterEvent,
+    include_first: bool,
+) -> None:
+    record = _session(sessions, event, user_id="p001")
+    if include_first:
+        sessions.append_system_event(record, "guardian_informed")
+    sessions.append_system_event(record, "guardian_notified")
+
+    body = client.get(f"/v1/guardian/{record.guardian_token}").json()
+
+    assert body["lastNotice"] == "followup"
 
 
 # ── No token / coordinate leakage ─────────────────────────────────────────────

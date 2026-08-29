@@ -265,6 +265,7 @@ def run_alert(
 
         link = deep_link(public_base_url, session.token, stage)
         notified = 0
+        first_ward_accept_latency_ms: float | None = None
         for token in ward_devices:
             payload = PushPayload(
                 device_token=token,
@@ -287,6 +288,8 @@ def run_alert(
                 accepted = False
             if accepted:
                 if notified == 0:
+                    acceptance_elapsed_s = perf_counter() - clock_start
+                    first_ward_accept_latency_ms = acceptance_elapsed_s * 1000
                     # First device the push service accepted. Recorded once — no device or an
                     # all-failed send leaves this event absent, which is itself a fact.
                     # Stamped on the same injected+monotonic basis as `started`/`finished_at`,
@@ -295,10 +298,16 @@ def run_alert(
                     sessions.append_system_event(
                         session,
                         "push_accepted",
-                        now=started + timedelta(seconds=perf_counter() - clock_start),
+                        now=started + timedelta(seconds=acceptance_elapsed_s),
                     )
                 notified += 1
 
+        latency_ms = first_ward_accept_latency_ms
+        if latency_ms is None:
+            # No M1 endpoint exists for an all-failed delivery, but the API's required float
+            # remains the loop-end elapsed time for backward compatibility. AlertRun excludes
+            # this value from its KPI sample because devices_notified is zero.
+            latency_ms = (perf_counter() - clock_start) * 1000
         run.deliveries.append(
             Delivery(
                 user_id=profile.user_id,
@@ -307,7 +316,7 @@ def run_alert(
                 stage=stage,
                 message_mode=message.message_mode,
                 devices_notified=notified,
-                latency_ms=(perf_counter() - clock_start) * 1000,
+                latency_ms=latency_ms,
             )
         )
 
