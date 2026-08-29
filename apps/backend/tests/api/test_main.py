@@ -40,6 +40,7 @@ def test_health(client: TestClient) -> None:
 
 def test_dispatch_reports_the_kpi_fields(client: TestClient) -> None:
     body = _dispatch(client)
+    assert body["channel"] == "recording"
     assert body["matched"] == 2
     assert body["dispatched"] == 2
     assert body["meanLatencyMs"] >= 0
