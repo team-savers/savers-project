@@ -22,6 +22,14 @@
   (보호자 관계, 기기 유무, 종료 이벤트 조건이 빠져 있었다),
   1차 통지를 보류할 때 보호자 등록을 어떻게 하는지가 어디에도 없었다.
   뒤쪽은 적지 않으면 구현이 갈리는 자리라 결정 5번으로 올린다
+- **개정**: 2026-08-29(2), 제안 상태에서 계약에 구현 상태 주석을 되살렸다.
+  승인 전이므로 사후편집 금지에 해당하지 않는다.
+  [PR 222](https://github.com/team-savers/savers-project/pull/222) 리뷰에서
+  안은남 (PM) 이 지적했다 -
+  종전 계약 산문에 있던 "서버에 아직 없습니다" 를 지우고 이 전제를 현재 동작처럼 적어,
+  같은 PR 이 고친 `packages/contracts/README.md` 는 "구현 중" 인데 계약만 완료로 읽혔다.
+  머지 순서 주의만으로는 그 오독을 막지 못하므로
+  `POST /v1/devices` 설명에 상태 문단을 다시 두고, 지우는 일을 후속 조치 표에 담는다
 - **날짜**: 2026-08-29
 - **결정자**: 신호정 (Tech Lead) 작성 / 안은남 (PM, QA/보안) 확인 대기.
   발송 조건은 계약이 서술하는 동작이라 Tech Lead 소관이고,
@@ -98,7 +106,8 @@ Backend 가 물은 두 조합은 이 문장이 참인지가 갈리는 자리다.
    결정 1번 그대로 둔다.**
    조건을 좁히면 그 문장이 참이 되므로 문안을 고칠 이유가 없다.
    실패 전용 문안을 새로 만들지 않는다(아래 대안 절).
-3. **계상 4종의 모수는 "`ward` 접수가 성립한 세션" 이다. 새 필드를 만들지 않는다.**
+3. **계상 4종의 모수는 "`ward` 접수가 성립한 세션" 이다.
+   새 필드를 만들지 않는다.**
    - 불변식이 하나 선다:
      `guardian_dispatched + guardian_skipped_no_device == AlertRun.accepted`.
      이슈 218 이 정한 필드 넷은 그대로이고, 모수만 정의된다.
@@ -199,7 +208,7 @@ Backend 가 물은 두 조합은 이 문장이 참인지가 갈리는 자리다.
 | 계약 v0.11. 서문 변경 이력, `device` 태그 설명, `POST /v1/devices` 설명, `GuardianInformedEvent`, `DeviceRegisterRequest.role`, `GuardianStatus.lastNotice` 판독표 | Tech Lead | 완료, 이 PR |
 | [packages/contracts/README.md](../../packages/contracts/README.md) 의 "계약에만 있고 구현 전" 표기 | Tech Lead | 완료, 이 PR |
 | [ADR-0015](0015-guardian-device-registration.md) 후속 조치 표에 이 전제를 적는다. **관련 세 행은 완료로 옮기지 않는다** - [PR 221](https://github.com/team-savers/savers-project/pull/221) 에 이 전제가 아직 들어가지 않았고, 머지도 되지 않았다 | Tech Lead | 완료, 이 PR |
-| [PR 221](https://github.com/team-savers/savers-project/pull/221) 머지 뒤 [ADR-0015](0015-guardian-device-registration.md) 후속 조치 표의 세 행(1차 dispatch 확장, `devices_notified` 역할 무구분, 계상 4종)을 완료로 옮긴다 | Tech Lead | 대기, PR 221 뒤 |
+| [PR 221](https://github.com/team-savers/savers-project/pull/221) 머지 뒤 [ADR-0015](0015-guardian-device-registration.md) 후속 조치 표의 세 행(1차 dispatch 확장, `devices_notified` 역할 무구분, 계상 4종)을 완료로 옮긴다. 같은 PR 에서 계약 `POST /v1/devices` 설명의 "서버에 아직 들어가 있지 않습니다" 문단을 지우고, 그 세 행이 인용하는 `pipeline.py` 행 번호가 그때 다시 어긋나므로 함께 손본다([PR 222](https://github.com/team-savers/savers-project/pull/222) PM 리뷰 경미 항목) | Tech Lead | 대기, PR 221 뒤 |
 | **머지 순서: 이 PR 은 [PR 221](https://github.com/team-savers/savers-project/pull/221) 뒤에 선다.** 뒤집히면 계약이 구현보다 앞서 "전제를 만족할 때 보낸다" 를 적어 두는데, 그 시점의 코드는 전건 실패에도 보내고 있다 | Tech Lead | 대기 |
 | [후속_과제.md](../공통_가이드/후속_과제.md) 17번(워킹_스켈레톤_설명.md 161행 등 세 곳)을 닫는다. 이 결정의 전제도 함께 적는다 | Tech Lead | 대기, PR 221 뒤 |
 | **실패 전용 보호자 통지 문안**(위 대안 D). 피보호자에게 안내가 닿지 않은 것을 보호자에게 즉시 알리는 별도 문안이며, 사전 승인 문안이므로 QA/보안이 확정한다 | PM | 본선 후 |

@@ -74,7 +74,7 @@
   결정 2번은 1차가 `ward` 와 `guardian` 양쪽으로 나간다는 것까지 정하고
   **`ward` 발송이 성립하지 않은 세션에서도 보호자 통지를 보내는지** 를 답하지 않았는데,
   그 공백을 [ADR-0024](0024-guardian-first-notice-requires-ward-acceptance.md) 가 채웠다
-  (1차 통지는 `push_accepted` 가 남은 세션에만 나간다).
+  (1차 통지는 `push_accepted` 가 남은 세션에만 나간다. **제안 상태이며 PM 확인 대기다**).
   **결정 2번을 고치지 않고 별도 ADR 로 둔 이유는 승인된 결정 본문의 사후 편집이기 때문이다** -
   [ADR-0005](0005-webpush-primary-channel.md) 의 예외 넷 어디에도 해당하지 않는다.
   여기서는 그 결정을 가리키는 행 하나를 표에 더하고,
