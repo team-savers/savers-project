@@ -91,6 +91,11 @@ export function EvacuationActions({ token, guardian, shelterContent }: Props) {
       setStage('help')
     })
 
+  const returnFromHelp = () => {
+    attempts.current.delete('help_request_selected')
+    setStage('choice')
+  }
+
   const chooseEvacuation = () =>
     run(async () => {
       await record('direct_evacuation_selected')
@@ -202,40 +207,39 @@ export function EvacuationActions({ token, guardian, shelterContent }: Props) {
             보호자에게 전화하기
           </a>
         )}
-        <button type="button" onClick={() => setStage('choice')} style={secondary}>
+        <button type="button" onClick={returnFromHelp} style={secondary}>
           이전으로
         </button>
       </section>
     )
   }
 
-  if (stage === 'guidance') {
+  if (stage === 'guidance' || stage === 'route') {
     return (
       <>
+        {stage === 'route' ? (
+          <section style={card} aria-labelledby="evacuation-route-title">
+            <h2 id="evacuation-route-title" style={{ margin: '0 0 8px', color: C.navy, fontSize: '22px' }}>
+              경로 안내
+            </h2>
+            <p style={{ margin: 0, color: C.body, lineHeight: 1.55 }}>
+              현재는 대피소 위치와 거리 안내만 제공합니다. 이동 중 공식 재난 안내를 함께 확인하세요.
+            </p>
+          </section>
+        ) : null}
         {shelterContent}
         <section style={card}>
-          <button type="button" disabled={pending} onClick={() => void startRoute()} style={primary}>
-            경로 확인하기
-          </button>
+          {stage === 'guidance' ? (
+            <button type="button" disabled={pending} onClick={() => void startRoute()} style={primary}>
+              경로 확인하기
+            </button>
+          ) : (
+            <button type="button" disabled={pending} onClick={() => void confirmArrival()} style={primary}>
+              도착했어요
+            </button>
+          )}
         </section>
       </>
-    )
-  }
-
-  if (stage === 'route') {
-    return (
-      <section style={card} aria-labelledby="evacuation-route-title">
-        <h2 id="evacuation-route-title" style={{ margin: '0 0 8px', color: C.navy, fontSize: '22px' }}>
-          경로 안내
-        </h2>
-        <p style={{ margin: '0 0 16px', color: C.body, lineHeight: 1.55 }}>
-          현재는 대피소 위치와 거리 안내만 제공합니다. 이동 중 공식 재난 안내를 함께 확인하세요.
-        </p>
-        {shelterContent}
-        <button type="button" disabled={pending} onClick={() => void confirmArrival()} style={primary}>
-          도착했어요
-        </button>
-      </section>
     )
   }
 
