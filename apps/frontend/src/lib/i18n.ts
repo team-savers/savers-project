@@ -77,6 +77,7 @@ export type StringKey =
   | 'evacuation.event.retry'
   | 'evacuation.event.retrying'
   | 'evacuation.event.continueGuidance'
+  | 'evacuation.event.continueHelp'
   // Landing — address fallback
   | 'landing.addressUnknown'
   // Landing — 위치 카드의 등록 주소 라벨. 히어로 위치 카드에서 사용자가
@@ -354,6 +355,10 @@ const DICTIONARY: Dictionary = {
   'evacuation.event.continueGuidance': {
     ko: '기록 없이 대피소 보기',
     vi: 'Xem nơi trú ẩn mà không lưu hành động',
+  },
+  'evacuation.event.continueHelp': {
+    ko: '기록 없이 도움 요청 계속하기',
+    vi: 'Tiếp tục yêu cầu trợ giúp mà không lưu hành động',
   },
   'landing.addressUnknown': {
     ko: '주소 미확인',

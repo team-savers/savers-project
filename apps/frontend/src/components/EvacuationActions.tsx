@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { api } from '../api/client'
 import type { Language, Profile, UserActionEventType } from '../api/types'
-import { t } from '../lib/i18n'
+import { t, type StringKey } from '../lib/i18n'
 import { C, SHADOW_CARD, touchTarget } from '../lib/tokens'
 
 type Stage = 'choice' | 'help' | 'guidance' | 'route' | 'arrived'
@@ -11,6 +11,11 @@ interface EventAttempt {
   key: string
   promise: Promise<void> | null
   succeeded: boolean
+}
+
+interface ContinueAction {
+  run: () => void
+  labelKey: StringKey
 }
 
 interface Props {
@@ -34,7 +39,7 @@ export function EvacuationActions({ token, guardian, shelterContent, lang }: Pro
   const attempts = useRef(new Map<EmptyPayloadEventType, EventAttempt>())
   const call119Attempt = useRef<EventAttempt | null>(null)
   const retryAction = useRef<(() => Promise<void>) | null>(null)
-  const continueAction = useRef<(() => void) | null>(null)
+  const continueAction = useRef<ContinueAction | null>(null)
 
   const postAttempt = (type: EmptyPayloadEventType, attempt: EventAttempt): Promise<void> => {
     if (attempt.succeeded) return Promise.resolve()
@@ -73,7 +78,7 @@ export function EvacuationActions({ token, guardian, shelterContent, lang }: Pro
     return postAttempt('emergency_call_119_selected', call119Attempt.current)
   }
 
-  const run = async (action: () => Promise<void>, continueWithoutRecord: (() => void) | null = null) => {
+  const run = async (action: () => Promise<void>, continueWithoutRecord: ContinueAction | null = null) => {
     if (pending) return
     retryAction.current = action
     continueAction.current = continueWithoutRecord
@@ -90,11 +95,21 @@ export function EvacuationActions({ token, guardian, shelterContent, lang }: Pro
     }
   }
 
+  const continueToHelp = () => {
+    setError(null)
+    retryAction.current = null
+    continueAction.current = null
+    setStage('help')
+  }
+
   const chooseHelp = () =>
-    run(async () => {
-      await record('help_request_selected')
-      setStage('help')
-    })
+    run(
+      async () => {
+        await record('help_request_selected')
+        setStage('help')
+      },
+      { run: continueToHelp, labelKey: 'evacuation.event.continueHelp' },
+    )
 
   const returnFromHelp = () => {
     attempts.current.delete('help_request_selected')
@@ -115,7 +130,7 @@ export function EvacuationActions({ token, guardian, shelterContent, lang }: Pro
         await record('evacuation_guidance_viewed')
         setStage('guidance')
       },
-      continueToGuidance,
+      { run: continueToGuidance, labelKey: 'evacuation.event.continueGuidance' },
     )
 
   const startRoute = () =>
@@ -180,8 +195,8 @@ export function EvacuationActions({ token, guardian, shelterContent, lang }: Pro
         {pending ? t('evacuation.event.retrying', lang) : t('evacuation.event.retry', lang)}
       </button>
       {continueAction.current !== null && (
-        <button type="button" disabled={pending} onClick={continueAction.current} style={secondary}>
-          {t('evacuation.event.continueGuidance', lang)}
+        <button type="button" disabled={pending} onClick={continueAction.current.run} style={secondary}>
+          {t(continueAction.current.labelKey, lang)}
         </button>
       )}
     </div>
