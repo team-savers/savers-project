@@ -33,10 +33,17 @@ dev = [
     #    올릴 때는 세 파일(여기·ai-engine·.pre-commit-config.yaml)을 같은 PR에서 함께.
     "ruff==0.16.4",
     "mypy>=1.10.0",
+    # 경로 core 테스트는 외부 다운로드 없이 작은 인메모리 그래프만 만듭니다.
+    # OSMnx와 지오 스택 전체는 아래 geo extra에만 둡니다.
+    "networkx>=3.4.0,<4",
+    "types-networkx>=3.4.2.20250515",
 ]
 # ── 무거운 의존성(DB 드라이버, 지오 연산 등)은 core에 넣지 말고 별도 extra로 분리할 것.
 #    CI/기본 설치를 가볍게 유지하는 장치입니다. 예: pip install -e "./apps/backend[geo]"
-# geo = ["shapely>=2.0.0"]
+geo = [
+    "networkx>=3.4.0,<4",
+    "osmnx>=2.0.0,<3",
+]
 # ── FCM 실전 발송 어댑터(FcmDispatcher) 전용. 배포 VM에서만 설치합니다:
 #    pip install -e "./apps/backend[fcm]". CI와 로컬 테스트는 RecordingDispatcher를 쓰고
 #    dispatch._load_firebase를 목으로 대체하므로 firebase-admin 없이 그대로 돕니다.
@@ -77,6 +84,12 @@ no_implicit_optional = true
 # ai-engine의 langchain·chromadb 처리와 같은 방식으로 미싱 임포트만 무시합니다.
 [[tool.mypy.overrides]]
 module = ["firebase_admin.*"]
+ignore_missing_imports = true
+
+# osmnx는 geo extra 전용이라 기본 CI 설치에는 없습니다. 경로 core의 networkx 타입은
+# types-networkx로 검사하고, 실제 OSM 다운로드 seam의 선택 의존성만 무시합니다.
+[[tool.mypy.overrides]]
+module = ["osmnx", "osmnx.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
