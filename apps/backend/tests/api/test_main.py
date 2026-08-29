@@ -40,10 +40,23 @@ def test_health(client: TestClient) -> None:
 
 def test_dispatch_reports_the_kpi_fields(client: TestClient) -> None:
     body = _dispatch(client)
+    assert body["channel"] == "recording"
     assert body["matched"] == 2
     assert body["dispatched"] == 2
     assert body["meanLatencyMs"] >= 0
     assert body["p95LatencyMs"] >= 0
+
+
+def test_dispatch_reports_guardian_first_notice_counts(client: TestClient) -> None:
+    """보호자 1차 통지 계상 4종이 camelCase 별칭으로 응답에 실린다(ADR-0015 결정 2, 이슈 #218).
+
+    시드 기준 p001 은 보호자 기기 보유(통지 시도·접수), p002 는 `guardian: null`(skip).
+    RecordingDispatcher 는 항상 접수하므로 예외 발송은 0 이다."""
+    body = _dispatch(client)
+    assert body["guardianDispatched"] == 1
+    assert body["guardianAccepted"] == 1
+    assert body["guardianSkippedNoDevice"] == 1
+    assert body["guardianSendErrors"] == 0
 
 
 def test_session_response_shape_and_no_store(client: TestClient) -> None:

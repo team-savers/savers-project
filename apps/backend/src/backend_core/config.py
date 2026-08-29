@@ -6,8 +6,9 @@ that needs a filled-in .env before it moves is not walking.
 """
 
 from pathlib import Path
+from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,6 +31,17 @@ class Settings(BaseSettings):
     # Durable backing for session links, interaction state, event facts and idempotency.
     # Tests keep SessionStore's :memory: default; runtime explicitly injects this path.
     session_db_path: str = str(Path.home() / ".savers" / "savers_sessions.sqlite3")
+
+    # Explicit channel selection (ADR-0023). Credentials never select the channel
+    # implicitly: a misspelled path must fail an fcm startup, not downgrade to recording.
+    push_channel: Literal["recording", "fcm"] = "recording"
+    fcm_service_account_path: Path | None = None
+
+    @field_validator("fcm_service_account_path", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, value: object) -> object:
+        """compose's `${VAR:-}` sets an empty string; that means unset, not Path(".")."""
+        return None if isinstance(value, str) and not value.strip() else value
 
     # Event-log-derived closed-loop timing (ADR-0012). Both must stay positive: zero would
     # turn the reconciler into a busy loop and make every newly dispatched session due.

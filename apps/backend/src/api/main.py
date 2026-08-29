@@ -7,6 +7,7 @@ Contract: packages/contracts/openapi.yaml — both the frontend-facing paths ser
 and the `generation` 태그 paths this app calls on apps/ai-engine (ADR-0006).
 """
 
+import logging
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -33,6 +34,8 @@ from api.routes import (
 from backend_core.closed_loop import ReconcileWorker, reconcile_once
 from backend_core.models import ErrorBody
 
+logger = logging.getLogger(__name__)
+
 
 def _resolved(application: FastAPI, provider: Callable[[], Any]) -> Any:
     """Resolve a zero-argument provider, honoring the same test overrides as requests."""
@@ -41,13 +44,21 @@ def _resolved(application: FastAPI, provider: Callable[[], Any]) -> Any:
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
+    """Validate push first, then run closed-loop reconciliation with that dispatcher."""
+    push = _resolved(application, deps.dispatcher)
+    application.state.push_channel = push.channel
+    logger.info("push channel selected: %s", push.channel)
+
     config = _resolved(application, deps.settings)
+    store = _resolved(application, deps.sessions)
+    residents = _resolved(application, deps.registry)
+    ai = _resolved(application, deps.ai_client)
     worker = ReconcileWorker(
         lambda previous_observed_at, observed_at, bootstrap_late_cycle: reconcile_once(
-            _resolved(application, deps.sessions),
-            _resolved(application, deps.registry),
-            _resolved(application, deps.dispatcher),
-            ai=_resolved(application, deps.ai_client),
+            store,
+            residents,
+            push,
+            ai=ai,
             followup_after_s=config.followup_after_s,
             reconcile_interval_s=config.reconcile_interval_s,
             public_base_url=config.public_base_url,
