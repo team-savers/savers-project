@@ -19,29 +19,32 @@ from backend_core.events import (
     UserActionEventCreate,
     UserActionEventType,
 )
+from backend_core.models import GuardianAnswer, GuardianEvidence
 
 
-def test_event_taxonomy_is_twelve_user_plus_five_system() -> None:
-    """계약 discriminator 17종 = 사용자 행동 12 + 시스템 5. followup_unreachable이 다섯째다."""
+def test_event_taxonomy_is_twelve_user_plus_six_system() -> None:
+    """계약 discriminator 18종 = 사용자 행동 12 + 시스템 6."""
     user = set(get_args(UserActionEventType))
     system = set(get_args(SystemEventType))
     assert len(user) == 12
     assert system == {
         "alert_dispatched",
         "push_accepted",
+        "guardian_informed",
         "followup_due",
         "followup_unreachable",
         "guardian_notified",
     }
     assert user.isdisjoint(system)
-    assert len(user | system) == 17
+    assert len(user | system) == 18
 
 
-def test_once_per_session_set_is_arrival_plus_the_five_system_events() -> None:
+def test_once_per_session_set_is_arrival_plus_the_six_system_events() -> None:
     assert set(ONCE_PER_SESSION) == {
         "arrival_confirmed_by_user",
         "alert_dispatched",
         "push_accepted",
+        "guardian_informed",
         "followup_due",
         "followup_unreachable",
         "guardian_notified",
@@ -178,6 +181,31 @@ def test_followup_unreachable_must_carry_empty_payload() -> None:
         SessionEvent(type="followup_unreachable", at=now, payload={"guidanceStep": 2})
     with pytest.raises(ValidationError):  # 좌표는 어떤 이름으로도 거부
         SessionEvent(type="followup_unreachable", at=now, payload={"lat": 37.5})
+
+
+def test_guardian_informed_is_an_empty_payload_system_event() -> None:
+    now = datetime(2026, 8, 24, 3, 12, tzinfo=UTC)
+    event = SessionEvent(type="guardian_informed", at=now)
+    assert event.payload == {}
+    with pytest.raises(ValidationError):
+        SessionEvent(type="guardian_informed", at=now, payload={"guidanceStep": 2})
+    with pytest.raises(ValidationError):
+        SessionEvent(type="guardian_informed", at=now, payload={"lat": 37.5})
+
+
+@pytest.mark.parametrize("question_id", ["evacuation_progress", "help_request", "arrival_status"])
+def test_guardian_informed_is_evidence_type_but_outside_current_question_scopes(
+    question_id: str,
+) -> None:
+    evidence = GuardianEvidence(type="guardian_informed", present=True, at="2026-08-24T03:12:00Z")
+    assert evidence.type == "guardian_informed"
+    with pytest.raises(ValidationError, match="outside the question citation scope"):
+        GuardianAnswer(
+            question_id=question_id,
+            answer="보호자에게 정보성 통지를 보냈습니다.",
+            sources=[evidence],
+            refusal_reason=None,
+        )
 
 
 def test_post_response_model_narrows_to_user_action_types() -> None:
