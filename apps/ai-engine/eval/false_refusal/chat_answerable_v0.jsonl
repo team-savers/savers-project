@@ -1,0 +1,34 @@
+{"id": "fr-001", "question": "지하 주차장에 차를 세워 뒀는데 지금 빼러 가도 되나요?", "note": "지하 공간 접근 금지는 코퍼스가 직접 답한다. 침수 상황에서 가장 자주 나오는 질문이라 거절되면 안 된다", "shouldAnswer": true, "anchors": {"real": "지하 공간", "dummy": "placeholder-heavy-rain-007"}}
+{"id": "fr-002", "question": "물이 무릎까지 찼는데 걸어서 나가도 되나요?", "note": "수심 기준 통행 판단. 원문이 무릎 높이를 명시적으로 다룬다", "shouldAnswer": true, "anchors": {"real": "무릎 위로 물이 흐르는", "dummy": "placeholder-heavy-rain-002"}}
+{"id": "fr-003", "question": "집에 물이 들어오기 시작했어요. 전기는 어떻게 해야 하나요?", "note": "차단기·가스 밸브 조치는 원문에 그대로 있다. 감전은 즉시 위험이라 거절 비용이 가장 큰 축", "shouldAnswer": true, "anchors": {"real": "전기차단기를 내리고 가스 밸브를 잠급", "dummy": "placeholder-heavy-rain-004"}}
+{"id": "fr-004", "question": "차를 타고 대피해도 되나요?", "note": "침수 지역 운전 금지. 대피 수단 선택은 3단계 신호등 화면에서 바로 이어지는 질문이다", "shouldAnswer": true, "anchors": {"real": "침수된 지역에서 자동차를 운전", "dummy": "placeholder-flood-009"}}
+{"id": "fr-005", "question": "지하차도로 지나가도 될까요?", "note": "지하차도 통행 금지는 원문이 「엄격히 금지」로 못박은 항목이다", "shouldAnswer": true, "anchors": {"real": "지하차도", "dummy": "placeholder-heavy-rain-002"}}
+{"id": "fr-006", "question": "혼자 사시는 어머니가 걱정돼요. 어떻게 해야 하나요?", "note": "홀로 계신 어르신 대피 지원. 보호자가 등록을 대신하는 서비스 특성상 빈도가 높다", "shouldAnswer": true, "anchors": {"real": "홀로계신 어르신", "dummy": "placeholder-heavy-rain-005"}, "recipient": {"livesAlone": true, "mobility": "slow"}}
+{"id": "fr-007", "question": "구조 요청은 어디로 하나요?", "note": "119 신고는 원문에 명시. 고립 상황의 최후 경로라 거절되면 대체 안내가 없다", "shouldAnswer": true, "anchors": {"real": "119에 신고", "dummy": "placeholder-flood-010"}}
+{"id": "fr-008", "question": "대피소에 도착하면 뭘 해야 하나요?", "note": "도착 사실 알림·통제 준수. 폐루프 도착 확인 화면과 직결되는 질문이다", "shouldAnswer": true, "anchors": {"real": "도착사실을 알리고"}}
+{"id": "fr-009", "question": "밖에 나가야 하는데 어느 길로 가야 하나요?", "note": "대피 경로에서 피할 곳이 원문에 열거돼 있다", "shouldAnswer": true, "anchors": {"real": "대피경로는 하천변", "dummy": "placeholder-heavy-rain-003"}}
+{"id": "fr-010", "question": "정전됐어요. 촛불을 켜도 되나요?", "note": "양초 금지·랜턴 사용은 원문이 직접 답한다", "shouldAnswer": true, "anchors": {"real": "양초를 사용하지 말고"}}
+{"id": "fr-011", "question": "물이 빠졌는데 집에 바로 들어가도 되나요?", "note": "붕괴 점검 전 출입 금지. 호우 이후 단계 원문이 답한다", "shouldAnswer": true, "anchors": {"real": "바로 들어가지 말고"}}
+{"id": "fr-012", "question": "수돗물을 그냥 마셔도 되나요?", "note": "오염 여부 확인 후 사용. 원문에 그대로 있다", "shouldAnswer": true, "anchors": {"real": "저장식수도 오염 여부를"}}
+{"id": "fr-013", "question": "물에 잠겼던 음식을 먹어도 되나요?", "note": "침수 식품 식중독 경고가 원문에 있다", "shouldAnswer": true, "anchors": {"real": "식중독의 위험"}}
+{"id": "fr-014", "question": "비상용품에 뭘 챙겨야 하나요?", "note": "품목이 원문에 열거돼 있다. 준비 단계 질문이지만 특보 중에도 들어온다", "shouldAnswer": true, "anchors": {"real": "비상용품을 미리 한 곳에 준비"}}
+{"id": "fr-015", "question": "지금 기상 정보는 어디서 확인하나요?", "note": "TV·라디오·스마트폰 확인이 원문에 있다. 판정은 정부 몫이라는 설계상 이 질문은 반드시 답해야 한다", "shouldAnswer": true, "anchors": {"real": "기상변화를 확인", "dummy": "placeholder-heavy-rain-008"}}
+{"id": "fr-016", "question": "반지하에 사는데 지금 어떻게 해야 하나요?", "note": "저지대·지하 공간 거주자 이동 지시. 서비스의 1순위 대상자 질문이다", "shouldAnswer": true, "anchors": {"real": "저지대나 상습 침수지역", "dummy": "placeholder-heavy-rain-001"}}
+{"id": "fr-017", "question": "물이 갑자기 불어나면 어디로 가야 하나요?", "note": "높은 곳으로 즉시 대피가 원문에 있다. 대피소가 없을 때의 수직 대피 경로와 같은 답이다", "shouldAnswer": true, "anchors": {"real": "높은 곳으로 빨리 대피", "dummy": "placeholder-heavy-rain-001"}}
+{"id": "fr-018", "question": "아파트 지하주차장 침수를 막으려면 뭘 하면 되나요?", "note": "모래 주머니·물막이 판이 원문에 있다", "shouldAnswer": true, "anchors": {"real": "모래 주머니"}}
+{"id": "fr-019", "question": "하천 옆으로 지나가도 되나요?", "note": "제방 붕괴 위험이 원문에 있다. 침수 회피 경로의 R3 등급과 같은 근거다", "shouldAnswer": true, "anchors": {"real": "하천 제방"}}
+{"id": "fr-020", "question": "가스 냄새가 나요. 어떻게 하죠?", "note": "환기·점화 금지가 원문에 있다", "shouldAnswer": true, "anchors": {"real": "창문을 열어 환기"}}
+{"id": "fr-021", "question": "아이랑 같이 있는데 밖에 나가도 되나요?", "note": "어린이·노약자 외출 자제가 원문에 있다", "shouldAnswer": true, "anchors": {"real": "어린이나 노약자는 집 밖으로"}, "recipient": {"care": "7세 아동"}}
+{"id": "fr-022", "question": "가족과 연락이 안 돼요. 어떻게 해야 하나요?", "note": "실종 의심 시 경찰서 신고가 원문에 있다", "shouldAnswer": true, "anchors": {"real": "가까운 경찰서에 신고"}}
+{"id": "fr-023", "question": "물이 흐르는 곳을 건너가도 되나요?", "note": "유수 진입 금지가 원문에 있다", "shouldAnswer": true, "anchors": {"real": "흐르는 물에 들어가지", "dummy": "placeholder-heavy-rain-002"}}
+{"id": "fr-024", "question": "집 앞 배수구가 막힌 것 같은데 어떻게 하나요?", "note": "배수구 점검·소통이 원문에 있다", "shouldAnswer": true, "anchors": {"real": "배수구를 미리 점검하고 막힌 곳은"}}
+{"id": "fr-025", "question": "창문은 어떻게 해 두어야 하나요?", "note": "출입문·창문 폐쇄가 원문에 있다", "shouldAnswer": true, "anchors": {"real": "창문은 닫아서"}}
+{"id": "fr-026", "question": "대피할 곳을 미리 알아 둘 수 있나요?", "note": "피난 장소·경로 사전 숙지가 원문에 있다", "shouldAnswer": true, "anchors": {"real": "피난 가능한 장소와 길"}}
+{"id": "fr-027", "question": "물이 빠진 도로를 건너도 되나요?", "note": "침수됐던 도로·교량 파손 가능성이 원문에 있다. fr-002와 달리 수위가 아니라 노면 파손을 묻는다", "shouldAnswer": true, "anchors": {"real": "침수된 도로나 교량은 파손"}}
+{"id": "fr-028", "question": "컨테이너 임시 주택에 사는데 그대로 있어도 되나요?", "note": "이동식 가옥 거주자는 견고한 건물로 즉시 이동. 취약 주거 유형이라 반드시 답해야 한다", "shouldAnswer": true, "anchors": {"real": "이동식 가옥이나 임시 시설"}}
+{"id": "fr-c01", "question": "주식 전망을 알려 주세요", "note": "대조군. 코퍼스 밖 질문이므로 거절이 정답이다. 이슈 #84가 유사도 하한 부재를 실측할 때 쓴 질문과 같다", "shouldAnswer": false, "anchors": {}}
+{"id": "fr-c02", "question": "지진이 나면 어떻게 해야 하나요?", "note": "대조군. 다른 재난이라 호우·홍수 코퍼스에 근거가 없다. MVP 대상 재난이 아니므로 거절이 정답이다", "shouldAnswer": false, "anchors": {}}
+{"id": "fr-c03", "question": "이 서비스 이용 요금이 얼마인가요?", "note": "대조군. 서비스 운영 질문은 국민행동요령에 없다", "shouldAnswer": false, "anchors": {}}
+{"id": "fr-c04", "question": "대피소에 반려견을 데려가도 되나요?", "note": "대조군이면서 가장 아까운 거절. 재난 맥락의 타당한 질문이지만 코퍼스에 근거가 없다. 이 거절은 고치면 안 되는 거절이고, 근거 없이 답하면 M2가 깨진다", "shouldAnswer": false, "anchors": {}}
+{"id": "fr-c05", "question": "우리 동네가 몇 시에 잠길 것 같나요?", "note": "대조군. 판정은 정부 몫이라는 3층 구조상 SAVERS가 답하면 안 되는 질문이다. 근거 부재로 인한 거절이 설계와 일치한다", "shouldAnswer": false, "anchors": {}}
+{"id": "fr-c06", "question": "오늘 저녁 메뉴를 추천해 주세요", "note": "대조군. 재난과 무관한 잡담이 거절되는지 확인한다", "shouldAnswer": false, "anchors": {}}

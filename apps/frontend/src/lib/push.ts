@@ -12,7 +12,7 @@
 // "등록" and the test send can target it. When the store is disabled this
 // is a quiet no-op again — the foreground-only demo flow still works.
 //
-// TWO ENTRY POINTS:
+// FOUR ENTRY POINTS:
 //   - requestPushPermission(userId, opts?): returns a TokenAttempt. Used by
 //     the /demo foreground view (which passes { tokenOnly: true } so it never
 //     touches the cross-device store — the demo userId has no registration
@@ -25,6 +25,23 @@
 //     Join.tsx, which asks the ward in plain Korean whether to replace the
 //     existing device and, only on explicit consent, re-calls with
 //     replace:true. No path here silently swaps a safety-alert recipient.
+//   - requestPushPermissionForGuardian(guardianToken): returns a
+//     GuardianSubscribeResult. Used by /g/{token} (pages/Guardian.tsx) to
+//     subscribe THIS browser for the 2차(폐루프) 발송. Unlike the two entry
+//     points above, the post-token step here is a real REST call
+//     (POST /v1/guardian/{token}/device via api/client.ts) rather than a
+//     Firestore attach — the two device-registration channels this app has
+//     (Firestore for the ward/join/ops demo loop, the openapi backend for
+//     everything else) are intentionally kept separate; see that function's
+//     own comment.
+//   - requestPushPermissionForGuardianRegistration(registrationToken):
+//     returns a GuardianSubscribeResult. Used by /r/{registrationToken}
+//     (pages/GuardianRegister.tsx) — the PRE-disaster "최초 등록" path.
+//     Calls `POST /v1/devices` with `role: "guardian"`, NOT
+//     `/v1/guardian/{token}/device` — a completely different token
+//     (registrationToken, long-lived) and a completely different lifecycle
+//     from requestPushPermissionForGuardian's guardianToken (session-scoped,
+//     minted only once a disaster dispatches). Never mix the two.
 
 import {
   getToken,
@@ -44,6 +61,7 @@ import {
   type AttachResult,
   isStoreEnabled,
 } from '../api/firestore'
+import { api, BackendApiError } from '../api/client'
 
 // Outcome of attaching the freshly-minted FCM token to the cross-device
 // store, for the /join flow. Mirrors the AttachResult shape from firestore.ts
@@ -280,6 +298,104 @@ export async function requestPushPermissionForJoin(
     existingToken: result.existingToken,
     attemptedToken: result.attemptedToken,
   }
+}
+
+// /g/{token} entry point (pages/Guardian.tsx). Distinguishes exactly the
+// four outcomes that screen's UI needs — collapsing further would hide which
+// message to show; collapsing less would multiply UI states the spec never
+// asked for (obtainToken's five failure reasons are already all "FCM 실패"
+// from the guardian's point of view, so they fold into one 'unavailable').
+//
+//   - denied      : the user declined the permission prompt. The API is
+//                   NEVER called on this path — a rejected permission has no
+//                   token to register.
+//   - unavailable : permission flow could not produce a token at all
+//                   (unsupported / misconfigured / token_unavailable /
+//                   timeout — see TokenAttempt). Also never calls the API.
+//   - apiError    : a token WAS minted, but POST /v1/guardian/{token}/device
+//                   failed (network, 4xx, 5xx). Callers must not treat this
+//                   as subscribed — see BackendApiError for the decoded
+//                   {status, code, message}.
+//   - granted     : token minted AND the backend accepted it. Only this
+//                   branch is a real subscription; callers persist it.
+export type GuardianSubscribeResult =
+  | { status: 'granted'; token: string }
+  | { status: 'denied' }
+  | { status: 'unavailable' }
+  | { status: 'apiError'; error: BackendApiError | Error }
+
+// MUST be called from a user gesture (obtainToken's Notification.requestPermission
+// requirement). `guardianToken` is the `/g/{token}` URL segment — it is BOTH
+// the path parameter and the sole auth mechanism for this endpoint (no
+// separate header); see packages/contracts/openapi.yaml's
+// GuardianDeviceRegisterRequest note ("`role`도 `registrationToken`도 없다").
+export async function requestPushPermissionForGuardian(
+  guardianToken: string,
+): Promise<GuardianSubscribeResult> {
+  const attempt = await obtainToken()
+  if (attempt.status === 'denied') {
+    return { status: 'denied' }
+  }
+  if (attempt.status !== 'ok') {
+    return { status: 'unavailable' }
+  }
+  try {
+    await api.registerGuardianDevice(guardianToken, {
+      fcmToken: attempt.token,
+      userAgent: typeof navigator === 'undefined' ? null : navigator.userAgent,
+    })
+  } catch (err) {
+    return {
+      status: 'apiError',
+      error:
+        err instanceof BackendApiError
+          ? err
+          : err instanceof Error
+            ? err
+            : new Error(String(err)),
+    }
+  }
+  return { status: 'granted', token: attempt.token }
+}
+
+// /r/{registrationToken} entry point (pages/GuardianRegister.tsx) — the
+// PRE-disaster "최초 등록" path, structurally separate from
+// requestPushPermissionForGuardian above (renewal, guardianToken,
+// /v1/guardian/{token}/device). This one calls `POST /v1/devices` with
+// `role: "guardian"` and a `registrationToken` — the ONLY place in this app
+// that call happens with that role. Same four-outcome shape as
+// GuardianSubscribeResult (the permission+token step is identical either
+// way) — reusing the type, NOT the token or the endpoint; see that type's
+// own comment for what each branch means.
+export async function requestPushPermissionForGuardianRegistration(
+  registrationToken: string,
+): Promise<GuardianSubscribeResult> {
+  const attempt = await obtainToken()
+  if (attempt.status === 'denied') {
+    return { status: 'denied' }
+  }
+  if (attempt.status !== 'ok') {
+    return { status: 'unavailable' }
+  }
+  try {
+    await api.registerDevice({
+      registrationToken,
+      fcmToken: attempt.token,
+      role: 'guardian',
+      userAgent: typeof navigator === 'undefined' ? null : navigator.userAgent,
+    })
+  } catch (err) {
+    return {
+      status: 'apiError',
+      error:
+        err instanceof BackendApiError
+          ? err
+          : err instanceof Error
+            ? err
+            : new Error(String(err)),
+    }
+  }
+  return { status: 'granted', token: attempt.token }
 }
 
 // Subscribe to FCM messages that arrive while the page is in the foreground.

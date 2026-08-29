@@ -377,7 +377,7 @@ class GuardianAnswer(RequestModel):
 
 class DeviceRegisterRequest(RequestModel):
     registration_token: str
-    fcm_token: str
+    fcm_token: str = Field(min_length=1, pattern=r"^\S+$")
     role: DeviceRole
     user_agent: str | None = None
 
@@ -391,7 +391,7 @@ class DeviceUnregisterRequest(RequestModel):
     """
 
     registration_token: str
-    fcm_token: str
+    fcm_token: str = Field(min_length=1, pattern=r"^\S+$")
     user_agent: str | None = None
 
 
@@ -404,7 +404,7 @@ class GuardianDeviceRegisterRequest(RequestModel):
     하나로 답하는 것과 같은 이유다(계약 `GuardianDeviceRegisterRequest`).
     """
 
-    fcm_token: str
+    fcm_token: str = Field(min_length=1, pattern=r"^\S+$")
     user_agent: str | None = None
 
 

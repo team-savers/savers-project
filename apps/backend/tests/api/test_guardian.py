@@ -55,6 +55,24 @@ def test_post_device_registers_and_is_idempotent(
     assert registry.get("p001").devices["guardian"].count(FCM) == 1
 
 
+@pytest.mark.parametrize("fcm_token", ["", "   "])
+def test_post_device_rejects_invalid_fcm_token_without_replacing_existing(
+    client: TestClient,
+    sessions: SessionStore,
+    registry: ResidentRegistry,
+    event: DisasterEvent,
+    fcm_token: str,
+) -> None:
+    record = _session(sessions, event, user_id="p001")
+    path = f"/v1/guardian/{record.guardian_token}/device"
+    assert client.post(path, json={"fcmToken": FCM}).status_code == 200
+
+    response = client.post(path, json={"fcmToken": fcm_token})
+
+    assert response.status_code == 422
+    assert registry.get("p001").devices["guardian"] == [FCM]
+
+
 def test_post_device_400_when_ward_has_no_guardian(
     client: TestClient, sessions: SessionStore, event: DisasterEvent
 ) -> None:
