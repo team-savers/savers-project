@@ -24,9 +24,10 @@ SEOUL = ZoneInfo("Asia/Seoul")
 RFC3339_DATE_TIME = re.compile(
     r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$"
 )
-DISPLAY_TIME = re.compile(r"(?<!\d)(\d{2})시 (\d{2})분(?!\d)")
+CLAIM_TIME = re.compile(r"^(?P<time>\d{2}시 \d{2}분)에 (?P<body>.+)$")
 SENTENCE = re.compile(r"[^.!?]+[.!?]")
 CLAUSE_JOIN = re.compile(r"(?:고(?!\s*[있계싶])|며|면서|지만|으나|는데|은데)(?=[,\s]|$)")
+CLAUSE_MARK = "\x00"
 BRACKETED_LABEL = re.compile(r"\[[^]]+\]")
 DURATION_CLAIM = re.compile(
     r"(?:\d+|한|두|세|네)\s*(?:분|시간|일)(?:간|째|\s*동안)|지났습니다|계속"
@@ -79,6 +80,7 @@ GuardianEvidenceType = Literal[
     "followup_due",
     "followup_unreachable",
     "guardian_notified",
+    "guardian_informed",
 ]
 
 
@@ -432,15 +434,55 @@ def _source_violation(
     return None if source_minute in event_minutes else "time_mismatch"
 
 
-def _canonical_claim(source: GuardianEvidence) -> str | None:
-    if source.type not in _PROGRESS_TEMPLATES:
+def _claim_units(answer: str) -> list[str] | None:
+    sentences = _sentences(answer)
+    if sentences is None:
         return None
-    if not source.present:
-        return _ABSENCE_TEMPLATES[source.type]
-    display_time = _display_time_from_source(source)
-    if display_time is None:
+    units: list[str] = []
+    for sentence in sentences:
+        marked = CLAUSE_JOIN.sub(lambda match: match.group(0) + CLAUSE_MARK, sentence)
+        units.extend(
+            unit for raw in marked.split(CLAUSE_MARK) if (unit := raw.strip().lstrip(", "))
+        )
+    return units
+
+
+def _matches_claim_text(unit: str, canonical: str) -> bool:
+    unit = unit.rstrip(", ")
+    if unit == canonical:
+        return True
+    if not canonical.endswith("습니다."):
+        return False
+    stem = canonical.removesuffix("습니다.")
+    return any(
+        unit == f"{stem}{ending}"
+        for ending in ("고", "며", "으며", "면서", "지만", "으나", "는데", "은데")
+    )
+
+
+def _claim_fact(
+    unit: str,
+) -> tuple[GuardianEvidenceType, bool, str | None] | None:
+    timed = CLAIM_TIME.fullmatch(unit.rstrip(", "))
+    if timed is not None:
+        body = timed.group("body")
+        matches = [
+            event_type
+            for event_type, canonical in _PROGRESS_TEMPLATES.items()
+            if _matches_claim_text(body, canonical)
+        ]
+        if len(matches) == 1:
+            return matches[0], True, timed.group("time")
         return None
-    return f"{display_time}에 {_PROGRESS_TEMPLATES[source.type]}"
+
+    matches = [
+        event_type
+        for event_type, canonical in _ABSENCE_TEMPLATES.items()
+        if _matches_claim_text(unit, canonical)
+    ]
+    if len(matches) == 1:
+        return matches[0], False, None
+    return None
 
 
 def _source_fact_key(
@@ -459,7 +501,8 @@ def _claim_violations(
     sources: Sequence[GuardianEvidence],
 ) -> list[VerificationCode]:
     sentences = _sentences(answer)
-    if sentences is None:
+    claim_units = _claim_units(answer)
+    if sentences is None or claim_units is None:
         return ["unsupported_claim"]
 
     source_facts = [_source_fact_key(source) for source in sources]
@@ -467,9 +510,6 @@ def _claim_violations(
         return ["unsupported_claim"]
 
     for sentence in sentences:
-        without_label = BRACKETED_LABEL.sub("", sentence)
-        if CLAUSE_JOIN.search(without_label):
-            return ["unsupported_claim"]
         if not sentence.endswith("습니다."):
             return ["unsupported_claim"]
 
@@ -480,26 +520,21 @@ def _claim_violations(
         }
         return [] if set(source_facts) == expected else ["unsupported_claim"]
 
-    displayed_times = Counter(
-        f"{hour}시 {minute}분" for hour, minute in DISPLAY_TIME.findall(answer)
-    )
-    expected_times = Counter(
-        display_time
-        for source in sources
-        if source.present
-        if (display_time := _display_time_from_source(source)) is not None
-    )
-    violations: list[VerificationCode] = []
-    # Only a displayed minute without a corresponding present source is a time claim
-    # mismatch. Extra sources are handled as unsupported coverage below; treating their
-    # undisplayed minutes as wrong answer times conflates the two independent checks.
-    if any(count > expected_times[display_time] for display_time, count in displayed_times.items()):
-        violations.append("time_mismatch")
+    claims = [_claim_fact(unit) for unit in claim_units]
+    if any(claim is None for claim in claims):
+        return ["unsupported_claim"]
 
-    canonical = [_canonical_claim(source) for source in sources]
-    if any(claim is None for claim in canonical) or Counter(sentences) != Counter(canonical):
-        violations.append("unsupported_claim")
-    return violations
+    resolved_claims = [claim for claim in claims if claim is not None]
+    claimed_types = Counter((event_type, present) for event_type, present, _at in resolved_claims)
+    sourced_types = Counter((source.type, source.present) for source in sources)
+    if claimed_types != sourced_types:
+        return ["unsupported_claim"]
+
+    claimed_facts = Counter(resolved_claims)
+    sourced_facts = Counter(
+        (source.type, source.present, _display_time_from_source(source)) for source in sources
+    )
+    return [] if claimed_facts == sourced_facts else ["time_mismatch"]
 
 
 def _distinct_violations(codes: Sequence[VerificationCode]) -> tuple[VerificationCode, ...]:

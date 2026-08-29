@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
+from typing import ClassVar
 
 import metrics
 import pytest
@@ -507,11 +508,49 @@ class TestGuardianViolations:
             {"type": "choice_screen_viewed", "present": True, "at": "2026-08-24T03:13:41Z"},
             {"type": "choice_screen_viewed", "present": True, "at": "2026-08-24T03:51:02Z"},
         ]
-        answer = "12시 13분에 선택 화면을 보셨습니다. 12시 51분에 다시 보셨습니다."
+        answer = "12시 13분에 선택 화면을 보셨습니다. 12시 51분에 선택 화면을 보셨습니다."
         assert (
             metrics.guardian_violations(answer=answer, evidence=cited, events=LOG_OPENED_TWICE)
             == []
         )
+
+    def test_single_digit_minute_matches_the_same_event_time(self) -> None:
+        cited = [
+            {
+                "type": "emergency_call_119_selected",
+                "present": True,
+                "at": "2026-08-24T11:05:00Z",
+            }
+        ]
+        events = [
+            {
+                "type": "emergency_call_119_selected",
+                "at": "2026-08-24T11:05:00Z",
+                "payload": {},
+            }
+        ]
+        answer = "20시 5분에 119 전화 버튼을 누르셨습니다."
+        assert metrics.guardian_violations(answer=answer, evidence=cited, events=events) == []
+
+    def test_revisited_unrelated_object_is_fail_closed(self) -> None:
+        cited = [
+            {
+                "type": "choice_screen_viewed",
+                "present": True,
+                "at": "2026-08-24T01:15:00Z",
+            }
+        ]
+        events = [
+            {
+                "type": "choice_screen_viewed",
+                "at": "2026-08-24T01:15:00Z",
+                "payload": {},
+            }
+        ]
+        answer = "10시 15분에 안내 문구를 다시 보셨습니다."
+        assert metrics.guardian_violations(answer=answer, evidence=cited, events=events) == [
+            "unsupported_claim"
+        ]
 
     def test_an_auxiliary_verb_is_one_claim_not_two(self) -> None:
         # 「-고 있/계시/싶」 is one fact in two words. Splitting there would invent a claim
@@ -1611,3 +1650,153 @@ class TestFollowupScoreabilityRule:
         monkeypatch.setattr(metrics, "_is_followup_scoreable", lambda _summary: False)
 
         assert metrics.followup_delivery_rate([]) is None
+
+
+class TestIssue176GuardianParity:
+    """Issue #176 regression coverage for runtime/scorer parity."""
+
+    _ARRIVAL_EVENTS: ClassVar[list[dict[str, object]]] = [
+        {
+            "type": "arrival_confirmed_by_user",
+            "at": "2026-08-24T01:42:00Z",
+            "payload": {},
+        }
+    ]
+
+    def test_unknown_claim_expression_is_fail_closed_by_both(self) -> None:
+        generated = answer_guardian_question(
+            GuardianQuestionId.ARRIVAL_STATUS, self._ARRIVAL_EVENTS
+        )
+        response = generated.model_copy(
+            update={"answer": "10시 42분에 보호 대상자가 현관에 계십니다."}
+        )
+
+        runtime = verify_guardian_answer_detailed(
+            GuardianQuestionId.ARRIVAL_STATUS, response, self._ARRIVAL_EVENTS
+        ).violations
+        scorer = metrics.guardian_violations(
+            answer=response.answer,
+            evidence=[source.model_dump(mode="python") for source in response.sources],
+            events=self._ARRIVAL_EVENTS,
+        )
+
+        assert runtime == ("unsupported_claim",)
+        assert scorer == list(runtime)
+
+    @pytest.mark.parametrize(
+        ("answer", "scorer_forbidden"),
+        [
+            ("도착한 것으로 보입니다.", True),
+            ("도착해 보입니다.", True),
+            ("도착한 것으로 추정됩니다.", True),
+            ("도착한 듯합니다.", True),
+            ("도착한 것 같습니다.", True),
+            ("도착한 것으로 보여집니다.", True),
+        ],
+    )
+    def test_speculation_detection_scope_differs(self, answer: str, scorer_forbidden: bool) -> None:
+        generated = answer_guardian_question(
+            GuardianQuestionId.ARRIVAL_STATUS, self._ARRIVAL_EVENTS
+        )
+        response = generated.model_copy(update={"answer": answer})
+
+        runtime = verify_guardian_answer_detailed(
+            GuardianQuestionId.ARRIVAL_STATUS, response, self._ARRIVAL_EVENTS
+        ).violations
+        scorer = metrics.guardian_violations(
+            answer=answer,
+            evidence=[source.model_dump(mode="python") for source in response.sources],
+            events=self._ARRIVAL_EVENTS,
+        )
+
+        assert "forbidden_phrase" in runtime
+        assert ("forbidden_phrase" in scorer) is scorer_forbidden
+
+    def test_grounded_claims_joined_with_connector_are_allowed_by_both(self) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "help_request_selected", "at": "2026-08-24T01:15:00Z", "payload": {}},
+            {
+                "type": "emergency_call_119_selected",
+                "at": "2026-08-24T01:16:00Z",
+                "payload": {},
+            },
+        ]
+        generated = answer_guardian_question(GuardianQuestionId.HELP_REQUEST, events)
+        response = generated.model_copy(
+            update={
+                "answer": (
+                    "10시 15분에 [도움이 필요해요]를 선택하셨고 "
+                    "10시 16분에 119 전화 버튼을 누르셨습니다."
+                )
+            }
+        )
+
+        runtime = verify_guardian_answer_detailed(
+            GuardianQuestionId.HELP_REQUEST, response, events
+        ).violations
+        scorer = metrics.guardian_violations(
+            answer=response.answer,
+            evidence=[source.model_dump(mode="python") for source in response.sources],
+            events=events,
+        )
+
+        assert runtime == ()
+        assert scorer == list(runtime)
+
+    def test_grounded_absent_claims_joined_with_connector_are_allowed_by_both(self) -> None:
+        answer = (
+            "[도움이 필요해요]를 선택한 사실은 기록에서 확인되지 않고 "
+            "119 전화 버튼을 누른 사실은 기록에서 확인되지 않습니다."
+        )
+        response = GuardianLogAnswer(
+            question_id=GuardianQuestionId.HELP_REQUEST,
+            answer=answer,
+            sources=(
+                GuardianEvidence(type="help_request_selected", present=False),
+                GuardianEvidence(type="emergency_call_119_selected", present=False),
+            ),
+            refusal_reason=None,
+        )
+
+        runtime = verify_guardian_answer_detailed(
+            GuardianQuestionId.HELP_REQUEST, response, []
+        ).violations
+        scorer = metrics.guardian_violations(
+            answer=answer,
+            evidence=[source.model_dump(mode="python") for source in response.sources],
+            events=[],
+        )
+
+        assert runtime == ()
+        assert scorer == list(runtime)
+
+    def test_swapped_times_between_event_types_are_blocked_by_both(self) -> None:
+        events: list[dict[str, object]] = [
+            {"type": "help_request_selected", "at": "2026-08-24T01:15:00Z", "payload": {}},
+            {
+                "type": "emergency_call_119_selected",
+                "at": "2026-08-24T01:16:00Z",
+                "payload": {},
+            },
+        ]
+        generated = answer_guardian_question(GuardianQuestionId.HELP_REQUEST, events)
+        response = generated.model_copy(
+            update={
+                "answer": (
+                    "10시 16분에 [도움이 필요해요]를 선택하셨습니다. "
+                    "10시 15분에 119 전화 버튼을 누르셨습니다."
+                )
+            }
+        )
+
+        runtime = verify_guardian_answer_detailed(
+            GuardianQuestionId.HELP_REQUEST, response, events
+        ).violations
+        scorer = metrics.guardian_violations(
+            answer=response.answer,
+            evidence=[source.model_dump(mode="python") for source in response.sources],
+            events=events,
+        )
+
+        assert runtime == ("time_mismatch",)
+        assert scorer == list(runtime)
