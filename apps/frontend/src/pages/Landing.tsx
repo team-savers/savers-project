@@ -53,6 +53,7 @@ import { ShelterGuide } from '../components/ShelterGuide'
 import { ChatDock } from '../components/ChatDock'
 import { EasyText } from '../components/EasyText'
 import { AlertHeroFx } from '../components/AlertHeroFx'
+import { EvacuationActions } from '../components/EvacuationActions'
 import { applyDocumentLanguage, t } from '../lib/i18n'
 import { measureReadability } from '../lib/readability'
 import { C, FONT_MONO, ICON, MOBILE_WIDTH, SHADOW_CARD } from '../lib/tokens'
@@ -584,13 +585,21 @@ export function Landing({ token }: Props) {
           </p>
         )}
 
-        <ShelterGuide
-          profile={profile}
-          lang={lang}
-          sessionToken={token}
-          fallbackDongCode={fallbackDongCode}
-          dongName={fallbackDongName}
-        />
+        {profile !== null && (
+          <EvacuationActions
+            token={token}
+            guardian={profile.guardian}
+            shelterContent={(
+              <ShelterGuide
+                profile={profile}
+                lang={lang}
+                sessionToken={token}
+                fallbackDongCode={fallbackDongCode}
+                dongName={fallbackDongName}
+              />
+            )}
+          />
+        )}
 
         {/* The chat layer is mounted only when a real profile is available.
             A session that failed to load (unknown/expired token) yields
