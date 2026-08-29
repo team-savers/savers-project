@@ -30,6 +30,14 @@
   같은 PR 이 고친 `packages/contracts/README.md` 는 "구현 중" 인데 계약만 완료로 읽혔다.
   머지 순서 주의만으로는 그 오독을 막지 못하므로
   `POST /v1/devices` 설명에 상태 문단을 다시 두고, 지우는 일을 후속 조치 표에 담는다
+- **개정**: 2026-08-29(3), 제안 상태에서 구현 상태 서술을 머지 뒤 사실로 맞췄다.
+  승인 전이므로 사후편집 금지에 해당하지 않는다.
+  [PR 221](https://github.com/team-savers/savers-project/pull/221) 이 이 결정을 반영해
+  머지되면서(`fa1a4c1`), 바로 위 개정이 넣은 계약의 임시 미구현 문단과
+  배경 절의 시점 표기, 후속 조치 표의 네 행이 사실과 어긋났다.
+  결정 절, 대안 절, 결과 절은 손대지 않았다 -
+  이 개정이 옮긴 것은 구현이 어디까지 왔는지뿐이다.
+  **상태는 그대로 제안이다** - 결정자 절의 안은남 (PM, QA/보안) 확인이 아직 없다
 - **날짜**: 2026-08-29
 - **결정자**: 신호정 (Tech Lead) 작성 / 안은남 (PM, QA/보안) 확인 대기.
   발송 조건은 계약이 서술하는 동작이라 Tech Lead 소관이고,
@@ -72,6 +80,10 @@ Backend 가 물은 두 조합은 이 문장이 참인지가 갈리는 자리다.
 | 두 조합의 공통점 | `push_accepted` 이벤트가 0 건 | `pipeline.py` 는 접수된 최초 1 대에서만 이 이벤트를 남긴다 |
 | 세션 자체 | `ward` 기기가 없어도 만들어지고 `alert_dispatched` 가 남는다 | `sessions.create` 가 `ward` 기기 검사보다 앞에 있다 |
 | 폐루프 앵커 | `alert_dispatched` (`push_accepted` 와 `guardian_informed` 는 제외) | `closed_loop.py` 의 `_latest_timer_activity` |
+
+그 PR 은 2026-08-29 에 이 결정을 반영한 뒤 머지됐다(`fa1a4c1`).
+따라서 위 표의 둘째 줄은 착수 시점의 기록이며,
+지금 `main` 은 전건 미접수 세션에 보호자 통지를 보내지 않는다.
 
 ### 무엇이 조용히 통과하는가
 
@@ -204,13 +216,13 @@ Backend 가 물은 두 조합은 이 문장이 참인지가 갈리는 자리다.
 
 | 항목 | 소관 | 상태 |
 |---|---|---|
-| **발송 조건 구현.** 2차 패스 대상에서 `ward` 접수 0 인 세션을 뺀다. 계상 주석 세 곳(`AlertRun`, `AlertRunSummary`, `_notify_guardian`)에 모수 한정을 적고, 테스트 셋을 더한다 - 보호자 있음과 `ward` 기기 없음, `ward` 전건 실패 시 미발송, 결정 3번의 불변식 | Backend | 대기 ([PR 221](https://github.com/team-savers/savers-project/pull/221)) |
+| **발송 조건 구현.** 2차 패스 대상에서 `ward` 접수 0 인 세션을 뺀다. 계상 주석 세 곳(`AlertRun`, `AlertRunSummary`, `_notify_guardian`)에 모수 한정을 적고, 테스트 셋을 더한다 - 보호자 있음과 `ward` 기기 없음, `ward` 전건 실패 시 미발송, 결정 3번의 불변식 | Backend | 완료 ([PR 221](https://github.com/team-savers/savers-project/pull/221), 2026-08-29 머지 `fa1a4c1`). 게이트는 `pipeline.py` 351행의 `if notified > 0`, 모수 한정은 `api/routes/internal.py` 86행 주석이며, `tests/backend_core/test_guardian_notice.py` 가 세 경우(ward 기기 없음 / 전건 `False` / 전건 예외)와 불변식을 고정한다 |
 | 계약 v0.11. 서문 변경 이력, `device` 태그 설명, `POST /v1/devices` 설명, `GuardianInformedEvent`, `DeviceRegisterRequest.role`, `GuardianStatus.lastNotice` 판독표 | Tech Lead | 완료, 이 PR |
 | [packages/contracts/README.md](../../packages/contracts/README.md) 의 "계약에만 있고 구현 전" 표기 | Tech Lead | 완료, 이 PR |
-| [ADR-0015](0015-guardian-device-registration.md) 후속 조치 표에 이 전제를 적는다. **관련 세 행은 완료로 옮기지 않는다** - [PR 221](https://github.com/team-savers/savers-project/pull/221) 에 이 전제가 아직 들어가지 않았고, 머지도 되지 않았다 | Tech Lead | 완료, 이 PR |
-| [PR 221](https://github.com/team-savers/savers-project/pull/221) 머지 뒤 [ADR-0015](0015-guardian-device-registration.md) 후속 조치 표의 세 행(1차 dispatch 확장, `devices_notified` 역할 무구분, 계상 4종)을 완료로 옮긴다. 같은 PR 에서 계약 `POST /v1/devices` 설명의 "서버에 아직 들어가 있지 않습니다" 문단을 지우고, 그 세 행이 인용하는 `pipeline.py` 행 번호가 그때 다시 어긋나므로 함께 손본다([PR 222](https://github.com/team-savers/savers-project/pull/222) PM 리뷰 경미 항목) | Tech Lead | 대기, PR 221 뒤 |
-| **머지 순서: 이 PR 은 [PR 221](https://github.com/team-savers/savers-project/pull/221) 뒤에 선다.** 뒤집히면 계약이 구현보다 앞서 "전제를 만족할 때 보낸다" 를 적어 두는데, 그 시점의 코드는 전건 실패에도 보내고 있다 | Tech Lead | 대기 |
+| [ADR-0015](0015-guardian-device-registration.md) 후속 조치 표에 이 전제를 적는다 | Tech Lead | 완료, 이 PR |
+| [PR 221](https://github.com/team-savers/savers-project/pull/221) 머지 뒤 [ADR-0015](0015-guardian-device-registration.md) 후속 조치 표의 세 행(1차 dispatch 확장, `devices_notified` 역할 무구분, 계상 4종)을 완료로 옮기고, 계약 `POST /v1/devices` 설명의 임시 미구현 문단을 지우며, 그 세 행이 인용하는 `pipeline.py` 행 번호를 머지 뒤 값으로 맞춘다([PR 222](https://github.com/team-savers/savers-project/pull/222) PM 리뷰 경미 항목) | Tech Lead | 완료, 이 PR (2026-08-29 `fa1a4c1` 머지 뒤) |
+| **머지 순서: 이 PR 은 [PR 221](https://github.com/team-savers/savers-project/pull/221) 뒤에 선다.** 뒤집히면 계약이 구현보다 앞서 "전제를 만족할 때 보낸다" 를 적어 두는데, 그 시점의 코드는 전건 실패에도 보내고 있다 | Tech Lead | 완료 (PR 221 이 2026-08-29 먼저 머지됐다) |
 | [후속_과제.md](../공통_가이드/후속_과제.md) 17번(워킹_스켈레톤_설명.md 161행 등 세 곳)을 닫는다. 이 결정의 전제도 함께 적는다 | Tech Lead | 대기, PR 221 뒤 |
 | **실패 전용 보호자 통지 문안**(위 대안 D). 피보호자에게 안내가 닿지 않은 것을 보호자에게 즉시 알리는 별도 문안이며, 사전 승인 문안이므로 QA/보안이 확정한다 | PM | 본선 후 |
 | 보호자 발송 예외 로깅. 지금은 식별자 없는 고정 문구지만, 실 FCM 어댑터가 예외 메시지에 토큰을 실으면 그것이 그대로 찍힌다(PR 221 PM 리뷰 주의 항목) | Backend | 본선 후 |
-| 결정자 확인 후 상태를 승인으로 변경 | Tech Lead | 대기 |
+| 결정자 확인 후 상태를 승인으로 변경. 김도혁 (Backend) 확인은 [PR 222](https://github.com/team-savers/savers-project/pull/222) 승인 리뷰(2026-08-29)에 있다. 안은남 (PM, QA/보안) 확인이 남았다 - 같은 PR 리뷰 두 건은 문서의 정확성을 확인했을 뿐 승인 표시가 아니다 | Tech Lead | 대기 |
