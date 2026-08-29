@@ -10,7 +10,7 @@ is safe" and stops calling is the failure mode this separation exists to prevent
 No coordinates are ever returned here.
 """
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Response
 
@@ -54,6 +54,15 @@ def get_guardian_status(
     if resident is None:  # pragma: no cover - defensive
         errors.session_not_found()
 
+    types = {event.type for event in store.events_of(record)}
+    last_notice: Literal["first", "followup", "none"]
+    if "guardian_notified" in types:
+        last_notice = "followup"
+    elif "guardian_informed" in types:
+        last_notice = "first"
+    else:
+        last_notice = "none"
+
     return GuardianStatus(
         ward_name=resident.profile.name,
         ward_phone=None,
@@ -62,6 +71,7 @@ def get_guardian_status(
         opened_at=record.opened_at,
         responded_at=record.responded_at,
         last_response=record.last_response or "none",
+        last_notice=last_notice,
         safety_status="unknown",
         acknowledged_by_guardian=record.acknowledged_by_guardian,
         # 피보호자 단위: guardian 기기가 하나라도 붙어 있으면 true. FCM 토큰 값은 내려주지

@@ -16,7 +16,7 @@ WORKDIR /app
 # 의존성 레이어를 소스와 분리해 캐시 적중률을 높인다.
 COPY pyproject.toml ./
 COPY src ./src
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir ".[fcm]"
 
 # 비루트 실행 — 단일 VM에 여러 서비스가 뜨므로 권한 격리를 유지한다.
 RUN useradd --create-home --uid 10001 appuser

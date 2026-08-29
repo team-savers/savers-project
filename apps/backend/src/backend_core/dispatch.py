@@ -14,8 +14,10 @@ Two consequences are load-bearing here:
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
-from typing import Any, Protocol
+from pathlib import Path
+from typing import Any, Literal, Protocol
 from urllib.parse import urlsplit
 
 # Default webpush TTL. Matched to the session token lifetime (config.session_ttl_s, 6h): a
@@ -23,6 +25,7 @@ from urllib.parse import urlsplit
 # drop it at the same horizon rather than wake a phone with the previous day's 특보. This PR
 # is unwired, so the value is self-contained here; the wiring PR passes the live setting in.
 _DEFAULT_WEBPUSH_TTL_S = 6 * 60 * 60
+PushChannel = Literal["recording", "fcm"]
 
 
 @dataclass(frozen=True)
@@ -36,6 +39,8 @@ class PushPayload:
 
 
 class Dispatcher(Protocol):
+    channel: PushChannel
+
     def send(self, payload: PushPayload) -> bool: ...
 
 
@@ -46,6 +51,8 @@ class RecordingDispatcher:
     and CI must never hit a real push endpoint — but the walking skeleton still has to
     prove that a fully formed payload reaches the last step of the pipeline.
     """
+
+    channel: PushChannel = "recording"
 
     def __init__(self) -> None:
         self.sent: list[PushPayload] = []
@@ -102,6 +109,8 @@ class FcmDispatcher:
       and quietly defeat the M1 도달-속도 표본. No retry here either; that is the closed loop's job.
     """
 
+    channel: PushChannel = "fcm"
+
     def __init__(
         self,
         service_account_path: str,
@@ -114,6 +123,10 @@ class FcmDispatcher:
         self._ttl_seconds = ttl_seconds
         self._messaging: Any | None = None
         self._app: Any | None = None
+
+    def prepare(self) -> None:
+        """Validate the local SDK/credential/app setup without sending a network request."""
+        self._ensure_messaging()
 
     def _ensure_messaging(self) -> Any:
         """Initialize the named app once, cache both the app handle and messaging module.
@@ -128,14 +141,13 @@ class FcmDispatcher:
         """
         if self._messaging is None:
             firebase_admin, credentials, messaging = _load_firebase()
+            # Validate the explicitly configured credential even when this process already
+            # owns the named app. Reuse avoids duplicate initialization; it must not turn a
+            # stale or corrupted SAVERS_FCM_SERVICE_ACCOUNT_PATH into a silent success.
+            cred = credentials.Certificate(self._path)
             try:
                 app = firebase_admin.get_app(self._app_name)
             except ValueError:
-                # Build the credential *outside* the init-race try below: a corrupted service
-                # account JSON raises ValueError from Certificate(), and if that were inside
-                # the try it would be swallowed and disguised as "app already exists" — a
-                # config fault masquerading as a benign race. Let it propagate loudly.
-                cred = credentials.Certificate(self._path)
                 try:
                     app = firebase_admin.initialize_app(cred, name=self._app_name)
                 except ValueError:
@@ -176,6 +188,42 @@ class FcmDispatcher:
             # from this False (see the class docstring; folding them together defeats M1).
             return False
         return bool(message_id)
+
+
+class DispatcherConfigurationError(RuntimeError):
+    """The explicitly selected push channel cannot be prepared at process startup."""
+
+
+def create_dispatcher(
+    channel: PushChannel,
+    service_account_path: Path | None,
+    *,
+    ttl_seconds: int = _DEFAULT_WEBPUSH_TTL_S,
+) -> Dispatcher:
+    """Build and prepare the explicit channel; FCM validation is local-only."""
+    if channel == "recording":
+        return RecordingDispatcher()
+    if channel != "fcm":  # Defensive for non-Settings callers; Settings rejects this first.
+        raise DispatcherConfigurationError(f"unsupported push channel: {channel}")
+    if service_account_path is None:
+        raise DispatcherConfigurationError(
+            "SAVERS_FCM_SERVICE_ACCOUNT_PATH is required when SAVERS_PUSH_CHANNEL=fcm"
+        )
+
+    path = Path(service_account_path)
+    if not path.exists():
+        raise DispatcherConfigurationError(f"FCM service account file does not exist: {path}")
+    if not path.is_file():
+        raise DispatcherConfigurationError(f"FCM service account path is not a file: {path}")
+    if not os.access(path, os.R_OK):
+        raise DispatcherConfigurationError(f"FCM service account file is not readable: {path}")
+
+    dispatcher = FcmDispatcher(str(path), ttl_seconds=ttl_seconds)
+    try:
+        dispatcher.prepare()
+    except Exception as exc:
+        raise DispatcherConfigurationError("FCM Admin SDK initialization failed") from exc
+    return dispatcher
 
 
 def deep_link(base_url: str, token: str, stage: int) -> str:
