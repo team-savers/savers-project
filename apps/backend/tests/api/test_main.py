@@ -9,6 +9,7 @@ Convention: tests/ mirrors src/ (src/api/main.py -> tests/api/test_main.py).
 
 import json
 
+import pytest
 from conftest import FakeAiEngine
 from fastapi.testclient import TestClient
 
@@ -208,6 +209,25 @@ def test_device_register_and_unregister(client: TestClient) -> None:
     assert client.request("DELETE", "/v1/devices", json=unregister).json() == {"ok": True}
     # 이미 없는 토큰의 해제도 200 — 재시도 루프를 만들지 않는다.
     assert client.request("DELETE", "/v1/devices", json=unregister).status_code == 200
+
+
+@pytest.mark.parametrize("fcm_token", ["", "   "])
+def test_device_register_rejects_invalid_fcm_token(client: TestClient, fcm_token: str) -> None:
+    payload = {
+        "registrationToken": "r_demo_resident_p002",
+        "fcmToken": fcm_token,
+        "role": "ward",
+    }
+    assert client.post("/v1/devices", json=payload).status_code == 422
+
+
+@pytest.mark.parametrize("fcm_token", ["", "   "])
+def test_device_unregister_rejects_invalid_fcm_token(client: TestClient, fcm_token: str) -> None:
+    payload = {
+        "registrationToken": "r_demo_resident_p002",
+        "fcmToken": fcm_token,
+    }
+    assert client.request("DELETE", "/v1/devices", json=payload).status_code == 422
 
 
 def test_device_register_guardian_without_guardian_is_rejected(client: TestClient) -> None:

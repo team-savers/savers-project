@@ -1,11 +1,14 @@
 # ADR-0015: 보호자 기기는 사전등록에서 등록하고 보호자 페이지에서 갱신한다
 
-- **상태**: 제안 (Proposed) - 2026-08-24 팀 메신저에서 Backend 가 A안으로 제기하고 AI/RAG 가 확인, 계약과 함께 작성.
-  김도혁 (Backend) 확인 완료
+- **상태**: 승인 (Accepted) - 2026-08-28 김소원 (AI/RAG/프론트엔드) 확인 완료
+  ([PR 184](https://github.com/team-savers/savers-project/pull/184) 리뷰에 확인이 남아 있다).
+  2026-08-24 팀 메신저에서 Backend 가 A안으로 제기하고 AI/RAG 가 확인, 계약과 함께 작성.
+  김도혁 (Backend) 확인은 2026-08-25에 끝나 있었다
   ([PR 122](https://github.com/team-savers/savers-project/pull/122) 승인).
-  **김소원 (AI/RAG/프론트엔드) 확인 대기** - 사전등록 화면과 보호자 페이지가 그쪽 소관이고
+  사전등록 화면과 보호자 페이지가 AI/RAG/프론트엔드 소관인데
   [PR 122](https://github.com/team-savers/savers-project/pull/122),
-  [PR 147](https://github.com/team-savers/savers-project/pull/147) 어디에도 리뷰가 없다.
+  [PR 147](https://github.com/team-savers/savers-project/pull/147) 어디에도 그쪽 리뷰가 없어
+  그 확인만 기다리고 있었다.
   결과 절의 리허설 잔여 등록 정리 절차는
   [이슈 151](https://github.com/team-savers/savers-project/issues/151) 판정으로 정해졌다 -
   이슈가 낸 A, B, C 가 아니라 갱신을 교체로 바꾸는 넷째 안이며, 아래 2026-08-26 개정이 그것이다
@@ -41,6 +44,21 @@
   이 개정은 `role` 구분을 유지한 채 **다른 문안을 1건** 보내는 것이다.
   결정 3, 4, 5, 6, 7, 8번과 계약의 `role` 필수 규칙은 바뀌지 않는다.
   시스템 이벤트는 `guardian_informed` 신설로 5종에서 **6종**이 된다
+- **개정**: 2026-08-28, 승인 뒤에 후속 조치 표의 두 행을 갱신했다.
+  보호자 최초 구독 화면이 열리면서
+  ([PR 183](https://github.com/team-savers/savers-project/pull/183), 2026-08-28 머지)
+  `/register` 완료 화면 행이 완료가 됐고,
+  기기 2대 행이 걸어 둔 재검토 조건("구독 화면을 여는 PR 이 이 전제를 함께 재검토한다")이 발동했다.
+  후속 조치 표의 상태 칸 갱신은 [ADR-0005](0005-webpush-primary-channel.md) 의
+  2026-08-26 범위 명확화대로 사후편집 금지의 대상이 아니지만,
+  두 행 모두 상태 칸만으로는 결과를 적을 수 없어 행 서술까지 고쳤으므로 여기 개정으로 남긴다.
+  원문을 지우지 않고 날짜를 명시해 덧붙이는 형태이며, 결정 절과 결과 절은 손대지 않았다.
+  같은 갱신에서 교체 시맨틱 구현 행의 상태 칸도 대기에서 완료로 옮겼다
+  ([PR 169](https://github.com/team-savers/savers-project/pull/169) 머지로 코드와 테스트가 들어와 있다).
+  그쪽은 상태 칸만 고쳤으므로 개정 대상이 아니고, 여기 함께 적는 것은 같은 PR 의 변경이기 때문이다.
+  **그래서 결과 절의 "최초 구독 UI 가 없으므로 실사용에서는 보호자가 대리등록 자리에
+  함께 있어야 2차 발송이 닿는다" 문단은 기록 시점 서술로 남아 있고, 지금 사실과 다르다** -
+  그 자리의 정정은 아래 후속 조치 표의 해당 행에 있다
 - **날짜**: 2026-08-24
 - **결정자**: 신호정 (Tech Lead) 작성 / 김도혁 (Backend) 확인 완료, 김소원 (AI/RAG/프론트엔드) 확인 대기
 - **관련 문서**: [ADR-0005](0005-webpush-primary-channel.md) (1차 채널),
@@ -364,9 +382,9 @@ M4 가 폐루프 신뢰성이 아니라 **보호자 가입률 지표**가 되기
 | 항목 | 소관 | 상태 |
 |---|---|---|
 | 계약 v0.7 (`role`, `/v1/guardian/{token}/device`, `pushEnabled`) | Tech Lead | 완료, 이 PR |
-| `Resident.devices` 를 역할별로 분리하고 1차 발송을 `ward` 로 한정. 실제 편집 지점 다섯 - `backend_core/models.py` 250행 `DeviceRegisterRequest` 와 `DeviceUnregisterRequest` 신설, `backend_core/registry.py` 36행 `Resident.devices`(지금 `list[str]` 이라 자료구조부터 바뀐다)와 70행 `register_device`, 76행 `unregister_device`, `api/routes/devices.py` 24행과 36행(해제 핸들러는 `DeviceUnregisterRequest` 를 받는다 - `role` 없음), `backend_core/pipeline.py` 231행 `skipped_no_device` 판정과 249행 `for token in resident.devices` (**231행을 함께 고치지 않으면 발송 0건 실행이 252행에서 `Delivery` 로 기록되어 M1 지연 표본에 섞인다.** 실제 발송이 없어 빠르기까지 하므로 p95 가 좋아지는 방향으로 오염된다), `tests/api/test_main.py` 122행 payload, `tests/backend_core/test_registry.py` 9행, 10행, 16행, 22행(`register_device`, `unregister_device` 직접 호출). **`pipeline.py` 를 빠뜨리면 계약이 `role` 을 나눠도 실제 발송은 전과 같이 전원에게 나간다.** `tests/api/test_cors.py` 는 본문 없는 OPTIONS 프리플라이트라 해당 없다 | Backend | 대기 (8/25 슬롯) |
+| `Resident.devices` 를 역할별로 분리한다. **1차 발송 대상은 결정 2번대로 `ward` 와 `guardian` 양쪽이다** - 이 행이 처음 쓰인 시점의 "1차 발송을 `ward` 로 한정"은 2026-08-27 개정으로 무효이고, `guardian` 버킷을 읽도록 넓히는 일은 아래 별도 행이 맡는다. 실제 편집 지점 다섯 - `backend_core/models.py` 250행 `DeviceRegisterRequest` 와 `DeviceUnregisterRequest` 신설, `backend_core/registry.py` 36행 `Resident.devices`(지금 `list[str]` 이라 자료구조부터 바뀐다)와 70행 `register_device`, 76행 `unregister_device`, `api/routes/devices.py` 24행과 36행(해제 핸들러는 `DeviceUnregisterRequest` 를 받는다 - `role` 없음), `backend_core/pipeline.py` 231행 `skipped_no_device` 판정과 249행 `for token in resident.devices` (**231행을 함께 고치지 않으면 발송 0건 실행이 252행에서 `Delivery` 로 기록되어 M1 지연 표본에 섞인다.** 실제 발송이 없어 빠르기까지 하므로 p95 가 좋아지는 방향으로 오염된다), `tests/api/test_main.py` 122행 payload, `tests/backend_core/test_registry.py` 9행, 10행, 16행, 22행(`register_device`, `unregister_device` 직접 호출). **`pipeline.py` 를 빠뜨리면 계약이 `role` 을 나눠도 실제 발송은 전과 같이 전원에게 나간다.** `tests/api/test_cors.py` 는 본문 없는 OPTIONS 프리플라이트라 해당 없다 | Backend | 대기 (8/25 슬롯) |
 | `/g/` 랜딩의 구독과 해제. `api/types.ts` 의 `DeviceRegisterRequest`(+`DeviceUnregisterRequest`)와 `api/mock.ts` 에 `role` 추가 | AI/RAG/프론트엔드 | 대기 (8/28 보호자 화면 칸) |
-| **`/register` 완료 화면의 보호자 구독 - 본선 후 과제로 내린다**(Tech Lead 판단, 2026-08-25). [역할_일정/03](../역할_일정/03-AI-RAG-프론트엔드.md)에 슬롯이 없고, 8/28 칸의 "보호자 화면 + Q&A UI 7h"는 이 계약 이전 견적이라 여기에 얹으면 조건부인 SHAP 이 아니라 P1 인 보호자 화면이 밀린다. 슬롯을 배정하지 **않기로** 정한 것이지 미결이 아니다. 시연 경로는 아래 문단의 시드로 세운다. [후속_과제.md](../공통_가이드/후속_과제.md) P1 15번에 등재([PR 126](https://github.com/team-savers/savers-project/pull/126)) | AI/RAG/프론트엔드 | 본선 후 |
+| **`/register` 완료 화면의 보호자 구독 - 본선 후 과제로 내린다**(Tech Lead 판단, 2026-08-25). [역할_일정/03](../역할_일정/03-AI-RAG-프론트엔드.md)에 슬롯이 없고, 8/28 칸의 "보호자 화면 + Q&A UI 7h"는 이 계약 이전 견적이라 여기에 얹으면 조건부인 SHAP 이 아니라 P1 인 보호자 화면이 밀린다. 슬롯을 배정하지 **않기로** 정한 것이지 미결이 아니다. 시연 경로는 아래 문단의 시드로 세운다. [후속_과제.md](../공통_가이드/후속_과제.md) P1 15번에 등재([PR 126](https://github.com/team-savers/savers-project/pull/126)). **2026-08-28 개정: 완료. 다만 화면이 열린 자리는 `/register` 완료 화면이 아니라 별도 라우트 `/r/{registrationToken}`(`apps/frontend/src/pages/GuardianRegister.tsx`)이다** - `/register` 는 대리등록자가 새 피보호자 프로필을 만드는 화면이라 목적이 다르고, 계약이 이미 `GET /v1/registration/{registrationToken}` 의 진입로를 `/r/{registrationToken}` 으로 적어 두었다(`packages/contracts/openapi.yaml` 497행 설명, 516행 흐름도). 구현이 계약을 따랐고 위 서술이 계약보다 오래된 쪽이다. `role: guardian` 으로 `POST /v1/devices` 를 부르는 부분은 계획대로다. 슬롯이 없다는 이유로 내렸던 판단은 8/28 보호자 화면 칸 안에서 함께 나가면서 풀렸다 | AI/RAG/프론트엔드 | 완료 ([PR 183](https://github.com/team-savers/savers-project/pull/183), 2026-08-28) |
 | 계약에 `followup_unreachable` 신설, 시스템 이벤트 4종 표기를 5종으로 (`SessionEvent` oneOf/discriminator, 세션당 1회 목록, `POST /v1/session/{token}/events`, `RecordedUserActionEvent`) | Tech Lead | 완료, 이 PR |
 | `GuardianEvidenceType` 에 `followup_unreachable` 추가, 열거 16종을 17종으로. 3질문 매핑표에는 넣지 않고 "어느 질문의 근거도 아닌 이벤트" 목록을 셋에서 넷으로 늘린다 - 이번 구간의 질문 셋이 폐루프 계측을 묻지 않기 때문이며, 검증기가 문장을 막는 것이 아니다. **두 스키마는 이 브랜치에 없고 보호자 Q&A 계약(PR 104)이 소유한다** - 이 브랜치는 건드리지 않는다 | Tech Lead (PR 104) | 완료 |
 | **머지 순서: 이 PR 이 PR 104 보다 먼저 간다.** 뒤집히면 main 에 `GuardianEvidenceType` 17종과 `SessionEvent` 16종이 잠시 공존하고, 존재하지 않는 이벤트를 가리키는 근거 타입이 생긴다 | Tech Lead | 대기 |
@@ -375,8 +393,8 @@ M4 가 폐루프 신뢰성이 아니라 **보호자 가입률 지표**가 되기
 | [정량목표_검증설계.md](../공유_문서/정량목표_검증설계.md) M4 행에 분모 제외 조건과 그 보고 방식 | PM | 완료 ([PR 127](https://github.com/team-savers/savers-project/pull/127)) |
 | [워킹_스켈레톤_설명.md](../공통_가이드/워킹_스켈레톤_설명.md) API 표에 새 경로와 `role`, [워킹_스켈레톤_점검.md](../공통_가이드/워킹_스켈레톤_점검.md) 13절의 `curl` 예시와 `GuardianStatus` 기대 응답 | Tech Lead | 완료, 이 PR (PM 리뷰 5, 6, 7번) |
 | [후속_과제.md](../공통_가이드/후속_과제.md) P1 15번의 본선 운영 절차 서술을 이 ADR 결과 절을 가리키는 것으로 줄인다. 지금은 같은 절차가 두 곳에 적혀 있어 한쪽만 고쳐질 수 있다([PR 126](https://github.com/team-savers/savers-project/pull/126) PM 리뷰 1번). **이 개정이 먼저 머지된 뒤에 한다** - 순서가 뒤집히면 틀린 절차가 단일 출처가 된다 | Tech Lead | 완료 (2026-08-26 개정과 같은 PR) |
-| **결정 4번의 교체 시맨틱 구현.** `backend_core/registry.py` 의 `register_guardian_device_by_user` 가 지금 `bucket.append(fcm_token)` 로 덧붙인다 - guardian 버킷을 `[fcm_token]` 로 바꾸는 것으로 고치고, 테스트 두 개를 더한다(덧붙지 않고 교체되는가, 시드의 가공 토큰이 첫 갱신에서 사라지는가). `ward` 버킷과 `POST /v1/devices` 는 손대지 않는다 - 교체는 보호자 갱신 경로 하나에만 적용된다. **폐루프 2차 발송 조립(8/28) 전에 들어가야 한다** - 그 코드가 guardian 버킷을 읽으므로, 추가 시맨틱 위에 먼저 세우면 나중에 두 곳을 고치게 된다. 자리는 [역할_일정/04-백엔드.md](../역할_일정/04-백엔드.md) 8/28 칸에 0.5h 로 넣었다 | Backend | 대기 ([이슈 151](https://github.com/team-savers/savers-project/issues/151) 판정 이행) |
-| **보호자가 기기 2대를 쓰면 뒤에 등록한 것 하나만 남는다.** 교체 시맨틱이 받아들이는 대가이며, 보호자 1명 + 기기 1대라는 전제 위에서만 성립한다. **계약은 이미 2대를 받는다** - 사전등록(`POST /v1/devices` + `role: guardian`)은 덧붙이므로 두 건이 들어가고, 첫 갱신이 그것을 하나로 줄인다. 막고 있는 것은 화면이 없다는 것뿐이므로 "본선 후에 생길 문제"가 아니라 **화면을 여는 순간 드러날 문제**다. 본선 시연은 기기 1대로 서므로 범위 밖에 두되, 구독 화면을 여는 PR 이 이 전제를 함께 재검토한다. **이 행이 정본이고 [후속_과제.md](../공통_가이드/후속_과제.md) P1 15번은 여기를 가리킨다** | Tech Lead | 본선 후 |
+| **결정 4번의 교체 시맨틱 구현.** `backend_core/registry.py` 의 `register_guardian_device_by_user` 가 지금 `bucket.append(fcm_token)` 로 덧붙인다 - guardian 버킷을 `[fcm_token]` 로 바꾸는 것으로 고치고, 테스트 두 개를 더한다(덧붙지 않고 교체되는가, 시드의 가공 토큰이 첫 갱신에서 사라지는가). `ward` 버킷과 `POST /v1/devices` 는 손대지 않는다 - 교체는 보호자 갱신 경로 하나에만 적용된다. **폐루프 2차 발송 조립(8/28) 전에 들어가야 한다** - 그 코드가 guardian 버킷을 읽으므로, 추가 시맨틱 위에 먼저 세우면 나중에 두 곳을 고치게 된다. 자리는 [역할_일정/04-백엔드.md](../역할_일정/04-백엔드.md) 8/28 칸에 0.5h 로 넣었다 | Backend | 완료 ([PR 169](https://github.com/team-savers/savers-project/pull/169), 2026-08-28. [이슈 151](https://github.com/team-savers/savers-project/issues/151) 판정 이행). `registry.py` 147행 교체, `tests/backend_core/test_registry.py` 92행, 104행이 검증 |
+| **보호자가 기기 2대를 쓰면 뒤에 등록한 것 하나만 남는다.** 교체 시맨틱이 받아들이는 대가이며, 보호자 1명 + 기기 1대라는 전제 위에서만 성립한다. **계약은 이미 2대를 받는다** - 사전등록(`POST /v1/devices` + `role: guardian`)은 덧붙이므로 두 건이 들어가고, 첫 갱신이 그것을 하나로 줄인다. 막고 있는 것은 화면이 없다는 것뿐이므로 "본선 후에 생길 문제"가 아니라 **화면을 여는 순간 드러날 문제**다. 본선 시연은 기기 1대로 서므로 범위 밖에 두되, 구독 화면을 여는 PR 이 이 전제를 함께 재검토한다. **이 행이 정본이고 [후속_과제.md](../공통_가이드/후속_과제.md) P1 15번은 여기를 가리킨다**. **2026-08-28 재검토: 전제를 유지한다.** 구독 화면이 열려([PR 183](https://github.com/team-savers/savers-project/pull/183)) 위 조건이 발동했고, 그 재검토 결과가 이것이다. 유지하는 근거는 셋이다 - 계약이 `Profile.guardian` 으로 보호자를 단수로 두므로 기기 복수 보유를 열면 계약과 `GuardianStatus.pushEnabled` 의 단위(피보호자 1명)까지 함께 움직인다, 본선 시연은 보호자 기기 1대로 서므로 시연 경로에는 나타나지 않는다, 남은 구현 창과 8/29 코드 프리즈 안에 이 변경을 받을 Backend 슬롯이 없다. 드러나는 형태는 위 서술 그대로이며, 교체 시맨틱 자체는 `apps/backend/src/backend_core/registry.py` 147행과 `tests/backend_core/test_registry.py` 92행, 104행에 이미 들어가 있다(위 구현 행, [PR 169](https://github.com/team-savers/savers-project/pull/169)). 전제를 깨는 것은 본선 후로 남긴다 | Tech Lead | 재검토 완료 (2026-08-28) - 전제 유지, 동작 변경은 본선 후 |
 | **`ward` 버킷에는 같은 구조가 그대로 남는다.** `POST /v1/devices` 의 `ward` 등록도 덧붙이고, 지울 값을 아는 쪽이 그 브라우저뿐인 것도 같다. 교체를 보호자 갱신 경로 하나로 좁힌 결과이며(위 구현 행), 1차 발송이 죽은 토큰으로 나가는 형태로 나타난다. 본선 시연은 피보호자 기기 1대로 서므로 범위 밖에 둔다 | Tech Lead | 본선 후 |
 | **계약에 `guardian_informed` 신설**, 시스템 이벤트 5종 표기를 6종으로, 판별 유니온과 `GuardianEvidenceType` 17종 표기를 18종으로. `GuardianStatus.lastNotice`(`first`, `followup`, `none`) 신설, `pushEnabled` 설명을 2차 도달 설정용으로 명확화 | Tech Lead | 완료, 이 PR |
 | **1차 dispatch 가 `guardian` 버킷도 읽도록 확장.** 보호자 문안은 `ward` 문안과 다른 본문이고 생성 계약을 타지 않는다(결정 2번). `backend_core/pipeline.py` 268행 루프 | Backend | 대기 |
@@ -384,4 +402,4 @@ M4 가 폐루프 신뢰성이 아니라 **보호자 가입률 지표**가 되기
 | **1차 `guardian` 발송이 없는 경우의 계상.** `skipped_no_device`(`pipeline.py` 258행 `if not ward_devices`, 적재는 263행)는 `ward` 가 빌 때만 잡으므로 그대로 쓸 수 없다 - 결정 2번대로 그것은 실패가 아니고, 세는 단위도 주민이 아니라 발송 건이다 | Backend | 대기, **이 개정의 선행** |
 | [ADR-0013](0013-m1-measures-push-acceptance.md) 후속 조치의 `Delivery.latency_ms` 계산 시점 이동. 그 행이 "루프가 읽는 버킷이 늘면 그 한정은 사라진다"로 이미 조건을 걸어 두었고([PR 153](https://github.com/team-savers/savers-project/pull/153)), 이 개정이 그 조건을 성립시킨다. **본문 수정 없이 우선순위만 8/28 폐루프 조립 선행으로 올린다** - 시드에서 `guardian` 버킷을 가진 유일한 대상이 `p001`, 곧 킬러 데모 페르소나다 | Backend | 대기, 우선순위 상향 |
 | **`guardian_informed` 는 `GuardianEvidenceType` 에는 들어가되 3질문의 인용 범위에는 넣지 않는다.** 처음에는 매핑표에 넣는 쪽으로 정했으나(Tech Lead 판단, 2026-08-27 오전) 넣을 행이 없었다 - `evacuation_progress` 는 `EvacuationProgressEvidenceType` 이 사용자 행동 12종으로 닫아 두었고, `help_request` 와 `arrival_status` 는 특정 사용자 행동으로 제한된다. **AI/RAG 확인(2026-08-27)으로 그 자리 없음이 우연이 아니라는 것이 확인됐다** - 이번 3질문은 셋 다 **피보호자의 행동과 상태**를 확인하는 질문인데 1차 보호자 통지는 서비스가 보호자에게 한 행위라 축이 다르다. 그래서 `alert_dispatched` 와 같이 "어느 질문의 근거도 아닌 이벤트" 목록(다섯에서 여섯)에 둔다. **보호자 통지 자체를 확인하는 질문이 추가되면 그 질문의 근거가 될 자리이며**, 그 질문을 여는 것은 이번 구간 범위 밖이다 | AI/RAG/프론트엔드 | 확인 완료 (2026-08-27) |
-| 결정자 확인 후 상태를 승인으로 변경 | Tech Lead | 대기 |
+| 결정자 확인 후 상태를 승인으로 변경 | Tech Lead | 완료, 이 PR. 김소원 확인은 [PR 184](https://github.com/team-savers/savers-project/pull/184) 리뷰에 있다 |
