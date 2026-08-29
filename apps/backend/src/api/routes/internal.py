@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends
 
 from api.deps import ai_client, dispatcher, registry, sessions, settings, shelters
 from backend_core.ai_client import AiEngineClient
+from backend_core.closed_loop import ReconcileSummary, reconcile_once
 from backend_core.config import Settings
 from backend_core.dispatch import Dispatcher
 from backend_core.ingest import demo_flood_warning
@@ -25,6 +26,33 @@ from backend_core.sessions import SessionStore
 from backend_core.shelters import ShelterRepository
 
 router = APIRouter(tags=["internal"])
+
+
+class ReconcileRunSummary(ContractModel):
+    processed: int
+    due: int
+    unreachable: int
+    notified: int
+
+
+@router.post("/internal/reconcile", response_model=ReconcileRunSummary)
+def reconcile_sessions(
+    residents: Annotated[ResidentRegistry, Depends(registry)],
+    store: Annotated[SessionStore, Depends(sessions)],
+    push: Annotated[Dispatcher, Depends(dispatcher)],
+    ai: Annotated[AiEngineClient, Depends(ai_client)],
+    config: Annotated[Settings, Depends(settings)],
+) -> ReconcileSummary:
+    """Run the same single observation used by the background worker."""
+    return reconcile_once(
+        store,
+        residents,
+        push,
+        ai=ai,
+        followup_after_s=config.followup_after_s,
+        reconcile_interval_s=config.reconcile_interval_s,
+        public_base_url=config.public_base_url,
+    )
 
 
 class DeliverySummary(ContractModel):
