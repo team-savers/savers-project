@@ -212,10 +212,14 @@ class ValidatedSafeRouteEngine:
         """Return OSM node coordinates; edge geometry is intentionally not represented."""
         if not _is_finite_real(walking_speed_mps) or walking_speed_mps <= 0:
             return _engine_error(candidates_checked=0)
+        if origin_node not in self._safe_graph:
+            return _engine_error(candidates_checked=0)
 
         checked = 0
         for candidate in candidates:
             checked += 1
+            if candidate.node_id not in self._safe_graph:
+                continue
             try:
                 distance, node_coordinates = _route_one(
                     self._safe_graph, origin_node, candidate.node_id

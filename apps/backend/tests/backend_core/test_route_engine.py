@@ -180,7 +180,48 @@ def test_engine_error_is_not_disguised_as_reselection() -> None:
     )
     assert result.status is RouteStatus.ENGINE_ERROR
     assert result.reselection_count == 0
-    assert result.candidates_checked == 1
+    assert result.candidates_checked == 0
+
+
+def test_missing_first_candidate_reselects_reachable_second_candidate() -> None:
+    result = ValidatedSafeRouteEngine(_graph()).find_route(
+        origin_node="start",
+        candidates=[_candidate("missing", "missing"), _candidate("b", "shelter-b")],
+        walking_speed_mps=1.0,
+    )
+    assert result.status is RouteStatus.FOUND
+    assert result.selected_shelter_id == "b"
+    assert result.candidates_checked == 2
+    assert result.reselection_count == 1
+
+
+def test_unreachable_missing_and_reachable_candidates_preserve_order() -> None:
+    graph = _graph()
+    graph.add_node("isolated", x=126.97, y=37.53)
+    result = ValidatedSafeRouteEngine(graph).find_route(
+        origin_node="start",
+        candidates=[
+            _candidate("isolated", "isolated"),
+            _candidate("missing", "missing"),
+            _candidate("b", "shelter-b"),
+        ],
+        walking_speed_mps=1.0,
+    )
+    assert result.status is RouteStatus.FOUND
+    assert result.selected_shelter_id == "b"
+    assert result.candidates_checked == 3
+    assert result.reselection_count == 2
+
+
+def test_all_missing_candidates_are_no_route() -> None:
+    result = ValidatedSafeRouteEngine(_graph()).find_route(
+        origin_node="start",
+        candidates=[_candidate("a", "missing-a"), _candidate("b", "missing-b")],
+        walking_speed_mps=1.0,
+    )
+    assert result.status is RouteStatus.NO_ROUTE
+    assert result.candidates_checked == 2
+    assert result.reselection_count == 1
 
 
 def test_networkx_no_path_is_no_route(monkeypatch: pytest.MonkeyPatch) -> None:
