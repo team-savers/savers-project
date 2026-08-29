@@ -89,9 +89,18 @@ def _next_deadline(deadline: float, finished_at: float, interval_s: int) -> floa
 _RECONCILE_LOCK = threading.Lock()
 
 
+# 무응답 타이머를 재설정하지 않는 시스템 이벤트. `push_accepted` 는 M1(도달) 전용이고,
+# `guardian_informed` 는 서비스가 보호자에게 한 1차 통지라 피보호자 활동이 아니다 — 둘 중 어느
+# 것도 30분 무응답 앵커를 미루면 안 된다(ADR-0015 결정 2, 폐루프는 피보호자 행동만 관측).
+_NON_TIMER_SYSTEM_EVENTS = frozenset({"push_accepted", "guardian_informed"})
+
+
 def _latest_timer_activity(events: list[SessionEvent]) -> SessionEvent | None:
-    """Latest activity that resets the closed-loop timer; push acceptance is M1 only."""
-    return next((event for event in reversed(events) if event.type != "push_accepted"), None)
+    """Latest activity that resets the closed-loop timer; push acceptance and the guardian
+    first-notice are excluded — neither is a ward action."""
+    return next(
+        (event for event in reversed(events) if event.type not in _NON_TIMER_SYSTEM_EVENTS), None
+    )
 
 
 def _followup_body(ai: AiEngineClient, events: list[SessionEvent]) -> str:
