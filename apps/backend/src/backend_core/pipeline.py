@@ -340,7 +340,8 @@ def run_alert(
         )
 
         # 이 세션이 ward 로 한 대 이상 접수된 경우에만 2차 패스에서 보호자 통지를 시도한다
-        # (확정 정책, 이슈 #218). run 전체 `accepted` 가 아니라 이 세션의 `notified` 로 판단해,
+        # (ward 접수 게이트: PR #221 PM 리뷰에서 확정, 정책은 ADR-0024/PR #222 에 기록).
+        # run 전체 `accepted` 가 아니라 이 세션의 `notified` 로 판단해,
         # 앞 resident 의 접수가 뒤 resident 를 적격 처리하는 교차 resident 오염을 막는다. ward 전
         # 기기가 False/예외로 끝난(notified=0) 세션은 담기지 않아 guardian 4종 계상 어디에도 들지
         # 않고 guardian_skipped_no_device 도 여기서 세지 않는다 — ward 기기가 없어 조기 continue 한

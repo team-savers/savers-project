@@ -192,8 +192,10 @@ def test_guardian_only_resident_is_skipped_not_a_phantom_delivery(
     dispatcher: RecordingDispatcher,
     shelter_repository: ShelterRepository,
 ) -> None:
-    """guardian 기기만 있으면 1차 발송 대상이 없다 — skipped_no_device로 남고, notified=0
-    Delivery라는 집계 구멍을 내지 않는다. guardian 토큰으로는 1차에서 아무것도 나가지 않는다."""
+    """ward 기기가 없어 ward 접수가 성립하지 않는 세션 — skipped_no_device로 남고, notified=0
+    Delivery라는 집계 구멍을 내지 않는다. ward 접수가 없으므로 guardian 기기가 남아 있어도
+    보호자 1차 통지는 발송되지 않는다(이 테스트의 조건이며, guardian 토큰이 항상 1차 발송
+    대상이 아니라는 일반 정책으로 확대해 읽지 않는다)."""
     resident = registry.get("p001")
     assert resident is not None
     resident.devices["ward"].clear()  # ward만 비우고 guardian(fcm_demo_guardian_p001)은 남긴다
@@ -202,7 +204,7 @@ def test_guardian_only_resident_is_skipped_not_a_phantom_delivery(
     run = _run(event, registry, sessions, ai, dispatcher, shelter_repository)
 
     assert "p001" in run.skipped_no_device
-    # 2차용 guardian 토큰은 1차 발송에 실리지 않는다.
+    # ward 접수가 없어 이 세션은 보호자 1차 통지 대상이 아니므로 guardian 토큰으로도 발송이 없다.
     guardian_token = "fcm_demo_guardian_p001"  # noqa: S105 - 가공 데모 값
     assert all(p.device_token != guardian_token for p in dispatcher.sent)
     # skipped 주민은 Delivery로 기록되지 않으므로 M1 지연 표본에도 delivered_count에도 안 든다.

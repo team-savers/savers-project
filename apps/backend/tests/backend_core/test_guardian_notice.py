@@ -284,7 +284,8 @@ def test_guardian_relation_but_no_device_is_skipped(
     assert dispatcher.guardian_sends == []
 
 
-# ── ward 접수 게이팅: ward 도달이 없으면 보호자 통지도 계상도 없다(확정 정책, #218) ────────
+# ── ward 접수 게이팅: ward 도달이 없으면 보호자 통지도 계상도 없다 ──────────────────────────
+# (ward 접수 게이트는 PR #221 PM 리뷰에서 확정, 정책은 ADR-0024/PR #222 에 기록)
 
 
 class _WardScriptedDispatcher:
@@ -688,10 +689,11 @@ def test_guardian_outcome_never_enters_delivery(
 def test_ward_all_fail_suppresses_guardian_notice_and_keeps_ward_unreached(
     sessions: SessionStore, ai: FakeAiEngine, shelter_repository: ShelterRepository, event
 ) -> None:
-    """ward 전 기기 실패: 보호자 통지가 나가지 않고(확정 정책, #218), ward 도 미도달로 남는다.
+    """ward 전 기기 실패: 보호자 통지가 나가지 않고(ward 접수 게이트), ward 도 미도달로 남는다.
 
-    확정 정책 이전에는 ward 실패와 무관하게 보호자 통지를 보냈으나, 이제 ward 접수가 없으면
-    보호자 1차 통지를 보내지 않는다. guardian 큐의 True 는 소비되지 않는다."""
+    ward 접수 게이트는 PR #221 PM 리뷰에서 확정되고 ADR-0024/PR #222 에 기록된다. 그 이전에는
+    ward 실패와 무관하게 보호자 통지를 보냈으나, 이제 ward 접수가 없으면 보호자 1차 통지를 보내지
+    않는다. guardian 큐의 True 는 소비되지 않는다."""
     registry = ResidentRegistry(
         [_guardian_resident("p001", ward_tokens=["w1"], guardian_tokens=["g1"])]
     )
