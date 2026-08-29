@@ -891,7 +891,7 @@ export function Register(): React.ReactElement {
       )}
 
       {/* ===================== 2 · 대피 관련 정보 =====================
-          housing·mobility(필수) + stairsOk·vision·livesAlone·care(기본값
+          housing·mobility·stairsOk(필수) + vision·livesAlone·care(기본값
           있음, 필수 아님)를 한 단계에 모은다. mobility 와 stairsOk 는 서로
           독립 질문이다. hearing·language 는 이 화면에서 UI로 묻지 않는다
           — hearing 은 EMPTY_FORM 의 정상값('ok'), language 는 고정값
@@ -930,8 +930,7 @@ export function Register(): React.ReactElement {
                 textWrap: 'pretty',
               }}
             >
-              <b>이 두 가지가 안내 내용을 바꿉니다.</b> 나머지보다 신중히 골라
-              주세요.
+              <b>사는 곳, 이동 가능 여부, 계단 이용 가능 여부가 대피소 추천에 반영됩니다.</b>
             </div>
           </div>
 
