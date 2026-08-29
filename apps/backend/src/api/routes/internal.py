@@ -17,7 +17,7 @@ from api.deps import ai_client, dispatcher, registry, sessions, settings, shelte
 from backend_core.ai_client import AiEngineClient
 from backend_core.closed_loop import ReconcileSummary, reconcile_once
 from backend_core.config import Settings
-from backend_core.dispatch import Dispatcher
+from backend_core.dispatch import Dispatcher, PushChannel
 from backend_core.ingest import demo_flood_warning
 from backend_core.models import ContractModel, DisasterEvent
 from backend_core.pipeline import run_alert
@@ -69,6 +69,7 @@ class AlertRunSummary(ContractModel):
     """Run report. `p95LatencyMs` is the 알림 도달 속도 KPI's per-run contribution."""
 
     event_id: str
+    channel: PushChannel
     matched: int
     # `dispatched`: 기기가 있어 발송을 시도한 세션 수. `accepted`: 그중 한 대라도 접수된
     # 세션 수(도달). `send_errors`: 어댑터가 예외를 던진 발송 건수 — 정직한 False(미접수)와
@@ -109,6 +110,7 @@ def dispatch_alert(
     )
     return AlertRunSummary(
         event_id=run.event_id,
+        channel=push.channel,
         matched=run.matched,
         dispatched=len(run.deliveries),
         accepted=run.accepted,
