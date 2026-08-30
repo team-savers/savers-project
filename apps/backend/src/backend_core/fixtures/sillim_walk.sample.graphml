@@ -1,0 +1,99 @@
+<?xml version='1.0' encoding='utf-8'?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd">
+  <key id="osmid" for="edge" attr.name="osmid" attr.type="long" />
+  <key id="length" for="edge" attr.name="length" attr.type="double" />
+  <key id="y" for="node" attr.name="y" attr.type="double" />
+  <key id="x" for="node" attr.name="x" attr.type="double" />
+  <key id="crs" for="graph" attr.name="crs" attr.type="string" />
+  <graph edgedefault="directed">
+    <node id="1000001">
+      <data key="x">126.929</data>
+      <data key="y">37.484</data>
+    </node>
+    <node id="1000002">
+      <data key="x">126.93</data>
+      <data key="y">37.4845</data>
+    </node>
+    <node id="1000003">
+      <data key="x">126.931</data>
+      <data key="y">37.4842</data>
+    </node>
+    <node id="1000004">
+      <data key="x">126.9305</data>
+      <data key="y">37.4835</data>
+    </node>
+    <node id="1000005">
+      <data key="x">126.9295</data>
+      <data key="y">37.483</data>
+    </node>
+    <node id="1000006">
+      <data key="x">126.9315</data>
+      <data key="y">37.485</data>
+    </node>
+    <edge source="1000001" target="1000002" id="0">
+      <data key="length">120.0</data>
+      <data key="osmid">1</data>
+    </edge>
+    <edge source="1000001" target="1000005" id="0">
+      <data key="length">130.0</data>
+      <data key="osmid">5</data>
+    </edge>
+    <edge source="1000002" target="1000001" id="0">
+      <data key="length">120.0</data>
+      <data key="osmid">1</data>
+    </edge>
+    <edge source="1000002" target="1000003" id="0">
+      <data key="length">100.0</data>
+      <data key="osmid">2</data>
+    </edge>
+    <edge source="1000002" target="1000003" id="1">
+      <data key="length">105.0</data>
+      <data key="osmid">100</data>
+    </edge>
+    <edge source="1000002" target="1000004" id="0">
+      <data key="length">150.0</data>
+      <data key="osmid">4</data>
+    </edge>
+    <edge source="1000003" target="1000002" id="0">
+      <data key="length">100.0</data>
+      <data key="osmid">2</data>
+    </edge>
+    <edge source="1000003" target="1000002" id="1">
+      <data key="length">105.0</data>
+      <data key="osmid">100</data>
+    </edge>
+    <edge source="1000003" target="1000004" id="0">
+      <data key="length">90.0</data>
+      <data key="osmid">3</data>
+    </edge>
+    <edge source="1000003" target="1000006" id="0">
+      <data key="length">140.0</data>
+      <data key="osmid">7</data>
+    </edge>
+    <edge source="1000004" target="1000003" id="0">
+      <data key="length">90.0</data>
+      <data key="osmid">3</data>
+    </edge>
+    <edge source="1000004" target="1000002" id="0">
+      <data key="length">150.0</data>
+      <data key="osmid">4</data>
+    </edge>
+    <edge source="1000004" target="1000005" id="0">
+      <data key="length">110.0</data>
+      <data key="osmid">6</data>
+    </edge>
+    <edge source="1000005" target="1000001" id="0">
+      <data key="length">130.0</data>
+      <data key="osmid">5</data>
+    </edge>
+    <edge source="1000005" target="1000004" id="0">
+      <data key="length">110.0</data>
+      <data key="osmid">6</data>
+    </edge>
+    <edge source="1000006" target="1000003" id="0">
+      <data key="length">140.0</data>
+      <data key="osmid">7</data>
+    </edge>
+    <data key="crs">EPSG:4326</data>
+  </graph>
+</graphml>

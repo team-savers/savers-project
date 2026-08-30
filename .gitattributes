@@ -12,3 +12,8 @@
 # existing clone means deleting the .sh files and getting them back, or running
 # scripts/setup-dev.ps1 once — see docs/공통_가이드/환경_세팅_가이드.md E12.
 *.sh text eol=lf
+
+# Route-graph snapshots (issue #224) ship with a sha256 recorded in their metadata sidecar.
+# Treat them as binary so no autocrlf checkout rewrites LF->CRLF and breaks that checksum —
+# the loader recomputes sha256 over the working-tree bytes, which must equal the stored blob.
+*.graphml binary
