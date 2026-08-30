@@ -269,6 +269,35 @@ def test_push_acceptance_does_not_delay_initial_followup(
     ]
 
 
+def test_guardian_informed_does_not_delay_initial_followup(
+    sessions: SessionStore,
+    registry: ResidentRegistry,
+    dispatcher: RecordingDispatcher,
+    event: DisasterEvent,
+) -> None:
+    """1차 보호자 통지(guardian_informed)는 피보호자 무응답 타이머를 재설정하지 않는다.
+
+    guardian_informed 는 서비스가 보호자에게 한 통지라 피보호자 활동이 아니다 — push_accepted 와
+    같은 제외 대상이다(ADR-0015 결정 2). alert_dispatched·push_accepted·guardian_informed 가 함께
+    있어도 앵커는 alert_dispatched 로 유지되므로, followup 은 alert_dispatched + 30분에 뜬다."""
+    record = _record(sessions, event)
+    sessions.append_system_event(record, "push_accepted", now=START + timedelta(seconds=10))
+    sessions.append_system_event(record, "guardian_informed", now=START + timedelta(seconds=20))
+
+    early = _tick(sessions, registry, dispatcher, now=START + timedelta(seconds=AFTER_S - 1))
+    due = _tick(sessions, registry, dispatcher, now=START + timedelta(seconds=AFTER_S))
+
+    assert early.due == early.notified == 0
+    assert due.due == due.notified == 1
+    assert _types(sessions, record) == [
+        "alert_dispatched",
+        "push_accepted",
+        "guardian_informed",
+        "followup_due",
+        "guardian_notified",
+    ]
+
+
 def test_user_activity_still_resets_timer_after_push_acceptance(
     sessions: SessionStore,
     registry: ResidentRegistry,
