@@ -9,6 +9,7 @@ Convention: tests/ mirrors src/ (src/api/main.py -> tests/api/test_main.py).
 
 import json
 
+import pytest
 from conftest import FakeAiEngine
 from fastapi.testclient import TestClient
 
@@ -39,10 +40,23 @@ def test_health(client: TestClient) -> None:
 
 def test_dispatch_reports_the_kpi_fields(client: TestClient) -> None:
     body = _dispatch(client)
+    assert body["channel"] == "recording"
     assert body["matched"] == 2
     assert body["dispatched"] == 2
     assert body["meanLatencyMs"] >= 0
     assert body["p95LatencyMs"] >= 0
+
+
+def test_dispatch_reports_guardian_first_notice_counts(client: TestClient) -> None:
+    """보호자 1차 통지 계상 4종이 camelCase 별칭으로 응답에 실린다(ADR-0015 결정 2, 이슈 #218).
+
+    시드 기준 p001 은 보호자 기기 보유(통지 시도·접수), p002 는 `guardian: null`(skip).
+    RecordingDispatcher 는 항상 접수하므로 예외 발송은 0 이다."""
+    body = _dispatch(client)
+    assert body["guardianDispatched"] == 1
+    assert body["guardianAccepted"] == 1
+    assert body["guardianSkippedNoDevice"] == 1
+    assert body["guardianSendErrors"] == 0
 
 
 def test_session_response_shape_and_no_store(client: TestClient) -> None:
@@ -208,6 +222,25 @@ def test_device_register_and_unregister(client: TestClient) -> None:
     assert client.request("DELETE", "/v1/devices", json=unregister).json() == {"ok": True}
     # 이미 없는 토큰의 해제도 200 — 재시도 루프를 만들지 않는다.
     assert client.request("DELETE", "/v1/devices", json=unregister).status_code == 200
+
+
+@pytest.mark.parametrize("fcm_token", ["", "   "])
+def test_device_register_rejects_invalid_fcm_token(client: TestClient, fcm_token: str) -> None:
+    payload = {
+        "registrationToken": "r_demo_resident_p002",
+        "fcmToken": fcm_token,
+        "role": "ward",
+    }
+    assert client.post("/v1/devices", json=payload).status_code == 422
+
+
+@pytest.mark.parametrize("fcm_token", ["", "   "])
+def test_device_unregister_rejects_invalid_fcm_token(client: TestClient, fcm_token: str) -> None:
+    payload = {
+        "registrationToken": "r_demo_resident_p002",
+        "fcmToken": fcm_token,
+    }
+    assert client.request("DELETE", "/v1/devices", json=payload).status_code == 422
 
 
 def test_device_register_guardian_without_guardian_is_rejected(client: TestClient) -> None:

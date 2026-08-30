@@ -1,0 +1,64 @@
+/* GuardianPushControl button styles — scoped to these two class names only.
+   Used exclusively by GuardianPushControl in Guardian.tsx (the "이 휴대폰에서
+   알림 받기" / "알림 해제" buttons). Does not touch any other element on the
+   guardian screens — every other button there keeps its own inline style. */
+
+.guardian-push-btn {
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.guardian-push-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.guardian-push-btn:focus-visible {
+  outline: 3px solid #F8A008;
+  outline-offset: 2px;
+}
+
+/* 미등록 상태 — secondary CTA. Lower visual priority than the filled
+   "안전 확인 AI" primary CTA elsewhere on this screen: outline only, no
+   fill, no shadow. Full width + 48px min-height keeps it easy to tap on
+   mobile. */
+.guardian-push-btn--secondary {
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 16px;
+  border: 1px solid #1877F2;
+  border-radius: 11px;
+  background: #FFFFFF;
+  color: #1877F2;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+@media (hover: hover) {
+  .guardian-push-btn--secondary:hover:not(:disabled) {
+    background: rgba(24, 119, 242, 0.06);
+  }
+}
+
+/* 등록 완료 상태 — small neutral outline button ("알림 해제"). Deliberately
+   NOT destructive-red or full-width: unsubscribing is a low-stakes toggle,
+   not a warning-level action. */
+.guardian-push-btn--outline {
+  min-height: 40px;
+  padding: 9px 18px;
+  border: 1px solid #D9E0E7;
+  border-radius: 9px;
+  background: #FFFFFF;
+  color: #4B5563;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+@media (hover: hover) {
+  .guardian-push-btn--outline:hover:not(:disabled) {
+    background: #F8F9FA;
+    border-color: #C3CCD6;
+  }
+}

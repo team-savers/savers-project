@@ -101,12 +101,13 @@ export const C = {
   white: '#FFFFFF',
 
   /**
-   * Guardian screen brand palette (`/guardian`) — a separate brand hue set
-   * from the app-wide navy/teal palette above, used only by
-   * `pages/Guardian.tsx`. Kept as its own five-colour group (rather than
+   * Guardian brand palette — a separate brand hue set from the app-wide
+   * navy/teal palette above, used by `pages/Guardian.tsx` and by the
+   * registration screen `pages/Register.tsx` (its local `P` alias re-exposes
+   * these same five colours). Kept as its own five-colour group (rather than
    * folded into the navy/teal names) because it is visually a different
    * brand, not a synonym for an existing token — reusing e.g. `alert` here
-   * would silently repaint this screen if `alert` ever changes. `*Text`
+   * would silently repaint these screens if `alert` ever changes. `*Text`
    * variants are TEXT-ONLY darker derivatives for AA contrast on light fills
    * (same pairing technique as `tealText`/`alertText` above); `*Bg` variants
    * are translucent tints for badge/card fills only.

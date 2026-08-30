@@ -7,11 +7,18 @@ Contract: packages/contracts/openapi.yaml — both the frontend-facing paths ser
 and the `generation` 태그 paths this app calls on apps/ai-engine (ADR-0006).
 """
 
+import logging
+from collections.abc import Callable
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime
+from typing import Any
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from api import deps
 from api.deps import settings
 from api.errors import api_error_handler
 from api.routes import (
@@ -24,9 +31,53 @@ from api.routes import (
     session_events,
     shelters,
 )
+from backend_core.closed_loop import ReconcileWorker, reconcile_once
 from backend_core.models import ErrorBody
 
-app = FastAPI(title="savers-project")
+logger = logging.getLogger(__name__)
+
+
+def _resolved(application: FastAPI, provider: Callable[[], Any]) -> Any:
+    """Resolve a zero-argument provider, honoring the same test overrides as requests."""
+    return application.dependency_overrides.get(provider, provider)()
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    """Validate push first, then run closed-loop reconciliation with that dispatcher."""
+    push = _resolved(application, deps.dispatcher)
+    application.state.push_channel = push.channel
+    logger.info("push channel selected: %s", push.channel)
+
+    config = _resolved(application, deps.settings)
+    store = _resolved(application, deps.sessions)
+    residents = _resolved(application, deps.registry)
+    ai = _resolved(application, deps.ai_client)
+    worker = ReconcileWorker(
+        lambda previous_observed_at, observed_at, bootstrap_late_cycle: reconcile_once(
+            store,
+            residents,
+            push,
+            ai=ai,
+            followup_after_s=config.followup_after_s,
+            reconcile_interval_s=config.reconcile_interval_s,
+            public_base_url=config.public_base_url,
+            now=observed_at,
+            previous_observed_at=previous_observed_at,
+            bootstrap_late_cycle=bootstrap_late_cycle,
+            clock=lambda: datetime.now(UTC),
+        ),
+        interval_s=config.reconcile_interval_s,
+    )
+    worker.start()
+    application.state.reconcile_worker = worker
+    try:
+        yield
+    finally:
+        worker.stop()
+
+
+app = FastAPI(title="savers-project", lifespan=lifespan)
 
 # Methods the browser is told it may use. Listed explicitly rather than "*" so widening the
 # surface stays a deliberate edit, and kept in sync with the routers by

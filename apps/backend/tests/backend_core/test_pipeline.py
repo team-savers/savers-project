@@ -9,6 +9,7 @@ from typing import get_args
 
 from conftest import GROUNDED_BODY, FakeAiEngine
 
+from backend_core import pipeline
 from backend_core.dispatch import PushPayload, RecordingDispatcher
 from backend_core.fallback import OFFICIAL_FALLBACK_BODY
 from backend_core.models import Availability, DisasterEvent, ServiceMode, ShelterList
@@ -18,6 +19,13 @@ from backend_core.sessions import SessionStore
 from backend_core.shelters import ShelterRepository
 
 BASE_URL = "http://localhost:3000"
+
+
+def _ward_sends(dispatcher: RecordingDispatcher) -> list[PushPayload]:
+    """Ward-channel pushes only (deep link `/a?t=`), excluding the guardian first-notice
+    (`/g/{guardian_token}`, ADR-0015 결정 2). These ward-flow assertions predate the guardian
+    notice and stay ward-scoped; guardian behaviour is covered in test_guardian_notice.py."""
+    return [p for p in dispatcher.sent if "/a?t=" in p.link]
 
 
 def _run(
@@ -52,7 +60,7 @@ def test_one_event_reaches_every_matched_resident(
 
     assert run.matched == 2
     assert len(run.deliveries) == 2
-    assert len(dispatcher.sent) == 2
+    assert len(_ward_sends(dispatcher)) == 2
     assert all(d.message_mode == "grounded" for d in run.deliveries)
     assert len(sessions) == 2
 
@@ -106,8 +114,8 @@ def test_push_body_is_delivered_verbatim(
     """
     _run(event, registry, sessions, ai, dispatcher, shelter_repository)
 
-    assert {p.body for p in dispatcher.sent} == {GROUNDED_BODY}
-    assert all("#{" not in p.body for p in dispatcher.sent)
+    assert {p.body for p in _ward_sends(dispatcher)} == {GROUNDED_BODY}
+    assert all("#{" not in p.body for p in _ward_sends(dispatcher))
 
 
 def test_deep_link_carries_the_session_token(
@@ -120,7 +128,7 @@ def test_deep_link_carries_the_session_token(
 ) -> None:
     run = _run(event, registry, sessions, ai, dispatcher, shelter_repository)
     tokens = {d.session_token for d in run.deliveries}
-    assert all(any(t in p.link for t in tokens) for p in dispatcher.sent)
+    assert all(any(t in p.link for t in tokens) for p in _ward_sends(dispatcher))
 
 
 def test_engine_refusal_becomes_the_approved_fallback(
@@ -136,7 +144,7 @@ def test_engine_refusal_becomes_the_approved_fallback(
     run = _run(event, registry, sessions, ai, dispatcher, shelter_repository)
 
     assert all(d.message_mode == "official_fallback" for d in run.deliveries)
-    assert {p.body for p in dispatcher.sent} == {OFFICIAL_FALLBACK_BODY}
+    assert {p.body for p in _ward_sends(dispatcher)} == {OFFICIAL_FALLBACK_BODY}
 
 
 def test_ai_outage_lands_in_the_same_place_as_a_refusal(
@@ -151,9 +159,9 @@ def test_ai_outage_lands_in_the_same_place_as_a_refusal(
     ai.available = False
     run = _run(event, registry, sessions, ai, dispatcher, shelter_repository)
 
-    assert len(dispatcher.sent) == 2
+    assert len(_ward_sends(dispatcher)) == 2
     assert all(d.message_mode == "official_fallback" for d in run.deliveries)
-    assert {p.body for p in dispatcher.sent} == {OFFICIAL_FALLBACK_BODY}
+    assert {p.body for p in _ward_sends(dispatcher)} == {OFFICIAL_FALLBACK_BODY}
 
 
 def test_resident_without_device_is_reported_not_hidden(
@@ -173,7 +181,7 @@ def test_resident_without_device_is_reported_not_hidden(
 
     assert run.matched == 2
     assert run.skipped_no_device == ["p002"]
-    assert len(dispatcher.sent) == 1
+    assert len(_ward_sends(dispatcher)) == 1
 
 
 def test_guardian_only_resident_is_skipped_not_a_phantom_delivery(
@@ -184,8 +192,10 @@ def test_guardian_only_resident_is_skipped_not_a_phantom_delivery(
     dispatcher: RecordingDispatcher,
     shelter_repository: ShelterRepository,
 ) -> None:
-    """guardian 기기만 있으면 1차 발송 대상이 없다 — skipped_no_device로 남고, notified=0
-    Delivery라는 집계 구멍을 내지 않는다. guardian 토큰으로는 1차에서 아무것도 나가지 않는다."""
+    """ward 기기가 없어 ward 접수가 성립하지 않는 세션 — skipped_no_device로 남고, notified=0
+    Delivery라는 집계 구멍을 내지 않는다. ward 접수가 없으므로 guardian 기기가 남아 있어도
+    보호자 1차 통지는 발송되지 않는다(이 테스트의 조건이며, guardian 토큰이 항상 1차 발송
+    대상이 아니라는 일반 정책으로 확대해 읽지 않는다)."""
     resident = registry.get("p001")
     assert resident is not None
     resident.devices["ward"].clear()  # ward만 비우고 guardian(fcm_demo_guardian_p001)은 남긴다
@@ -194,7 +204,7 @@ def test_guardian_only_resident_is_skipped_not_a_phantom_delivery(
     run = _run(event, registry, sessions, ai, dispatcher, shelter_repository)
 
     assert "p001" in run.skipped_no_device
-    # 2차용 guardian 토큰은 1차 발송에 실리지 않는다.
+    # ward 접수가 없어 이 세션은 보호자 1차 통지 대상이 아니므로 guardian 토큰으로도 발송이 없다.
     guardian_token = "fcm_demo_guardian_p001"  # noqa: S105 - 가공 데모 값
     assert all(p.device_token != guardian_token for p in dispatcher.sent)
     # skipped 주민은 Delivery로 기록되지 않으므로 M1 지연 표본에도 delivered_count에도 안 든다.
@@ -339,7 +349,141 @@ def test_multiple_devices_all_receive(
 
     delivery = next(d for d in run.deliveries if d.user_id == "p001")
     assert delivery.devices_notified == 2
-    assert len(dispatcher.sent) == 3
+    assert len(_ward_sends(dispatcher)) == 3
+
+
+class _TimedOutcomeDispatcher:
+    def __init__(self, clock: list[float], outcomes: list[tuple[float, bool | Exception]]) -> None:
+        self.clock = clock
+        self.outcomes = iter(outcomes)
+
+    def send(self, payload: PushPayload) -> bool:
+        at, outcome = next(self.outcomes)
+        self.clock[0] = at
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+def _run_single_resident_with_timed_outcomes(
+    monkeypatch,
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+    outcomes: list[tuple[float, bool | Exception]],
+) -> AlertRun:
+    resident = registry.get("p001")
+    assert resident is not None
+    resident.devices["ward"][:] = ["ward-phone", "ward-tablet"]
+    clock = [0.0]
+    monkeypatch.setattr(pipeline, "perf_counter", lambda: clock[0])
+    return run_alert(
+        event,
+        registry=ResidentRegistry([resident]),
+        sessions=sessions,
+        ai=ai,
+        dispatcher=_TimedOutcomeDispatcher(clock, outcomes),
+        shelters=shelter_repository,
+        public_base_url=BASE_URL,
+    )
+
+
+def test_m1_uses_first_ward_acceptance_when_multiple_devices_accept(
+    monkeypatch,
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+) -> None:
+    run = _run_single_resident_with_timed_outcomes(
+        monkeypatch,
+        event,
+        registry,
+        sessions,
+        ai,
+        shelter_repository,
+        [(0.1, True), (0.9, True)],
+    )
+
+    delivery = run.deliveries[0]
+    assert delivery.devices_notified == 2
+    assert delivery.latency_ms == 100.0
+    assert [event.type for event in sessions.events_of(sessions.get(delivery.session_token))] == [
+        "alert_dispatched",
+        "push_accepted",
+    ]
+
+
+def test_m1_uses_later_device_when_first_is_not_accepted(
+    monkeypatch,
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+) -> None:
+    run = _run_single_resident_with_timed_outcomes(
+        monkeypatch,
+        event,
+        registry,
+        sessions,
+        ai,
+        shelter_repository,
+        [(0.1, False), (0.7, True)],
+    )
+
+    assert run.deliveries[0].devices_notified == 1
+    assert run.deliveries[0].latency_ms == 700.0
+
+
+def test_m1_first_acceptance_survives_later_send_exception(
+    monkeypatch,
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+) -> None:
+    run = _run_single_resident_with_timed_outcomes(
+        monkeypatch,
+        event,
+        registry,
+        sessions,
+        ai,
+        shelter_repository,
+        [(0.2, True), (0.8, RuntimeError("later send failed"))],
+    )
+
+    assert run.deliveries[0].devices_notified == 1
+    assert run.deliveries[0].latency_ms == 200.0
+    assert run.send_errors == 1
+
+
+def test_all_failed_delivery_keeps_float_but_is_excluded_from_m1(
+    monkeypatch,
+    event: DisasterEvent,
+    registry: ResidentRegistry,
+    sessions: SessionStore,
+    ai: FakeAiEngine,
+    shelter_repository: ShelterRepository,
+) -> None:
+    run = _run_single_resident_with_timed_outcomes(
+        monkeypatch,
+        event,
+        registry,
+        sessions,
+        ai,
+        shelter_repository,
+        [(0.3, False), (0.6, False)],
+    )
+
+    assert run.deliveries[0].devices_notified == 0
+    assert run.deliveries[0].latency_ms == 600.0
+    assert run.latencies_ms == []
+    assert run.p95_latency_ms == 0.0
 
 
 def test_reached_recipient_gets_alert_dispatched_then_push_accepted(
@@ -350,9 +494,13 @@ def test_reached_recipient_gets_alert_dispatched_then_push_accepted(
     dispatcher: RecordingDispatcher,
     shelter_repository: ShelterRepository,
 ) -> None:
-    """디바이스가 있는 수신자 세션은 alert_dispatched 다음 push_accepted를 남긴다."""
+    """디바이스가 있는 수신자 세션은 alert_dispatched 다음 push_accepted를 남긴다.
+
+    보호자 없는 p002 로 본다 — p001 은 guardian 통지까지 접수돼 guardian_informed 가 뒤에
+    붙으므로(별도 test_guardian_notice.py 에서 검증), ward 순서만 보려면 보호자 없는 세션이 맞다."""
     run = _run(event, registry, sessions, ai, dispatcher, shelter_repository)
-    record = sessions.get(run.deliveries[0].session_token)
+    delivery = next(d for d in run.deliveries if d.user_id == "p002")
+    record = sessions.get(delivery.session_token)
     types = [e.type for e in sessions.events_of(record)]
     assert types == ["alert_dispatched", "push_accepted"]
 
@@ -472,6 +620,11 @@ def test_one_raising_send_does_not_stop_the_run(
     터진 세션은 push_accepted 없이 alert_dispatched만 남고, 그 부재 자체가 기록된 사실이다.
     """
     flaky = _RaiseOnFirstSendDispatcher()
+    # ward 발송 실패 격리만 본다 — p001 의 guardian 통지가 발송 수를 늘리지 않도록 비운다.
+    # 보호자 발송의 오류 격리는 test_guardian_notice.py 가 따로 검증한다.
+    p001 = registry.get("p001")
+    assert p001 is not None
+    p001.devices["guardian"].clear()
     run = run_alert(
         event,
         registry=registry,

@@ -53,15 +53,16 @@ GuardianEvidenceType = Literal[
     "arrival_confirmed_by_user",
     "alert_dispatched",
     "push_accepted",
+    "guardian_informed",
     "followup_due",
     "followup_unreachable",
     "guardian_notified",
 ]
 MessageMode = Literal["grounded", "official_fallback"]
 RegisteredBy = Literal["self", "guardian", "welfare_center", "employer"]
-# 기기 역할. 1차 재난 알림은 ward에게만, 30분 무응답 뒤 2차 발송은 guardian에게만 나간다
-# (ADR-0015 결정 1·2). 기본값을 두지 않고 필수로 받는다 — 값이 틀리면 화면이 아니라 발송
-# 대상이 틀어지는 필드라, 생략을 ward로 해석하면 보호자 폰에 1차 알림이 조용히 함께 간다.
+# 기기 역할. 1차는 ward 행동 지시와 guardian 정보성 통지로 갈리고, 30분 무응답 뒤 2차는
+# guardian에게만 나간다(ADR-0015 결정 1·2). 기본값을 두지 않고 필수로 받는다 — 생략을
+# ward로 해석하면 보호자 폰이 정보성 통지 대신 피보호자 행동 지시를 받는다.
 DeviceRole = Literal["ward", "guardian"]
 ResponseChoice = Literal["home", "outside"]
 Availability = Literal["ok", "all_excluded", "cache_only", "upstream_unavailable"]
@@ -376,7 +377,7 @@ class GuardianAnswer(RequestModel):
 
 class DeviceRegisterRequest(RequestModel):
     registration_token: str
-    fcm_token: str
+    fcm_token: str = Field(min_length=1, pattern=r"^\S+$")
     role: DeviceRole
     user_agent: str | None = None
 
@@ -390,7 +391,7 @@ class DeviceUnregisterRequest(RequestModel):
     """
 
     registration_token: str
-    fcm_token: str
+    fcm_token: str = Field(min_length=1, pattern=r"^\S+$")
     user_agent: str | None = None
 
 
@@ -403,7 +404,7 @@ class GuardianDeviceRegisterRequest(RequestModel):
     하나로 답하는 것과 같은 이유다(계약 `GuardianDeviceRegisterRequest`).
     """
 
-    fcm_token: str
+    fcm_token: str = Field(min_length=1, pattern=r"^\S+$")
     user_agent: str | None = None
 
 
@@ -430,6 +431,7 @@ class GuardianStatus(ContractModel):
     opened_at: datetime | None = None
     responded_at: datetime | None = None
     last_response: Literal["home", "outside", "none"]
+    last_notice: Literal["first", "followup", "none"]
     safety_status: Literal["unknown"] = "unknown"
     acknowledged_by_guardian: bool = False
     # 이 피보호자에게 붙은 guardian 기기가 하나 이상 있는가 — 단위는 피보호자이지 브라우저가

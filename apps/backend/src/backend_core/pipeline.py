@@ -22,6 +22,7 @@ session, and only if they open the link.
 
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -30,6 +31,7 @@ from time import perf_counter
 from backend_core.ai_client import AiEngineClient, AiEngineUnavailableError
 from backend_core.dispatch import Dispatcher, PushPayload, deep_link
 from backend_core.fallback import fallback_message
+from backend_core.guardian_notice import guardian_notice_payload
 from backend_core.matching import match_residents, stage_for
 from backend_core.models import (
     AlertLevel,
@@ -46,9 +48,11 @@ from backend_core.models import (
     ShelterList,
     Stage,
 )
-from backend_core.registry import ResidentRegistry
-from backend_core.sessions import SessionStore
+from backend_core.registry import Resident, ResidentRegistry
+from backend_core.sessions import SessionRecord, SessionStore
 from backend_core.shelters import ShelterRepository
+
+logger = logging.getLogger(__name__)
 
 _SEVERITY_LABELS: dict[Severity, str] = {"advisory": "호우주의보", "warning": "호우경보"}
 
@@ -106,6 +110,17 @@ class AlertRun:
     # adapter (auth misconfig, network fault) is distinguishable from an honest "not
     # accepted" — folding the two together would hide a real FCM outage from the run report.
     send_errors: int = 0
+    # 보호자 1차 정보성 통지 계상(ADR-0015 결정 2, 이슈 #218). ward 4종과 대칭이되 별개 축이다 —
+    # 보호자 접수는 M1 도달률/속도 어디에도 섞이지 않는다. 전건 거부에는 전용 필드를 두지 않고
+    # `guardian_dispatched - guardian_accepted` 로 읽는다(#218). 계상 모집단은 **ward 로 한 대
+    # 이상 접수된 세션**(= `accepted`)뿐이라, ward 기기 없음·ward 전건 실패 세션은 네 필드 어디에도
+    # 들지 않고 항상 `guardian_dispatched + guardian_skipped_no_device == accepted` 다.
+    guardian_dispatched: int = 0  # 그 모집단 중 guardian 기기가 있어 통지를 시도한 세션 수
+    guardian_accepted: int = 0  # 그중 1대 이상 접수된 세션 수. 저장 성공 경로에서 남은
+    # guardian_informed 이벤트 수와 같다 — 접수 직후 이벤트 저장이 실패하면 접수는 실제 발생했으므로
+    # 이 값은 유지되고 이벤트만 안 남아, 그 세션만큼 informed 이벤트 수가 이 값보다 적을 수 있다.
+    guardian_skipped_no_device: int = 0  # 그 모집단 중 보호자 없음/guardian 버킷 빔(실패 아님)
+    guardian_send_errors: int = 0  # 어댑터가 예외를 던진 보호자 발송 '건수'(세션 수 아님)
 
     @property
     def accepted(self) -> int:
@@ -225,6 +240,12 @@ def run_alert(
     run = AlertRun(
         event_id=event.event_id, started_at=started, finished_at=started, matched=len(residents)
     )
+    # 보호자 통지는 ward 루프 안에서 보내지 않고 여기 모아 2차 패스로 미룬다 — 앞 resident 의
+    # 보호자 발송 시간이 뒤 resident 의 ward `latency_ms`(run-level clock 기준)에 얹히는 교차
+    # 오염을 막는다. ward 로 한 대 이상 접수된(=push_accepted 가 남은) 세션만 담는다: ward 기기가
+    # 없어 조기 continue 한 세션과, ward 전 기기가 False/예외로 끝난 세션은 담기지 않으므로
+    # 여기서도 보호자 통지가 나가지 않는다.
+    guardian_targets: list[tuple[Resident, SessionRecord]] = []
 
     for resident in residents:
         profile = resident.profile
@@ -265,6 +286,7 @@ def run_alert(
 
         link = deep_link(public_base_url, session.token, stage)
         notified = 0
+        first_ward_accept_latency_ms: float | None = None
         for token in ward_devices:
             payload = PushPayload(
                 device_token=token,
@@ -287,6 +309,8 @@ def run_alert(
                 accepted = False
             if accepted:
                 if notified == 0:
+                    acceptance_elapsed_s = perf_counter() - clock_start
+                    first_ward_accept_latency_ms = acceptance_elapsed_s * 1000
                     # First device the push service accepted. Recorded once — no device or an
                     # all-failed send leaves this event absent, which is itself a fact.
                     # Stamped on the same injected+monotonic basis as `started`/`finished_at`,
@@ -295,10 +319,16 @@ def run_alert(
                     sessions.append_system_event(
                         session,
                         "push_accepted",
-                        now=started + timedelta(seconds=perf_counter() - clock_start),
+                        now=started + timedelta(seconds=acceptance_elapsed_s),
                     )
                 notified += 1
 
+        latency_ms = first_ward_accept_latency_ms
+        if latency_ms is None:
+            # No M1 endpoint exists for an all-failed delivery, but the API's required float
+            # remains the loop-end elapsed time for backward compatibility. AlertRun excludes
+            # this value from its KPI sample because devices_notified is zero.
+            latency_ms = (perf_counter() - clock_start) * 1000
         run.deliveries.append(
             Delivery(
                 user_id=profile.user_id,
@@ -307,9 +337,117 @@ def run_alert(
                 stage=stage,
                 message_mode=message.message_mode,
                 devices_notified=notified,
-                latency_ms=(perf_counter() - clock_start) * 1000,
+                latency_ms=latency_ms,
             )
+        )
+
+        # 이 세션이 ward 로 한 대 이상 접수된 경우에만 2차 패스에서 보호자 통지를 시도한다
+        # (ward 접수 게이트: PR #221 PM 리뷰에서 확정, 정책은 ADR-0024/PR #222 에 기록).
+        # run 전체 `accepted` 가 아니라 이 세션의 `notified` 로 판단해,
+        # 앞 resident 의 접수가 뒤 resident 를 적격 처리하는 교차 resident 오염을 막는다. ward 전
+        # 기기가 False/예외로 끝난(notified=0) 세션은 담기지 않아 guardian 4종 계상 어디에도 들지
+        # 않고 guardian_skipped_no_device 도 여기서 세지 않는다 — ward 기기가 없어 조기 continue 한
+        # 세션과 함께 보호자 통지의 정상 제외 경로다.
+        if notified > 0:
+            guardian_targets.append((resident, session))
+
+    # ── 2차 패스: 보호자 1차 정보성 통지(ADR-0015 결정 2, 이슈 #218) ──────────────
+    # 모든 ward 발송·Delivery 기록·ward latency 확정이 끝난 뒤 실행한다. 보호자 발송에 걸린
+    # 시간은 이미 확정된 어느 ward `latency_ms`(=M1 표본)에도 얹히지 않고, 결과는 `Delivery` 에
+    # 들어가지 않아 accepted·devices_notified·mean/p95·push_accepted 를 바꾸지 않는다. ward 전
+    # 기기가 실패해도(notified=0) guardian 성공이 그 세션을 도달로 만들지 않는다.
+    label = alert_label(event)
+    for guardian_resident, guardian_session in guardian_targets:
+        _notify_guardian(
+            guardian_resident,
+            guardian_session,
+            run,
+            dispatcher=dispatcher,
+            alert=label,
+            public_base_url=public_base_url,
+            sessions=sessions,
+            started=started,
+            clock_start=clock_start,
         )
 
     run.finished_at = started + timedelta(seconds=perf_counter() - clock_start)
     return run
+
+
+def _notify_guardian(
+    resident: Resident,
+    session: SessionRecord,
+    run: AlertRun,
+    *,
+    dispatcher: Dispatcher,
+    alert: str,
+    public_base_url: str,
+    sessions: SessionStore,
+    started: datetime,
+    clock_start: float,
+) -> None:
+    """Send the guardian first-notice for one session and fold the outcome into `run`.
+
+    고정 문구 1건을 보호자 기기(들)로 보낸다 — 생성물이 아니므로 `AlertMessage`/가드레일을
+    타지 않는다(ADR-0015 결정 2). 격리 규칙:
+
+    - 보호자 없음 또는 guardian 버킷이 비면 발송하지 않고 `guardian_skipped_no_device` 만 센다.
+      그것은 실패가 아니라 정상 경로다(#218).
+    - 한 기기의 `False` 나 예외가 다음 기기 발송을 막지 않고, 예외는 발송 '건수'로
+      `guardian_send_errors` 에 센다(세션 수 아님).
+    - `guardian_informed` 는 **첫 접수 1건에서만**, 세션당 1회 남긴다. 시각은 `push_accepted` 와
+      같은 주입+단조 기준(`started + Δperf_counter`)이라 리플레이에서 순서가 보장된다.
+    - `guardian_informed` 저장이 실패해도 접수는 실제 일어났으므로 `guardian_accepted` 를 되돌리지
+      않고, 저장 실패를 `guardian_send_errors`(발송 예외 건수)로 위장하지 않는다. 저장 실패는 이
+      resident 의 남은 기기·다음 resident·run 반환을 막지 않는다(발송 예외 격리와 같은 원칙).
+    - 전건 `False`(전건 거부)는 여기서 아무 것도 더하지 않는다 — `guardian_dispatched -
+      guardian_accepted` 로 읽는다(#218).
+    """
+    profile = resident.profile
+    guardian_devices = ResidentRegistry.devices_for(resident, "guardian")
+    if profile.guardian is None or not guardian_devices:
+        run.guardian_skipped_no_device += 1
+        return
+
+    run.guardian_dispatched += 1
+    accepted_this_session = False
+    for token in guardian_devices:
+        payload = guardian_notice_payload(
+            token,
+            ward_name=profile.name,
+            dong_name=profile.dong_name,
+            alert_label=alert,
+            public_base_url=public_base_url,
+            guardian_token=session.guardian_token,
+        )
+        try:
+            accepted = dispatcher.send(payload)
+        except Exception as exc:
+            # 한 기기 예외가 다음 기기를 막지 않는다. 예외 메시지도 traceback 도 남기지 않는다 —
+            # 실FCM 어댑터의 예외 문자열이 device/session/guardian/registration 토큰이나 링크를
+            # 담을 수 있어서다. 고정 문구와, 민감정보가 될 수 없는 예외 클래스명만 분류로 남긴다
+            # (`logger.exception` 이 아니라 `logger.error`, `exc_info` 없음).
+            logger.error("guardian first-notice dispatch failed (%s)", type(exc).__name__)
+            run.guardian_send_errors += 1
+            continue
+        if accepted and not accepted_this_session:
+            accepted_this_session = True
+            run.guardian_accepted += 1
+            try:
+                sessions.append_system_event(
+                    session,
+                    "guardian_informed",
+                    now=started + timedelta(seconds=perf_counter() - clock_start),
+                )
+            except Exception as exc:
+                # push 접수는 실제로 일어났으므로 `guardian_accepted` 를 되돌리지 않는다 —
+                # `guardian_informed` 이벤트만 저장되지 않은 채 남는다. 이는 dispatcher 예외와 다른
+                # 종류(저장 실패)라 `guardian_send_errors` 에 섞지 않고 ward `send_errors` 에도 더하지
+                # 않는다. 저장 실패가 이 resident 의 남은 guardian 기기나 다음 resident 처리를,
+                # 그리고 이미 확정된 ward Delivery·M1 결과와 run 반환을 막아서는 안 된다(발송 예외
+                # 격리와 같은 원칙). 예외 메시지·traceback 은 남기지 않고(토큰·링크가 실릴 수 있음)
+                # 고정 문구와 예외 클래스명만 기록한다(`logger.exception` 아님, `exc_info` 없음).
+                logger.error(
+                    "guardian first-notice event persistence failed (%s)",
+                    type(exc).__name__,
+                )

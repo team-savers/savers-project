@@ -15,8 +15,9 @@ from fastapi import APIRouter, Depends
 
 from api.deps import ai_client, dispatcher, registry, sessions, settings, shelters
 from backend_core.ai_client import AiEngineClient
+from backend_core.closed_loop import ReconcileSummary, reconcile_once
 from backend_core.config import Settings
-from backend_core.dispatch import Dispatcher
+from backend_core.dispatch import Dispatcher, PushChannel
 from backend_core.ingest import demo_flood_warning
 from backend_core.models import ContractModel, DisasterEvent
 from backend_core.pipeline import run_alert
@@ -25,6 +26,33 @@ from backend_core.sessions import SessionStore
 from backend_core.shelters import ShelterRepository
 
 router = APIRouter(tags=["internal"])
+
+
+class ReconcileRunSummary(ContractModel):
+    processed: int
+    due: int
+    unreachable: int
+    notified: int
+
+
+@router.post("/internal/reconcile", response_model=ReconcileRunSummary)
+def reconcile_sessions(
+    residents: Annotated[ResidentRegistry, Depends(registry)],
+    store: Annotated[SessionStore, Depends(sessions)],
+    push: Annotated[Dispatcher, Depends(dispatcher)],
+    ai: Annotated[AiEngineClient, Depends(ai_client)],
+    config: Annotated[Settings, Depends(settings)],
+) -> ReconcileSummary:
+    """Run the same single observation used by the background worker."""
+    return reconcile_once(
+        store,
+        residents,
+        push,
+        ai=ai,
+        followup_after_s=config.followup_after_s,
+        reconcile_interval_s=config.reconcile_interval_s,
+        public_base_url=config.public_base_url,
+    )
 
 
 class DeliverySummary(ContractModel):
@@ -41,6 +69,7 @@ class AlertRunSummary(ContractModel):
     """Run report. `p95LatencyMs` is the 알림 도달 속도 KPI's per-run contribution."""
 
     event_id: str
+    channel: PushChannel
     matched: int
     # `dispatched`: 기기가 있어 발송을 시도한 세션 수. `accepted`: 그중 한 대라도 접수된
     # 세션 수(도달). `send_errors`: 어댑터가 예외를 던진 발송 건수 — 정직한 False(미접수)와
@@ -50,6 +79,20 @@ class AlertRunSummary(ContractModel):
     accepted: int
     send_errors: int
     skipped_no_device: list[str]
+    # 보호자 1차 정보성 통지 계상(ADR-0015 결정 2, 이슈 #218). ward 4종에 `guardian_` 접두를
+    # 붙인 대칭이며 응답 JSON 은 `ContractModel` 의 카멜 별칭(guardianDispatched 등)을 탄다.
+    # 계상 모집단은 **ward 로 한 대 이상 접수된 세션**(= `accepted`)뿐이다 — ward 기기 없음과
+    # ward 전건 실패(False/예외) 세션은 네 필드 어디에도 들지 않는 정상 제외 경로다. 그래서
+    # 항상 `guardian_dispatched + guardian_skipped_no_device == accepted` 다.
+    # `guardian_dispatched`: 그 모집단 중 guardian 기기가 있어 통지를 시도한 세션 수.
+    # `guardian_accepted`: 그중 1대 이상 접수된 세션 수. `guardian_skipped_no_device`: 그 모집단 중
+    # 보호자 없음/버킷 빔(실패 아님, 정수만). `guardian_send_errors`: 어댑터가 예외를 던진 보호자
+    # 발송 건수. 전건 거부 전용 필드는 두지 않고 `guardian_dispatched - guardian_accepted` 로
+    # 읽는다. M1·M4 는 무관하다.
+    guardian_dispatched: int
+    guardian_accepted: int
+    guardian_skipped_no_device: int
+    guardian_send_errors: int
     mean_latency_ms: float
     p95_latency_ms: float
     deliveries: list[DeliverySummary]
@@ -81,11 +124,16 @@ def dispatch_alert(
     )
     return AlertRunSummary(
         event_id=run.event_id,
+        channel=push.channel,
         matched=run.matched,
         dispatched=len(run.deliveries),
         accepted=run.accepted,
         send_errors=run.send_errors,
         skipped_no_device=run.skipped_no_device,
+        guardian_dispatched=run.guardian_dispatched,
+        guardian_accepted=run.guardian_accepted,
+        guardian_skipped_no_device=run.guardian_skipped_no_device,
+        guardian_send_errors=run.guardian_send_errors,
         mean_latency_ms=round(run.mean_latency_ms, 2),
         p95_latency_ms=round(run.p95_latency_ms, 2),
         deliveries=[
