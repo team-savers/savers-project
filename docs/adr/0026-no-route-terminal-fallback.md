@@ -16,7 +16,8 @@
   [ADR-0012](0012-verifier-rules-and-closed-loop.md) 292행
   (119 버튼을 보호자 화면의 것으로 규정한 자리),
   [ADR-0025](0025-pre-demo-scope-freeze.md) 결정 2번 (배선은 발표 전 범위 밖.
-  별도 브랜치와 별도 PR 로 올라가므로, 그 PR 이 머지되기 전까지 이 링크는 깨져 있다),
+  [PR 232](https://github.com/team-savers/savers-project/pull/232) 로 따로 올라가므로,
+  그것이 머지되기 전까지 이 링크는 깨져 있다),
   [후속_과제.md](../공통_가이드/후속_과제.md) 24번
   (세션 로딩 실패 시 119 버튼이 같이 숨는다),
   `packages/contracts/openapi.yaml` (경로 응답 스키마가 아직 없다)
