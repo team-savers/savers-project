@@ -19,7 +19,8 @@
   [ADR-0016](0016-shelter-cautions-not-exclusion.md)
   (도달 시간은 제외가 아니라 주의 표시),
   [ADR-0026](0026-no-route-terminal-fallback.md) (경로 실패 시 종단 동작, 향후 적용.
-  별도 브랜치와 별도 PR 로 올라가므로, 그 PR 이 머지되기 전까지 이 링크는 깨져 있다),
+  [PR 233](https://github.com/team-savers/savers-project/pull/233) 으로 따로 올라가므로,
+  그것이 머지되기 전까지 이 링크는 깨져 있다),
   [역할_일정/00-overall.md](../역할_일정/00-overall.md) 6행, 26행, 203행 (코드 프리즈),
   [구현_범위.md](../공통_가이드/구현_범위.md) 3절 (핵심기술 2, 침수 회피 경로),
   [PR 230](https://github.com/team-savers/savers-project/pull/230) (경로 스냅샷 로더),
