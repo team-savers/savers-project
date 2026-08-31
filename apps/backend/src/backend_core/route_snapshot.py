@@ -738,22 +738,39 @@ def _normalize_and_encode(graph: nx.MultiDiGraph) -> dict[str, list[str]]:
     """In place: validate/normalize every graph/node/edge attribute, then JSON-encode the keys that
     need it, returning the deterministic ``encoded_attrs`` manifest.
 
-    A key (within a scope) is encoded when its present values are **not a single GraphML-native
-    scalar type** — i.e. more than one type across the scope (``int``+``str``, ``bool``+``int``,
-    ``int``+``float``, …), or any ``list``, or any ``None``. GraphML's own type inference is lossy
-    and would collapse such a key (or make it unloadable), so *every* value of an encoded key
+    A key is encoded when its present values are **not a single GraphML-native scalar type** — either
+    within its own scope (more than one type: ``int``+``str``, ``bool``+``int``, ``int``+``float``,
+    …, or any ``list``, or any ``None``), **or** because the *same name* would be written as a native
+    key of a *different* native type in another scope (see below). GraphML's own type inference is
+    lossy and would collapse such a key (or make it unloadable), so *every* value of an encoded key
     (scalars included) becomes ``json.dumps(value, allow_nan=False)`` and is stored under a
-    reserved-prefixed key name, making the GraphML self-describe which keys are encoded. A key
-    absent on some elements is treated as absent, never as ``None``. Purely-homogeneous-native keys
-    are left as-is and round-trip as their native GraphML type. A user attribute name colliding with
-    the reserved prefix is rejected. Manifest key lists are sorted for deterministic output.
+    reserved-prefixed key name, making the GraphML self-describe which keys are encoded. A key absent
+    on some elements is treated as absent, never as ``None``. Purely-homogeneous-native keys are left
+    as-is and round-trip as their native GraphML type. A user attribute name colliding with the
+    reserved prefix is rejected. Manifest key lists are sorted for deterministic output.
+
+    **Cross-scope key-id collision (issue #224, Yopkigom review).** ``nx.write_graphml`` is called
+    with ``named_key_ids=True``, so each ``<key>``'s id is the attribute name, and the NetworkX
+    reader indexes ``<key>`` elements by **id alone** — it ignores ``for="node"``/``"edge"``/
+    ``"graph"``. A name written as a *native* key of two different types in two scopes (e.g. node
+    ``ref`` int, edge ``ref`` str) therefore emits two ``<key id="ref">`` with conflicting
+    ``attr.type``; on load one silently overrides the other and that scope's values are reinterpreted
+    under the wrong type (or the pair fails to parse). Per-scope heterogeneity detection cannot see
+    this because each scope is individually homogeneous. So the decision is made across scopes: any
+    name that would be a native key of more than one native type across scopes is force-encoded in
+    **every** scope it appears in, giving it a single reserved (string-typed) ``<key>`` id that
+    cannot collide. A name that is native as a *single* consistent type across scopes stays native
+    and its serialization is unchanged (no needless encoding).
     """
     scopes: tuple[tuple[str, list[dict[str, Any]]], ...] = (
         ("graph", [graph.graph]),
         ("node", [data for _n, data in graph.nodes(data=True)]),
         ("edge", [data for _u, _v, _k, data in graph.edges(keys=True, data=True)]),
     )
-    manifest: dict[str, list[str]] = {}
+    # Pass 1: validate/normalize every value in place and record the type tags each name takes,
+    # per scope. The encode decision needs all scopes' tags first (see the cross-scope check below),
+    # so encoding is deferred to pass 2.
+    per_scope_tags: dict[str, dict[str, set[str]]] = {}
     for scope, dicts in scopes:
         tags_by_key: dict[str, set[str]] = {}
         for data in dicts:
@@ -777,10 +794,36 @@ def _normalize_and_encode(graph: nx.MultiDiGraph) -> dict[str, list[str]]:
                     )
                 data[key] = _json_safe_value(data[key], f"{scope} attribute {key!r}")
                 tags_by_key.setdefault(key, set()).add(_scalar_type_tag(data[key]))
+        per_scope_tags[scope] = tags_by_key
+
+    # A name is *native* in a scope when it is a single GraphML-native scalar type there; otherwise
+    # it is already encoded under the reserved prefix (a different <key> id, so it never collides).
+    # If a name is native as more than one distinct native type across scopes, its native <key> ids
+    # would collide on load (see docstring) — force-encode it in every scope it appears in.
+    cross_scope_conflicts: set[str] = set()
+    all_names = {name for tags_by_key in per_scope_tags.values() for name in tags_by_key}
+    for name in all_names:
+        native_types: set[str] = set()
+        for scope in _ENCODING_SCOPES:
+            tags = per_scope_tags[scope].get(name)
+            if tags is not None and len(tags) == 1:
+                (only,) = tags
+                if only in _NATIVE_SCALAR_TAGS:
+                    native_types.add(only)
+        if len(native_types) > 1:
+            cross_scope_conflicts.add(name)
+
+    # Pass 2: encode the qualifying names per scope (in-scope non-native/heterogeneous, or a
+    # cross-scope native-type conflict) and build the deterministic manifest.
+    manifest: dict[str, list[str]] = {}
+    for scope, dicts in scopes:
+        tags_by_key = per_scope_tags[scope]
         encode_keys = sorted(
             key
             for key, tags in tags_by_key.items()
-            if len(tags) > 1 or not tags.issubset(_NATIVE_SCALAR_TAGS)
+            if len(tags) > 1
+            or not tags.issubset(_NATIVE_SCALAR_TAGS)
+            or key in cross_scope_conflicts
         )
         for data in dicts:
             for key in encode_keys:

@@ -15,6 +15,7 @@ import json
 import shutil
 import sys
 import types
+import xml.etree.ElementTree as ET
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import ClassVar
@@ -996,6 +997,122 @@ def test_absent_attribute_is_not_confused_with_none(tmp_path: Path) -> None:
     assert json.loads(mpath.read_text(encoding="utf-8"))["encoded_attrs"]["edge"] == []
 
 
+# ── cross-scope native key-id collision (issue #224, Yopkigom review) ─────────────────────────
+# named_key_ids=True writes each <key> id as the attribute name, and the GraphML reader indexes
+# <key> by id ALONE (ignoring for="node"/"edge"/"graph"). A name written as a native key of two
+# different types in two scopes would collide on load — silently reinterpreting one scope's values
+# or failing to parse. _normalize_and_encode force-encodes any such name in every scope it appears
+# in. These lock that in end-to-end (save -> load) and confirm the safe cases stay native.
+
+
+def _cross_scope_ref_graph(node_ref: object, edge_ref: object) -> nx.MultiDiGraph:
+    """A graph whose node and edge both carry a ``ref`` attribute (same name, caller-chosen types)."""
+    graph = nx.MultiDiGraph(crs="EPSG:4326")
+    graph.add_node(1, x=1.0, y=2.0, ref=node_ref)
+    graph.add_node(2, x=1.0, y=2.0)
+    graph.add_edge(1, 2, key=0, length=5.0, ref=edge_ref)
+    return graph
+
+
+@pytest.mark.parametrize(
+    "node_ref,edge_ref,node_type,edge_type",
+    [
+        (7, "12", int, str),  # node int / edge numeric-looking str
+        ("abc", 5, str, int),  # node str / edge int
+        (7, "road", int, str),  # node int / edge non-numeric str (previously unparseable)
+    ],
+    ids=["node-int_edge-numstr", "node-str_edge-int", "node-int_edge-nonnumstr"],
+)
+def test_cross_scope_same_name_different_native_types_round_trip(
+    tmp_path: Path, node_ref: object, edge_ref: object, node_type: type, edge_type: type
+) -> None:
+    """A name that is a different native type in node vs edge scope must round-trip each value's
+    exact type — not collide on a shared ``<key id>`` (issue #224). Before the fix this silently
+    changed the value's type or raised 'could not be parsed'."""
+    gpath, mpath = _write_graph(tmp_path, _cross_scope_ref_graph(node_ref, edge_ref))
+    manifest = json.loads(mpath.read_text(encoding="utf-8"))["encoded_attrs"]
+    assert manifest["node"] == ["ref"] and manifest["edge"] == ["ref"]  # encoded in BOTH scopes
+    loaded = rs.load_sillim_snapshot(snapshot_path=gpath, metadata_path=mpath).graph
+    assert loaded.nodes[1]["ref"] == node_ref and type(loaded.nodes[1]["ref"]) is node_type
+    assert loaded[1][2][0]["ref"] == edge_ref and type(loaded[1][2][0]["ref"]) is edge_type
+
+
+def test_cross_scope_graph_node_edge_same_name_mixed_types(tmp_path: Path) -> None:
+    """The same name in all three scopes with three different native types round-trips and is
+    encoded in every scope."""
+    graph = nx.MultiDiGraph(crs="EPSG:4326")
+    graph.graph["ref"] = 1  # graph scope: int
+    graph.add_node(1, x=1.0, y=2.0, ref="a")  # node scope: str
+    graph.add_node(2, x=1.0, y=2.0)
+    graph.add_edge(1, 2, key=0, length=5.0, ref=2.5)  # edge scope: float
+    gpath, mpath = _write_graph(tmp_path, graph)
+    manifest = json.loads(mpath.read_text(encoding="utf-8"))["encoded_attrs"]
+    assert manifest["graph"] == ["ref"]
+    assert manifest["node"] == ["ref"]
+    assert manifest["edge"] == ["ref"]
+    loaded = rs.load_sillim_snapshot(snapshot_path=gpath, metadata_path=mpath).graph
+    assert loaded.graph["ref"] == 1 and type(loaded.graph["ref"]) is int
+    assert loaded.nodes[1]["ref"] == "a" and type(loaded.nodes[1]["ref"]) is str
+    assert loaded[1][2][0]["ref"] == 2.5 and type(loaded[1][2][0]["ref"]) is float
+
+
+def test_same_name_same_native_type_across_scopes_stays_native(tmp_path: Path) -> None:
+    """When a shared name is the SAME single native type in every scope, no collision is possible,
+    so it is NOT encoded and its on-disk (native) serialization is unchanged by the fix."""
+    graph = nx.MultiDiGraph(crs="EPSG:4326")
+    graph.add_node(1, x=1.0, y=2.0, ref=7)
+    graph.add_node(2, x=1.0, y=2.0, ref=8)
+    graph.add_edge(1, 2, key=0, length=5.0, ref=9)
+    gpath, mpath = _write_graph(tmp_path, graph)
+    manifest = json.loads(mpath.read_text(encoding="utf-8"))["encoded_attrs"]
+    assert manifest["node"] == [] and manifest["edge"] == []  # stays native, unencoded
+    assert rs._RESERVED_ATTR_PREFIX not in gpath.read_text(encoding="utf-8")
+    loaded = rs.load_sillim_snapshot(snapshot_path=gpath, metadata_path=mpath).graph
+    assert loaded.nodes[1]["ref"] == 7 and type(loaded.nodes[1]["ref"]) is int
+    assert loaded[1][2][0]["ref"] == 9 and type(loaded[1][2][0]["ref"]) is int
+
+
+def test_cross_scope_conflict_does_not_mutate_input_graph(tmp_path: Path) -> None:
+    """Force-encoding across scopes still happens on the writer's private deepcopy: the caller's
+    graph and its nested list references are untouched."""
+    tags: list[object] = [1, 2]
+    graph = nx.MultiDiGraph(crs="EPSG:4326")
+    graph.graph["ref"] = 1
+    graph.add_node(1, x=1.0, y=2.0, ref="a", tags=tags)
+    graph.add_node(2, x=1.0, y=2.0)
+    graph.add_edge(1, 2, key=0, length=5.0, ref=2.5)
+    _write_graph(tmp_path, graph)
+    assert graph.graph["ref"] == 1 and type(graph.graph["ref"]) is int
+    assert graph.nodes[1]["ref"] == "a" and type(graph.nodes[1]["ref"]) is str
+    assert graph.nodes[1]["tags"] is tags and graph.nodes[1]["tags"] == [1, 2]  # nested ref intact
+    assert graph[1][2][0]["ref"] == 2.5 and type(graph[1][2][0]["ref"]) is float
+
+
+def test_cross_scope_conflict_writer_output_immediately_loadable(tmp_path: Path) -> None:
+    """The writer's own contract holds for a cross-scope conflict: the pair it emits loads with no
+    fixup and no reserved marker leaks into the returned graph."""
+    gpath, mpath = _write_graph(tmp_path, _cross_scope_ref_graph(7, "road"))
+    loaded = rs.load_sillim_snapshot(snapshot_path=gpath, metadata_path=mpath).graph
+    for _n, data in loaded.nodes(data=True):
+        assert not any(k.startswith(rs._RESERVED_ATTR_PREFIX) for k in data)
+    for _u, _v, data in loaded.edges(data=True):
+        assert not any(k.startswith(rs._RESERVED_ATTR_PREFIX) for k in data)
+
+
+def test_cross_scope_conflict_failure_path_leaves_existing_pair_and_no_temp(tmp_path: Path) -> None:
+    """If a later save (a cross-scope graph carrying an unserializable value) fails, the earlier
+    good pair and the tmp dir are untouched — the fix runs before any file is written."""
+    good, meta = tmp_path / "g.graphml", tmp_path / "g.metadata.json"
+    _write_graph(tmp_path, _cross_scope_ref_graph(7, "12"))  # a good cross-scope pair first
+    before_g, before_m = good.read_bytes(), meta.read_bytes()
+    bad = _cross_scope_ref_graph(7, "12")
+    bad[1][2][0]["geometry"] = object()  # unsupported -> serialization error before any write
+    with pytest.raises(rs.SnapshotSerializationError):
+        _write_graph(tmp_path, bad)
+    assert good.read_bytes() == before_g and meta.read_bytes() == before_m
+    assert not any(p.name.endswith(".tmp") for p in tmp_path.iterdir())
+
+
 # ── manifest ↔ GraphML cross-check + reserved marker hygiene (Codex 4th-audit MAJOR #2) ───────
 
 
@@ -1404,20 +1521,73 @@ def _edge_reserved_pair(tmp_path: Path, reserved_value: str) -> tuple[Path, Path
     return gpath, mpath
 
 
+_GRAPHML_NS = "http://graphml.graphdrawing.org/xmlns"
+
+
+def _inject_sibling_key(
+    gpath: Path,
+    mpath: Path,
+    *,
+    scope: str,
+    beside_reserved_base: str,
+    new_key_id: str,
+    new_value: str,
+    only_first: bool = False,
+    reseal_overrides: dict[str, object] | None = None,
+) -> None:
+    """Structurally add ``<key id=new_key_id for=scope .../>`` plus a ``<data key=new_key_id>`` on
+    each entity that already carries reserved ``savers::enc::{beside_reserved_base}``, then reseal.
+
+    Edits the *parsed XML tree* — not raw bytes — so it is independent of the writer's self-closing
+    style, attribute order, and whitespace (``nx.write_graphml`` output differs with vs without
+    lxml, which is why the previous byte-``replace`` no-op'd under lxml and left an uncorrupted
+    file). Asserts the intended corruption is actually present before returning, so a mis-targeted
+    edit fails loudly instead of silently producing a file the test then 'passes' for the wrong
+    reason. The corrupt file is loaded through the real ``load_sillim_snapshot`` unchanged.
+    """
+    q = f"{{{_GRAPHML_NS}}}"
+    ET.register_namespace("", _GRAPHML_NS)
+    # S314: the input is GraphML this test itself just wrote (fully trusted), not external data.
+    tree = ET.parse(gpath)  # noqa: S314
+    root = tree.getroot()
+    reserved_key = rs._RESERVED_ATTR_PREFIX + beside_reserved_base
+    # GraphML declares <key> elements before the <graph>; inserting at the front is valid.
+    root.insert(
+        0,
+        ET.Element(
+            f"{q}key",
+            {"id": new_key_id, "for": scope, "attr.name": new_key_id, "attr.type": "string"},
+        ),
+    )
+    parents = {child: parent for parent in root.iter() for child in parent}
+    injected = 0
+    for data_el in list(root.iter(f"{q}data")):
+        if data_el.get("key") != reserved_key:
+            continue
+        sibling = ET.SubElement(parents[data_el], f"{q}data", {"key": new_key_id})
+        sibling.text = new_value
+        injected += 1
+        if only_first:
+            break
+    assert injected > 0, f"no reserved {reserved_key!r} data element found to inject beside"
+    tree.write(gpath, encoding="utf-8", xml_declaration=True)
+    # Precondition: the file now really carries both the reserved key and the injected sibling.
+    text = gpath.read_text(encoding="utf-8")
+    assert f'key="{reserved_key}"' in text
+    assert f'key="{new_key_id}"' in text
+    _reseal(gpath, mpath, **(reseal_overrides or {}))
+
+
 def _inject_native_alongside_reserved(gpath: Path, mpath: Path) -> None:
     """Add a native ``tags`` edge attribute next to the existing reserved ``savers::enc::tags``."""
-    text = gpath.read_text(encoding="utf-8")
-    text = text.replace(
-        '<key id="savers::enc::tags" for="edge" attr.name="savers::enc::tags" attr.type="string" />',
-        '<key id="savers::enc::tags" for="edge" attr.name="savers::enc::tags" attr.type="string" />\n'
-        '  <key id="tags" for="edge" attr.name="tags" attr.type="string" />',
+    _inject_sibling_key(
+        gpath,
+        mpath,
+        scope="edge",
+        beside_reserved_base="tags",
+        new_key_id="tags",
+        new_value="native",
     )
-    text = text.replace(
-        '<data key="savers::enc::tags">[1]</data>',
-        '<data key="savers::enc::tags">[1]</data>\n      <data key="tags">native</data>',
-    )
-    gpath.write_text(text, encoding="utf-8")
-    _reseal(gpath, mpath)
 
 
 def test_native_and_reserved_dual_representation_rejected(tmp_path: Path) -> None:
@@ -1435,20 +1605,16 @@ def test_empty_reserved_base_key_rejected(tmp_path: Path) -> None:
     graph.add_node(2, x=1.0, y=2.0)
     graph.add_edge(1, 2, key=0, length=5.0, tags=[1])
     gpath, mpath = _write_graph(tmp_path, graph)
-    text = (
-        gpath.read_text(encoding="utf-8")
-        .replace(
-            '<key id="savers::enc::tags" for="edge" attr.name="savers::enc::tags" attr.type="string" />',
-            '<key id="savers::enc::tags" for="edge" attr.name="savers::enc::tags" attr.type="string" />\n'
-            '  <key id="savers::enc::" for="edge" attr.name="savers::enc::" attr.type="string" />',
-        )
-        .replace(
-            '<data key="savers::enc::tags">[1]</data>',
-            '<data key="savers::enc::tags">[1]</data>\n      <data key="savers::enc::">[9]</data>',
-        )
+    # Inject a second reserved key with an EMPTY base (bare prefix) beside savers::enc::tags.
+    _inject_sibling_key(
+        gpath,
+        mpath,
+        scope="edge",
+        beside_reserved_base="tags",
+        new_key_id=rs._RESERVED_ATTR_PREFIX,
+        new_value="[9]",
+        reseal_overrides={"encoded_attrs": {"graph": [], "node": [], "edge": ["", "tags"]}},
     )
-    gpath.write_text(text, encoding="utf-8")
-    _reseal(gpath, mpath, encoded_attrs={"graph": [], "node": [], "edge": ["", "tags"]})
     with pytest.raises(rs.SnapshotSchemaMismatchError, match="empty base name"):
         rs.load_sillim_snapshot(snapshot_path=gpath, metadata_path=mpath)
 
@@ -1465,22 +1631,16 @@ def test_dual_representation_rejected_per_scope(tmp_path: Path, scope: str) -> N
         first = next(iter(graph.edges(keys=True)))
         graph.edges[first]["tags"] = [1]
     gpath, mpath = _write_graph(tmp_path, graph)
-    # inject a native `tags` next to the reserved one in the same scope's first data element
-    key_line = f'<key id="savers::enc::tags" for="{scope}" attr.name="savers::enc::tags" attr.type="string" />'
-    text = (
-        gpath.read_text(encoding="utf-8")
-        .replace(
-            key_line,
-            key_line + f'\n  <key id="tags" for="{scope}" attr.name="tags" attr.type="string" />',
-        )
-        .replace(
-            '<data key="savers::enc::tags">[1]</data>',
-            '<data key="savers::enc::tags">[1]</data><data key="tags">native</data>',
-            1,
-        )
+    # inject a native `tags` next to the reserved one on the first entity of this scope
+    _inject_sibling_key(
+        gpath,
+        mpath,
+        scope=scope,
+        beside_reserved_base="tags",
+        new_key_id="tags",
+        new_value="native",
+        only_first=True,
     )
-    gpath.write_text(text, encoding="utf-8")
-    _reseal(gpath, mpath)
     with pytest.raises(rs.SnapshotSchemaMismatchError, match="both a native and an encoded"):
         rs.load_sillim_snapshot(snapshot_path=gpath, metadata_path=mpath)
 
@@ -1508,23 +1668,17 @@ def test_partial_conflict_rejects_whole_load(tmp_path: Path) -> None:
     graph.add_edge(1, 2, key=0, length=5.0, tags=[1])
     graph.add_edge(1, 2, key=1, length=6.0, tags=[2])
     gpath, mpath = _write_graph(tmp_path, graph)
-    # add native tags to only the first reserved data element
-    text = (
-        gpath.read_text(encoding="utf-8")
-        .replace(
-            '<key id="savers::enc::tags" for="edge" attr.name="savers::enc::tags" attr.type="string" />',
-            '<key id="savers::enc::tags" for="edge" attr.name="savers::enc::tags" attr.type="string" />\n'
-            '  <key id="tags" for="edge" attr.name="tags" attr.type="string" />',
-        )
-        .replace(
-            '<data key="savers::enc::tags">[1]</data>',
-            '<data key="savers::enc::tags">[1]</data><data key="tags">native</data>',
-            1,
-        )
+    # add native tags to only the first reserved edge; the whole load must still be rejected
+    _inject_sibling_key(
+        gpath,
+        mpath,
+        scope="edge",
+        beside_reserved_base="tags",
+        new_key_id="tags",
+        new_value="native",
+        only_first=True,
     )
-    gpath.write_text(text, encoding="utf-8")
-    _reseal(gpath, mpath)
-    with pytest.raises(rs.SnapshotSchemaMismatchError):
+    with pytest.raises(rs.SnapshotSchemaMismatchError, match="both a native and an encoded"):
         rs.load_sillim_snapshot(snapshot_path=gpath, metadata_path=mpath)
 
 
