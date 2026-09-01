@@ -292,6 +292,12 @@ function DemoView() {
       {attempt !== null && token === null && (
         <p role="alert" style={{ color: '#c62828' }}>
           {guidanceFor(attempt)}
+          {attempt.status === 'token_unavailable' && attempt.detail !== undefined && (
+            <>
+              <br />
+              <code style={{ fontSize: '0.8em' }}>{attempt.detail}</code>
+            </>
+          )}
         </p>
       )}
       {error !== null && token === null && attempt === null && (
