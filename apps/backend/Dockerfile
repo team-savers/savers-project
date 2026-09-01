@@ -20,6 +20,11 @@ RUN pip install --no-cache-dir ".[fcm]"
 
 # 비루트 실행 — 단일 VM에 여러 서비스가 뜨므로 권한 격리를 유지한다.
 RUN useradd --create-home --uid 10001 appuser
+# SessionStore SQLite가 얹히는 named volume(infra/docker-compose.yml의 savers_sessions)의
+# 마운트 지점을 이미지 안에 미리 appuser 소유로 만들어 둔다. 이 디렉터리가 이미지에 없으면
+# Docker가 첫 마운트 시 root:root로 생성해, non-root 컨테이너가 SQLite 파일을 못 열게 된다
+# (sqlite3.OperationalError: unable to open database file).
+RUN mkdir -p /home/appuser/.savers && chown -R appuser:appuser /home/appuser/.savers
 USER appuser
 
 EXPOSE 8000
