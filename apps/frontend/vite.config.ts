@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { VitePWA } from 'vite-plugin-pwa'
+import { VitePWA, type ManifestOptions } from 'vite-plugin-pwa'
 import { execSync } from 'node:child_process'
 
 // Build stamp injected as a `define` global so it is inlined at build time.
@@ -18,6 +18,38 @@ const buildStamp = (() => {
   }
   return `${now}-${sha}`
 })()
+
+// vite-plugin-pwa's ManifestOptions type has no `gcm_sender_id` field, so the
+// annotation intersects in that one extra key rather than widening to `any`.
+// gcm_sender_id is a fixed constant Firebase assigns to every project (not
+// this project's sender ID) — Chrome's FCM push subscription path silently
+// fails getToken() without it, even with a valid VAPID key.
+const pwaManifest: Partial<ManifestOptions> & { gcm_sender_id: string } = {
+  name: '세이버스',
+  short_name: '세이버스',
+  start_url: '/',
+  display: 'standalone',
+  background_color: '#ffffff',
+  theme_color: '#ffffff',
+  gcm_sender_id: '103953800507',
+  icons: [
+    {
+      src: '/logo.png',
+      sizes: '96x96',
+      type: 'image/png',
+    },
+    {
+      src: '/pwa-192.png',
+      sizes: '192x192',
+      type: 'image/png',
+    },
+    {
+      src: '/pwa-512.png',
+      sizes: '512x512',
+      type: 'image/png',
+    },
+  ],
+}
 
 // Port 3000 is fixed: Kakao Maps JS SDK allows http://localhost:3000 only.
 // strictPort prevents Vite from silently falling back to 3001+ (which would
@@ -38,31 +70,7 @@ export default defineConfig({
         enabled: true,
         type: 'module',
       },
-      manifest: {
-        name: '세이버스',
-        short_name: '세이버스',
-        start_url: '/',
-        display: 'standalone',
-        background_color: '#ffffff',
-        theme_color: '#ffffff',
-        icons: [
-          {
-            src: '/logo.png',
-            sizes: '96x96',
-            type: 'image/png',
-          },
-          {
-            src: '/pwa-192.png',
-            sizes: '192x192',
-            type: 'image/png',
-          },
-          {
-            src: '/pwa-512.png',
-            sizes: '512x512',
-            type: 'image/png',
-          },
-        ],
-      },
+      manifest: pwaManifest,
     }),
   ],
   server: {
