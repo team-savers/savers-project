@@ -175,9 +175,14 @@ chaining을 유지한 `SnapshotSchemaMismatchError`로 정규화되고 raw로 �
 - `list`가 하나라도 존재(예: OSMnx `osmid=[101, 202]`).
 - `None`이 하나라도 존재. (어떤 요소에 그 키가 **없는 것**은 값이 없는 것으로, `None`과 혼동하지
   않는다.)
+- 같은 속성명이 `graph`·`node`·`edge` 중 **둘 이상의 scope에서 서로 다른 native 타입**으로 쓰임 —
+  각 scope 안에서는 homogeneous여도, 그 속성명이 등장하는 **모든 scope**에서 인코딩한다.
+  `named_key_ids=True`에서 같은 이름은 scope가 달라도 하나의 `<key>` id를 공유하므로, native로
+  두면 서로 다른 `attr.type`가 충돌하기 때문이다(아래 결합 규칙 참조).
 
-homogeneous native scalar 키(모두 같은 `int`/`float`/`str`/`bool`)만 GraphML native로 남고, 실제
-round-trip 타입이 정확히 보존된다.
+어떤 속성명이 **모든 scope에서 동일한 단일 native 타입**(`int`/`float`/`str`/`bool` 중 하나)으로만
+쓰일 때에만 GraphML native로 남고, 실제 round-trip 타입이 정확히 보존된다. 한 scope 안에서
+homogeneous여도 다른 scope에서 다른 native 타입으로 쓰이면 위 교차 scope 규칙에 따라 인코딩된다.
 
 **manifest ↔ GraphML 결합.** 인코딩된 값은 GraphML에서 예약 접두사 `savers::enc::`를 붙인 키 이름
 아래에 저장된다 — 즉 **GraphML 자체가 어떤 키가 인코딩됐는지 선언**한다. metadata의 `encoded_attrs`
@@ -192,7 +197,9 @@ GraphML의 관측 집합과 어긋나 `SnapshotSchemaMismatchError`로 거부된
 
 - manifest에는 `graph`·`node`·`edge` **세 범위가 정확히 모두** 존재해야 하고, 각 목록은 중복 없이
   **정렬된 canonical form**이어야 한다. 누락·추가 범위, 비문자열·중복·비정렬 키는 모두 거부된다.
-- 같은 이름의 키가 graph·node·edge에 있어도 scope별로 독립 판정·검증된다.
+- 검증은 scope별로 독립 수행하지만, 인코딩 판정은 `named_key_ids=True`에서 생길 수 있는 `<key>`
+  id 충돌을 막기 위해 교차 scope의 native 타입을 함께 확인한다. 같은 이름이 서로 다른 native
+  타입으로 쓰이면 등장하는 모든 scope에서 강제 인코딩한다.
 - **정상 문자열은 예약 접두사 키가 아니면 절대 디코딩되지 않는다.** `"@@json@@hello"` 같은 사용자
   문자열은 일반 키 아래 그대로 남아 int·list로 둔갑하지 않는다.
 - 예약 접두사(`savers::enc::`)는 라운드트립·무결성 장치일 뿐 보안 경계가 아니다. 사용자 속성 이름이
