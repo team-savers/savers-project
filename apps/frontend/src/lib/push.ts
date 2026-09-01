@@ -98,7 +98,7 @@ export type TokenAttempt =
   | { status: 'unsupported' }
   | { status: 'denied' }
   | { status: 'misconfigured' }
-  | { status: 'token_unavailable' }
+  | { status: 'token_unavailable'; detail?: string }
   | { status: 'timeout' }
 
 // Bounding the token-acquisition step. getToken can hang indefinitely when
@@ -180,8 +180,14 @@ async function obtainToken(): Promise<TokenAttempt> {
         serviceWorkerRegistration: registration,
       }),
     )
-  } catch {
-    return { status: 'token_unavailable' }
+  } catch (err) {
+    // Temporary diagnostic detail (2026-09-02, PR fix/fcm-getToken-diagnostic):
+    // surfaces the real SDK error on this ops-only screen so a live failure
+    // can be triaged without remote device debugging. Revert once resolved.
+    return {
+      status: 'token_unavailable',
+      detail: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+    }
   }
   if (!token) {
     return { status: 'token_unavailable' }
