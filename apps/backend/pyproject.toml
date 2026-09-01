@@ -59,7 +59,7 @@ where = ["src"]
 #    확장자를 늘릴 때 여기도 같이 늘려야 합니다. 실제로 .jsonl만 적혀 있어서 replay
 #    픽스처(.json) 5종이 통째로 빠져 있었습니다.
 [tool.setuptools.package-data]
-backend_core = ["fixtures/*.jsonl", "fixtures/*.json"]
+backend_core = ["fixtures/*.jsonl", "fixtures/*.json", "fixtures/*.graphml"]
 
 # Pylance/pyright 경로 — 없으면 IDE에서 내부 import가 unresolved로 표시됨.
 [tool.pyright]

@@ -14,8 +14,11 @@ from dataclasses import dataclass
 from enum import StrEnum
 from itertools import pairwise
 from numbers import Real
+from pathlib import Path
 
 import networkx as nx
+
+from backend_core import route_snapshot
 
 SILLIM_PLACE = "신림동, 관악구, 서울특별시, 대한민국"
 _BLOCKED_GRADES = frozenset({"R2", "R3"})
@@ -75,6 +78,27 @@ RiskAnnotator = Callable[[nx.MultiDiGraph], nx.MultiDiGraph]
 GraphLoader = Callable[[], nx.MultiDiGraph]
 
 
+@dataclass(frozen=True)
+class LoadedRouteGraph:
+    """A raw walking graph plus the provenance of where it came from.
+
+    ``identity`` is the snapshot's :class:`~backend_core.route_snapshot.SnapshotIdentity` when the
+    graph was loaded from a snapshot fixture, or ``None`` when it came from the live Overpass/
+    OSMnx fallback (which carries no committed provenance record). Threading this through the
+    engine boundary lets a downstream SafetyReceipt cite ``snapshot_id`` / ``source`` /
+    ``source_kind`` / ``attribution`` / ``is_synthetic`` instead of the identity being built and
+    discarded at load time.
+    """
+
+    graph: nx.MultiDiGraph
+    identity: route_snapshot.SnapshotIdentity | None
+
+
+# The engine boundary returns a LoadedRouteGraph (graph + provenance); a legacy/custom loader may
+# still return a bare graph. ``prepare_sillim_safe_route_engine`` accepts either shape.
+RouteGraphLoader = Callable[[], "nx.MultiDiGraph | LoadedRouteGraph"]
+
+
 class _NoSafeRouteError(Exception):
     """A valid graph has no connection between the requested endpoints."""
 
@@ -98,15 +122,71 @@ def load_raw_sillim_walking_graph() -> nx.MultiDiGraph:
     return graph
 
 
+def load_sillim_walking_graph_snapshot_first(
+    *,
+    snapshot_path: Path | None = None,
+    metadata_path: Path | None = None,
+    overpass_loader: GraphLoader | None = None,
+) -> LoadedRouteGraph:
+    """Default graph-loading boundary: snapshot first, Overpass only when the snapshot is absent.
+
+    Fallback is judged on the snapshot as a **pair**: the GraphML and its metadata sidecar are
+    one snapshot, so Overpass runs (exactly once) only when *both* are absent — a genuinely
+    missing operational snapshot. A half-pair (exactly one of the two present) is a *broken*
+    snapshot, not an absent one, so it raises ``route_snapshot.SnapshotFileMissingError`` and
+    Overpass is never called; treating a metadata-only or GraphML-only state as "absent" would
+    hide a packaging error behind a network download.
+
+    When the pair is present it is loaded strictly: a bad checksum, schema mismatch, oversize,
+    malformed GraphML, or a graph that fails structural validation raises a
+    ``route_snapshot.RouteSnapshotError`` rather than silently downloading a fresh graph that
+    would hide the corrupt fixture — again, Overpass is not called.
+
+    The returned :class:`LoadedRouteGraph` keeps the snapshot's identity (``None`` on the Overpass
+    path). ``overpass_loader`` defaults to :func:`load_raw_sillim_walking_graph` resolved **at
+    call time** (not bound at definition), so a test can ``monkeypatch`` that module attribute and
+    have the fallback pick it up. Paths also resolve at call time so ``route_snapshot.SNAPSHOT_PATH``
+    can be pointed at a fixture in tests.
+    """
+    resolved_snapshot = snapshot_path or route_snapshot.SNAPSHOT_PATH
+    resolved_metadata = metadata_path or route_snapshot.SNAPSHOT_METADATA_PATH
+    loader = overpass_loader or load_raw_sillim_walking_graph
+
+    if not resolved_snapshot.is_file() and not resolved_metadata.is_file():
+        return LoadedRouteGraph(graph=loader(), identity=None)
+
+    loaded = route_snapshot.load_sillim_snapshot(
+        snapshot_path=resolved_snapshot, metadata_path=resolved_metadata
+    )
+    return LoadedRouteGraph(graph=loaded.graph, identity=loaded.identity)
+
+
+def _split_loaded(
+    loaded: nx.MultiDiGraph | LoadedRouteGraph,
+) -> tuple[nx.MultiDiGraph, route_snapshot.SnapshotIdentity | None]:
+    """Accept either a provenance-carrying :class:`LoadedRouteGraph` (the default boundary) or a
+    bare graph (a legacy/custom loader), and normalize to ``(graph, identity)``."""
+    if isinstance(loaded, LoadedRouteGraph):
+        return loaded.graph, loaded.identity
+    return loaded, None
+
+
 def prepare_sillim_safe_route_engine(
     risk_annotator: RiskAnnotator,
     *,
-    graph_loader: GraphLoader = load_raw_sillim_walking_graph,
+    graph_loader: RouteGraphLoader = load_sillim_walking_graph_snapshot_first,
 ) -> ValidatedSafeRouteEngine:
-    """Run the three explicit stages: raw loader -> annotator -> validated engine."""
-    raw_graph = graph_loader()
+    """Run the three explicit stages: raw loader -> annotator -> validated engine.
+
+    The default ``graph_loader`` is the snapshot-first boundary, whose returned
+    :class:`LoadedRouteGraph` carries the snapshot identity; it is attached to the engine so a
+    downstream SafetyReceipt can read ``engine.snapshot_identity``. Pass an explicit loader (as
+    the tests do) to override it — a loader returning a bare graph still works and yields a
+    ``None`` identity.
+    """
+    raw_graph, identity = _split_loaded(graph_loader())
     annotated_graph = risk_annotator(deepcopy(raw_graph))
-    return ValidatedSafeRouteEngine(annotated_graph)
+    return ValidatedSafeRouteEngine(annotated_graph, snapshot_identity=identity)
 
 
 def _validated_safe_copy(graph: nx.MultiDiGraph) -> nx.MultiDiGraph:
@@ -199,8 +279,22 @@ def _engine_error(*, candidates_checked: int) -> RouteResult:
 class ValidatedSafeRouteEngine:
     """Route only on a graph fully validated and filtered during construction."""
 
-    def __init__(self, annotated_graph: nx.MultiDiGraph) -> None:
+    def __init__(
+        self,
+        annotated_graph: nx.MultiDiGraph,
+        *,
+        snapshot_identity: route_snapshot.SnapshotIdentity | None = None,
+    ) -> None:
         self._safe_graph = _validated_safe_copy(annotated_graph)
+        self._snapshot_identity = snapshot_identity
+
+    @property
+    def snapshot_identity(self) -> route_snapshot.SnapshotIdentity | None:
+        """Provenance of the graph this engine routes on, or ``None`` when it came from the live
+        Overpass fallback (or a custom loader). Lets a downstream SafetyReceipt cite exactly which
+        snapshot — ``snapshot_id``, ``source``, ``source_kind``, ``attribution``, ``is_synthetic``
+        — produced a route, and never mistake the synthetic demo fixture for real OSM data."""
+        return self._snapshot_identity
 
     def find_route(
         self,

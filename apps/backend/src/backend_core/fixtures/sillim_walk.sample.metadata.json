@@ -1,0 +1,22 @@
+{
+  "attribution": "합성 표본 — OSM 데이터 아님",
+  "edge_count": 16,
+  "encoded_attrs": {
+    "edge": [],
+    "graph": [],
+    "node": []
+  },
+  "generated_at": "2026-08-29T00:00:00+00:00",
+  "graph_kind": "MultiDiGraph",
+  "graph_sha256": "e81aa44f21cca3a13578dbbc804620caa8fbd3dd6de655a3a3dde12ed2a77a64",
+  "network_type": "walk",
+  "node_count": 6,
+  "osmnx_version": "n/a (synthetic sample)",
+  "place": "신림동, 관악구, 서울특별시, 대한민국 (합성 표본 좌표)",
+  "schema_version": 2,
+  "simplify": true,
+  "source": "synthetic sample authored with build_sample_graph (NetworkX only); replace the operational sillim_walk.graphml with a real OSM extract via save_snapshot_from_osm (geo extra + network)",
+  "source_kind": "synthetic",
+  "source_license": "N/A (synthetic sample)",
+  "source_license_url": ""
+}
