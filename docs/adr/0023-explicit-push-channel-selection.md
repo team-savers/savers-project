@@ -1,6 +1,10 @@
 # ADR-0023: 발송 채널은 명시 설정으로 고르고, 실발송 자격증명은 기동 시점에 검증한다
 
-- **상태**: 제안 (Proposed) - 2026-08-28 작성.
+- **상태**: 승인 (Accepted) - 2026-09-01 안은남 (PM, 인프라) 확인 완료.
+  Backend 가 PR #214(기동 시점 검증)·PR #215(compose 배선)로 결정 1 ~ 5번을 이미 그대로
+  구현했고, 확인 과정에서 `dispatch.py`·`config.py`·`infra/.env.example`·
+  `infra/docker-compose.yml`을 코드와 대조해 일치를 확인했다 - `확실한 사실`.
+  아래는 2026-08-28 작성 당시의 원 배경이다.
   2026-08-28 오후 팀 채팅에서 김도혁 (Backend) 이 FCM 실발송 배선에 앞서
   결정 2건을 물었다.
   (1) `FCM_SERVICE_ACCOUNT_JSON` 이라는 이름을 파일 경로 계약으로 그대로 둘지,
@@ -11,7 +15,7 @@
   이 문서가 나오기 전까지 해당 작업은 멈춰 있다.
   **채팅에서 답한 판단은 이 저장소에서 확정이 아니므로 여기에 옮긴다**
 - **날짜**: 2026-08-28
-- **결정자**: 신호정 (Tech Lead) 작성 / 안은남 (PM, 인프라) 확인 대기.
+- **결정자**: 신호정 (Tech Lead) 작성 / 안은남 (PM, 인프라) 확인 완료 (2026-09-01).
   결정 2번이 자격증명 오류를 배포 시점의 기동 실패로 바꾸고,
   이행에 필요한 컨테이너 이미지와 파일 마운트, 배포 절차가 인프라 오너 소관이다
 - **관련 문서**: [ADR-0007](0007-walking-skeleton.md) 이음매 표의 발송 행
@@ -174,31 +178,24 @@ CI 는 자격증명 없이 기동해야 한다.
 
 ## 후속 조치
 
-- **배선 구현** (Backend).
-  `api/deps.py` 의 `dispatcher()` 가 설정을 읽어 두 발송기 중 하나를 고른다.
-  기동 검증 로직은 `lifespan` 이 아니라 `backend_core` 쪽에 둔다 -
-  [이슈 199](https://github.com/team-savers/savers-project/issues/199) 가
-  같은 종류의 배치를 이미 지적하고 있다.
-  이 작업에는 이슈가 아직 없으므로 착수 전에 하나 연다
-- **Dockerfile 에 `fcm` extra 설치** (Backend).
-  `pip install ".[fcm]"` 로 바꾸지 않으면 배선이 있어도 실발송이 되지 않는다
-- **compose `backend` 에 자격증명 파일 마운트와 환경변수 두 줄 추가** (PM).
-  `SAVERS_PUSH_CHANNEL` 과 `SAVERS_FCM_SERVICE_ACCOUNT_PATH` 를
-  `environment` 목록에 넣지 않으면 `.env` 에 값을 넣어도 컨테이너에 닿지 않는다.
-  이슈 181 의 세션 DB 볼륨과 같은 자리다
-- **`infra/.env.example` 51 ~ 54행 교체** (PM).
-  옛 키를 지우고 새 키 둘을 접두어 절 아래로 옮긴다
-- **배포 절차 갱신** (PM).
-  158행의 "채울 값은 세 개"를 다섯으로 - 새 키가 둘이므로 넷이 아니다.
-  `SAVERS_PUSH_CHANNEL` 을 빠뜨리면 기본값이 `recording` 이라
-  실발송이 아닌 채로 배포된다.
-  574행의 실발송 항목을 새 설정 기준으로,
-  그리고 배포 후 스모크에 채널 확인 한 줄을 추가한다
-- **워킹 스켈레톤 문서의 이음매 서술 갱신**
-  (`워킹_스켈레톤_설명.md` 142행과 이음매 표).
-  "P1 기본 구현은 `RecordingDispatcher`" 옆에 선택 규칙을 적는다.
-  별도 PR 을 내지 않고 그 파일을 다른 이유로 편집할 때 함께 고친다
-- **실기기 FCM 토큰 갱신** (Backend).
+- ~~**배선 구현** (Backend).~~ **완료** - `api/deps.py` 의 `dispatcher()` 가 `SAVERS_PUSH_CHANNEL` 을
+  읽어 두 발송기 중 하나를 고르고, 기동 시점 검증은 `create_dispatcher()`
+  (`backend_core/dispatch.py`)에 있다 (PR #214)
+- ~~**Dockerfile 에 `fcm` extra 설치** (Backend).~~ **완료** - `apps/backend/Dockerfile` 19행이
+  `pip install --no-cache-dir ".[fcm]"` 로 되어 있다
+- ~~**compose `backend` 에 자격증명 파일 마운트와 환경변수 두 줄 추가** (PM).~~ **완료** -
+  `infra/docker-compose.yml` `backend.environment` 에 `SAVERS_PUSH_CHANNEL`·
+  `SAVERS_FCM_SERVICE_ACCOUNT_PATH` 두 줄이 있고, `backend.volumes` 에
+  `SAVERS_FCM_SERVICE_ACCOUNT_HOST_PATH` 를 컨테이너 고정 경로로 읽기 전용 마운트한다 (PR #215)
+- ~~**`infra/.env.example` 51 ~ 54행 교체** (PM).~~ **완료** - 옛 `FCM_SERVICE_ACCOUNT_JSON` 은
+  지워졌고 `SAVERS_FCM_SERVICE_ACCOUNT_HOST_PATH`·`SAVERS_PUSH_CHANNEL` 두 키가
+  ADR-0023 을 인용하며 들어가 있다
+- ~~**배포 절차 갱신** (PM).~~ **완료** - `배포_절차.md` 536 ~ 578행에 `SAVERS_PUSH_CHANNEL` 전환
+  절차와 스모크 확인이, 617 ~ 618행 표에 두 키가 ADR-0023 인용과 함께 정리돼 있다
+- **워킹 스켈레톤 문서의 이음매 서술 갱신** (`워킹_스켈레톤_설명.md` 142행 부근) - 미완료.
+  "P1 기본 구현은 `RecordingDispatcher`" 서술이 선택 규칙 없이 그대로다.
+  원래 지침대로 별도 PR 은 내지 않고, 그 파일을 다른 이유로 편집할 때 함께 고친다
+- **실기기 FCM 토큰 갱신** (Backend) - 미완료, 운영 작업.
   시드의 가공 토큰으로는 실발송이 거부된다.
   본선 당일 아침 갱신 항목과 같은 줄에 있다
-- **이 문서 승인 후 상태 줄 갱신** (Tech Lead)
+- ~~**이 문서 승인 후 상태 줄 갱신** (Tech Lead)~~ **완료** - 위 상태 줄, 2026-09-01
