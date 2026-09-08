@@ -16,10 +16,13 @@ What exists in code today is a **walking skeleton, not a working service**. One 
 The bundled corpus is dummy text marked `[더미]`;
 scoring 근거 일치율 against it measures agreement with a placeholder.
 `apps/frontend/` is a real PWA now, and `src/api/http.ts` implements the contract HTTP adapter,
-but `src/api/client.ts` chooses one adapter for every screen through `VITE_USE_MOCK`,
-which still defaults to `true` — so every screen resolves to the in-memory mock until the flag is flipped,
-and no screen has been run against a live `apps/backend` yet;
-Guardian FCM/Q&A and Evacuation screen wiring remain follow-up work.
+which `src/api/client.ts` selects per screen through `VITE_USE_MOCK` — still defaulting to `true`,
+so every screen resolves to the in-memory mock until the flag is flipped. Evacuation (`Landing.tsx`)
+and Guardian Q&A (`Guardian.tsx`) are wired to the real adapter as of 2026-08-29 (PR #206, PR #226)
+and have each been run once against a live `apps/backend` manually — recorded in
+[docs/공통_가이드/실패_모드_시연_대본.md](docs/공통_가이드/실패_모드_시연_대본.md) cases 2 and 5, not an
+automated/CI-verified check. The *deployed* Production build's `VITE_USE_MOCK` is confirmed `false`
+(Vercel project settings, checked 2026-09-01) — the live demo build talks to the real adapter, not mock.
 `infra/docker-compose.yml` brings up backend + ai-engine only; the frontend is not a compose service.
 Don't improvise a different structure — extend the one described under "Repo structure convention",
 and replace a stub at its seam rather than around it.
